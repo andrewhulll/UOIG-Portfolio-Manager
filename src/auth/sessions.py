@@ -7,9 +7,12 @@ request. Role comes back from the session authentication, not the code exchange.
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional, Tuple
 
 from src.auth import workos_client as wc
+
+log = logging.getLogger("uoig.auth")
 
 
 def authorization_url(state: str) -> str:
@@ -132,11 +135,20 @@ def is_member(res) -> bool:
     real member (WorkOS only includes it for org-scoped sign-ins), so we can't
     rely on that field alone. Fast-path on it when present, otherwise verify the
     user's actual membership via the API (list_users filtered by org + email).
-    When WORKOS_ORG_ID is unset we accept any authenticated user (not advised).
+
+    Fails **closed**: when WORKOS_ORG_ID is unset the gate has nothing to check
+    against, so we deny every sign-in rather than silently admitting any
+    authenticated Google/password user. The local-dev bypass (UOIG_AUTH_DISABLED)
+    short-circuits first, so a developer running without an org id still gets in.
     """
+    if wc.auth_disabled():
+        return True
     want = wc.org_id()
     if not want:
-        return True
+        log.error("WORKOS_ORG_ID is unset — the invite gate is closed and every "
+                  "sign-in will be denied. Set WORKOS_ORG_ID to the organization "
+                  "whose membership grants access.")
+        return False
     org = getattr(res, "organization_id", None)
     if org and org == want:
         return True

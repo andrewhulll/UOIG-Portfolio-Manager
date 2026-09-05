@@ -1,6 +1,6 @@
 # Deployment Setup Plan — Vercel, Supabase, WorkOS
 
-A step-by-step setup guide for taking the UOIG Endowment Terminal from local dev to
+A step-by-step setup guide for taking the UOIG Investment Terminal from local dev to
 a hosted deployment. Written against the current codebase so the steps line up with
 the code you already have.
 

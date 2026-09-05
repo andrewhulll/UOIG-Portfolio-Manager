@@ -1,4 +1,4 @@
-# UOIG Endowment Terminal — single-container image.
+# UOIG Investment Terminal — single-container image.
 # Builds the React frontend, then runs the FastAPI backend which serves both the
 # API and the built frontend on one port.
 
