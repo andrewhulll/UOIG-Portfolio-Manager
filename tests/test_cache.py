@@ -1,0 +1,96 @@
+"""Durable API cache (src/model/cache.py) — get/set/TTL/null-hit/fail-soft.
+
+Hermetic: forces SQLite and points the cache at throwaway temp files, so it never
+touches the real store or a configured Supabase/Postgres.
+"""
+from __future__ import annotations
+
+import os
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+os.environ.pop("DATABASE_URL", None)  # never reach for Postgres from a test
+
+from src.model import cache  # noqa: E402
+
+
+def _fresh_db():
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    os.unlink(path)  # let get_connection create it fresh
+    cache._dbpath = path
+    cache._ensured = False
+    return path
+
+
+def test_set_get_roundtrip():
+    _fresh_db()
+    cache.set("quote", "AAPL", {"px": 1.5, "n": None}, ttl=60)
+    assert cache.get("quote", "AAPL") == {"px": 1.5, "n": None}
+
+
+def test_missing_is_miss():
+    _fresh_db()
+    assert cache.get("quote", "NOPE") is cache.MISS
+
+
+def test_cached_none_is_a_hit():
+    # quote_overview caches None for non-equities — a cached None must read as a
+    # hit, not a miss (otherwise we'd re-fetch every time).
+    _fresh_db()
+    cache.set("quote", "NA", None, ttl=60)
+    v = cache.get("quote", "NA")
+    assert v is None and v is not cache.MISS
+
+
+def test_expired_is_miss():
+    _fresh_db()
+    cache.set("quote", "OLD", {"x": 1}, ttl=0)
+    time.sleep(0.02)
+    assert cache.get("quote", "OLD") is cache.MISS
+
+
+def test_upsert_replaces():
+    _fresh_db()
+    cache.set("series", "K", {"v": 1}, ttl=60)
+    cache.set("series", "K", {"v": 2}, ttl=60)
+    assert cache.get("series", "K") == {"v": 2}
+
+
+def test_namespaces_are_isolated():
+    _fresh_db()
+    cache.set("quote", "X", {"a": 1}, ttl=60)
+    assert cache.get("research", "X") is cache.MISS
+
+
+def test_nonserializable_write_is_skipped():
+    _fresh_db()
+    cache.set("quote", "BAD", {"o": object()}, ttl=60)  # not JSON-serializable
+    assert cache.get("quote", "BAD") is cache.MISS      # skipped, no exception
+
+
+def test_fail_soft_on_unusable_db():
+    # Parent is a file, so the SQLite path can't be created -> every op fails
+    # soft: set is a no-op, get returns MISS, nothing raises.
+    fd, f = tempfile.mkstemp()
+    os.close(fd)
+    cache._dbpath = os.path.join(f, "cache.db")
+    cache._ensured = False
+    cache.set("quote", "Z", {"a": 1}, ttl=60)
+    assert cache.get("quote", "Z") is cache.MISS
+
+
+if __name__ == "__main__":
+    test_set_get_roundtrip()
+    test_missing_is_miss()
+    test_cached_none_is_a_hit()
+    test_expired_is_miss()
+    test_upsert_replaces()
+    test_namespaces_are_isolated()
+    test_nonserializable_write_is_skipped()
+    test_fail_soft_on_unusable_db()
+    print("OK")

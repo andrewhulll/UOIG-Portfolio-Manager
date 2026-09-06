@@ -14,6 +14,7 @@ import yfinance as yf
 
 from src.ingest.capital_iq import CapitalIQProvider, validate_ticker
 from src.ingest.providers import to_yf
+from src.model import cache
 
 _SEARCH_CACHE: dict[str, tuple[float, list]] = {}
 _QUOTE_CACHE: dict[str, tuple[float, dict | None]] = {}
@@ -55,6 +56,10 @@ def search_symbols(query: str, limit: int = 8, conn=None) -> list[dict]:
     hit = _SEARCH_CACHE.get(key)
     if hit and (now - hit[0]) < _TTL:
         return hit[1]
+    cached = cache.get("search", key)
+    if cached is not cache.MISS:
+        _SEARCH_CACHE[key] = (now, cached)
+        return cached
 
     out: list[dict] = []
     if conn is not None:
@@ -79,6 +84,8 @@ def search_symbols(query: str, limit: int = 8, conn=None) -> list[dict]:
 
     out = _ciq_provider().search_companies(q, limit=limit)
     _SEARCH_CACHE[key] = (now, out)
+    if out:
+        cache.set("search", key, out, _TTL)
     return out
 
 
@@ -133,11 +140,16 @@ def quote_overview(ticker: str, conn=None) -> dict | None:
     hit = _QUOTE_CACHE.get(key)
     if hit and (now - hit[0]) < _TTL:
         return hit[1]
+    cached = cache.get("quote", key)
+    if cached is not cache.MISS:
+        _QUOTE_CACHE[key] = (now, cached)
+        return cached
 
     frame = _ciq_provider().get_price_history(
         [name], start=(dt.date.today() - dt.timedelta(days=14)).isoformat())
     if frame.empty:
         _QUOTE_CACHE[key] = (now, None)
+        cache.set("quote", key, None, _TTL)
         return None
     closes = frame.sort_values("date")["close"].dropna().tolist()
     price = float(closes[-1])
@@ -154,6 +166,7 @@ def quote_overview(ticker: str, conn=None) -> dict | None:
         "currency": "USD", "held": False,
     }
     _QUOTE_CACHE[key] = (now, payload)
+    cache.set("quote", key, payload, _TTL)
     return payload
 
 
@@ -166,6 +179,10 @@ def live_series(ticker: str, period: str = "YTD", points: int = 64) -> dict:
     hit = _SERIES_CACHE.get(key)
     if hit and (now - hit[0]) < _TTL:
         return hit[1]
+    cached = cache.get("series", key)
+    if cached is not cache.MISS:
+        _SERIES_CACHE[key] = (now, cached)
+        return cached
     today = dt.date.today()
     start = (dt.date(today.year, 1, 1) if period == "YTD"
              else today - dt.timedelta(days=_CIQ_DAYS[period]))
@@ -182,6 +199,7 @@ def live_series(ticker: str, period: str = "YTD", points: int = 64) -> dict:
         ret = closes[-1] / closes[0] - 1 if len(closes) >= 2 and closes[0] else None
         out = {"dates": dates, "close": closes, "ret": ret}
     _SERIES_CACHE[key] = (now, out)
+    cache.set("series", key, out, _TTL)
     return out
 
 
@@ -193,6 +211,10 @@ def institutional_holders(ticker: str, limit: int = 5) -> list[dict]:
     hit = _HOLDERS_CACHE.get(key)
     if hit and (now - hit[0]) < _TTL:
         return hit[1]
+    cached = cache.get("holders", key)
+    if cached is not cache.MISS:
+        _HOLDERS_CACHE[key] = (now, cached)
+        return cached
     try:
         frame = yf.Ticker(to_yf(ticker)).institutional_holders
     except Exception:  # best-effort auxiliary research data
@@ -224,4 +246,5 @@ def institutional_holders(ticker: str, limit: int = 5) -> list[dict]:
                 "value": round(value / 1e6, 1) if value is not None else None,
             })
     _HOLDERS_CACHE[key] = (now, out)
+    cache.set("holders", key, out, _TTL)
     return out

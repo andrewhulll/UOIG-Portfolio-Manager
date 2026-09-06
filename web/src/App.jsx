@@ -1,5 +1,8 @@
 import React from 'react'
-import { getData, getSeries, getFundSeries, getSectorSeries, getStock, getPredictions, getThesis, postChat, runAgent, getAgentRun, searchTickers, getQuote, getHolders, getOptimizeDiagnostics, getOptimizeWhatif, postOptimizeSolve, getMe, logout, loginUrl, sendInvite, passwordLogin, requestPasswordReset, confirmPasswordReset, verifyEmail, getInvitation, acceptPassword } from './api.js'
+import { getData, getSeries, getFundSeries, getSectorSeries, getStock, getPredictions, getThesis, postChat, runAgent, getAgentRun, searchTickers, getQuote, getHolders, getOptimizeDiagnostics, getOptimizeWhatif, postOptimizeSolve, getMe, logout, sendInvite } from './api.js'
+import AuthScreen from './auth/AuthScreen.jsx'
+import { LoadingScreen, ErrorScreen } from './StatusScreens.jsx'
+import { s } from './ui.js'
 
 // UOIG sector taxonomy: the five groups the club uses, each rolling up one or
 // more yfinance GICS sectors. Order here is the board's column order.
@@ -15,18 +18,7 @@ SECTOR_GROUPS.forEach((g) => g.members.forEach((m) => (SECTOR_OF[m] = g)))
 const GROUP_COLOR = {}
 SECTOR_GROUPS.forEach((g) => (GROUP_COLOR[g.name] = g.color))
 
-// Parse a design CSS string into a React style object (keeps styles verbatim).
-function s(css) {
-  const o = {}
-  String(css).split(';').forEach((d) => {
-    const i = d.indexOf(':')
-    if (i < 0) return
-    const k = d.slice(0, i).trim()
-    if (!k) return
-    o[k.replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = d.slice(i + 1).trim()
-  })
-  return o
-}
+// s() (CSS-string -> React style object) and the C palette live in ./ui.js.
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 function fmtChartDate(d) {
@@ -246,13 +238,6 @@ export default class App extends React.Component {
     this.chatRef = React.createRef()
     this.state = {
       auth: 'loading',  // 'loading' | { user, role, canInvite } | null (signed out)
-      authErr: null,    // ?auth_error= from the OAuth callback (e.g. 'not_invited')
-      // email/password sign-in form
-      signMode: 'signin',  // 'signin' | 'forgot' | 'reset' | 'verify' | 'accept'
-      pwEmail: '', pwPass: '', pwPass2: '', pwCode: '', pwFirst: '', pwLast: '',
-      pwBusy: false, pwMsg: '', pwOk: '',
-      resetToken: null, pendingToken: null,
-      inviteToken: null, inviteInfo: null,  // invitee accept flow: raw token + looked-up invitation
       profileOpen: false,  // profile menu popover
       avatarImgFailed: false,  // fall back to initials if the Google photo 404s
       inviteEmail: '', inviteState: 'idle', inviteMsg: '',  // PM invite form
@@ -285,23 +270,11 @@ export default class App extends React.Component {
   }
 
   componentDidMount() {
-    // Surface an OAuth callback error (e.g. ?auth_error=not_invited) on the sign-in page.
-    let authErr = null, resetToken = null, inviteToken = null
-    try {
-      const p = new URLSearchParams(window.location.search)
-      authErr = p.get('auth_error')
-      if (p.get('reset') && p.get('token')) resetToken = p.get('token')
-      inviteToken = p.get('invitation_token')
-      if (authErr || resetToken || inviteToken) { window.history.replaceState({}, '', window.location.pathname) }
-    } catch (e) { /* ignore */ }
-    // Gate on sign-in first; only load portfolio data once authenticated.
+    // Gate on sign-in first; only load portfolio data once authenticated. AuthScreen
+    // (rendered when auth is null) owns the sign-in / invite / reset URL handling.
     getMe()
       .then((me) => { this.setState({ auth: me }); this._loadData() })
-      .catch(() => {
-        const signMode = inviteToken ? 'accept' : resetToken ? 'reset' : 'signin'
-        this.setState({ auth: null, authErr, resetToken, inviteToken, signMode })
-        if (inviteToken) this._loadInvitation(inviteToken)
-      })
+      .catch(() => this.setState({ auth: null }))
     // Re-render once a minute so the markets-open badge and date stay current.
     this._clock = setInterval(() => this.forceUpdate(), 30000)
     // Poll live prices while the market is open (backend refreshes quotes on a
@@ -322,14 +295,6 @@ export default class App extends React.Component {
     getData().then((data) => this.setState({ data })).catch(() => {})
   }
 
-  // Resolve an invitation token to the invitee's email + state for the accept page.
-  _loadInvitation(token) {
-    this.setState({ inviteInfo: 'loading' })
-    getInvitation(token)
-      .then((info) => this.setState({ inviteInfo: info, pwEmail: info.email || '' }))
-      .catch(() => this.setState({ inviteInfo: 'invalid' }))
-  }
-
   // Live market status in US Eastern time (handles EST/EDT). NYSE regular
   // session runs Mon–Fri 9:30 AM–4:00 PM ET; markets are closed otherwise.
   // (Holidays are not accounted for.)
@@ -342,92 +307,6 @@ export default class App extends React.Component {
     const mins = (+parts.hour) * 60 + (+parts.minute)
     const open = weekday && mins >= 9 * 60 + 30 && mins < 16 * 60
     return { open, date: `${parts.year}-${parts.month}-${parts.day}` }
-  }
-
-  // After a cookie-setting auth (password / verify), pull the session and enter the app.
-  _afterLogin() {
-    return getMe()
-      .then((me) => { this.setState({ auth: me, pwBusy: false, pwMsg: '', pwPass: '', pwPass2: '', pwCode: '' }); this._loadData() })
-      .catch(() => this.setState({ auth: null, pwBusy: false, pwMsg: 'Signed in, but the session didn’t stick. Try again.' }))
-  }
-
-  _passwordLogin() {
-    const email = this.state.pwEmail.trim(), password = this.state.pwPass
-    if (!email || !password || this.state.pwBusy) return
-    this.setState({ pwBusy: true, pwMsg: '', pwOk: '' })
-    passwordLogin(email, password)
-      .then((r) => {
-        if (r && r.needsVerification) { this.setState({ pwBusy: false, signMode: 'verify', pendingToken: r.pendingToken, pwOk: 'Enter the code we emailed you.' }); return }
-        this._afterLogin()
-      })
-      .catch((e) => this.setState({ pwBusy: false, pwMsg: String(e).includes('401') ? 'Invalid email or password.' : String(e).includes('503') ? 'Email/password sign-in isn’t enabled yet.' : 'Could not sign in. Try again.' }))
-  }
-
-  _requestReset() {
-    const email = this.state.pwEmail.trim()
-    if (!email || this.state.pwBusy) return
-    this.setState({ pwBusy: true, pwMsg: '', pwOk: '' })
-    requestPasswordReset(email)
-      .then(() => this.setState({ pwBusy: false, pwOk: 'If that email has an account, a reset link is on its way.' }))
-      .catch(() => this.setState({ pwBusy: false, pwMsg: 'Could not send the reset email. Try again.' }))
-  }
-
-  _confirmReset() {
-    const { resetToken, pwPass, pwPass2 } = this.state
-    if (!pwPass || this.state.pwBusy) return
-    if (pwPass.length < 10) { this.setState({ pwMsg: 'Use at least 10 characters.' }); return }
-    if (pwPass !== pwPass2) { this.setState({ pwMsg: 'Passwords don’t match.' }); return }
-    this.setState({ pwBusy: true, pwMsg: '', pwOk: '' })
-    confirmPasswordReset(resetToken, pwPass)
-      .then(() => this.setState({ pwBusy: false, signMode: 'signin', pwPass: '', pwPass2: '', pwOk: 'Password set — sign in below.' }))
-      .catch((e) => {
-        const detail = e?.detail
-        const msg = e?.status === 422
-          ? (detail || 'That password doesn’t meet the requirements — try a longer, less common one.')
-          : e?.status === 400
-            ? 'That reset link is invalid or expired.'
-            : 'Could not set the password. Try again.'
-        this.setState({ pwBusy: false, pwMsg: msg })
-      })
-  }
-
-  _verifyEmail() {
-    const code = this.state.pwCode.trim()
-    if (!code || this.state.pwBusy) return
-    this.setState({ pwBusy: true, pwMsg: '', pwOk: '' })
-    verifyEmail(code, this.state.pendingToken)
-      .then(() => this._afterLogin())
-      .catch(() => this.setState({ pwBusy: false, pwMsg: 'Invalid or expired code.' }))
-  }
-
-  // Invitee 'set a password' path: create the account + accept the invite, then enter.
-  _acceptPassword() {
-    const { inviteToken, pwPass, pwPass2, pwFirst, pwLast } = this.state
-    if (!pwPass || this.state.pwBusy) return
-    if (pwPass.length < 10) { this.setState({ pwMsg: 'Use at least 10 characters.' }); return }
-    if (pwPass !== pwPass2) { this.setState({ pwMsg: 'Passwords don’t match.' }); return }
-    this.setState({ pwBusy: true, pwMsg: '', pwOk: '' })
-    acceptPassword({ invitationToken: inviteToken, password: pwPass, firstName: pwFirst.trim(), lastName: pwLast.trim() })
-      .then((r) => {
-        if (r && r.needsVerification) { this.setState({ pwBusy: false, signMode: 'verify', pendingToken: r.pendingToken, pwOk: 'Enter the code we emailed you to finish setting up your account.' }); return }
-        this._afterLogin()
-      })
-      .catch((e) => {
-        const status = e?.status
-        const detail = e?.detail
-        const msg = status === 409
-          ? (detail || 'That account already exists. Use Forgot / set password, then reopen this invitation.')
-          : status === 400
-            ? (detail || 'WorkOS rejected the account details. Check the password requirements and try again.')
-            : status === 404
-              ? 'This invitation is invalid or expired. Ask your PM to send a new one.'
-              : status === 503
-                ? 'Password sign-up is temporarily unavailable. Try again shortly or use Google.'
-                : status === 401
-                  ? 'Could not set the password. Try Continue with Google.'
-                  : 'Could not complete setup. Try again.'
-        this.setState({ pwBusy: false, pwMsg: msg })
-      })
   }
 
   _loadData() {
@@ -963,157 +842,13 @@ export default class App extends React.Component {
     }
   }
 
-  _renderSignIn() {
-    const err = this.state.authErr
-    const errText = err === 'not_invited'
-      ? 'That account isn’t on the invite list. Access is invite-only — ask an admin to send an invitation.'
-      : (err === 'bad_state' || err === 'auth_failed')
-        ? 'Sign-in didn’t complete. Please try again.'
-        : null
-    const mode = this.state.signMode
-    const busy = this.state.pwBusy
-    const inStyle = s("width:100%;box-sizing:border-box;background:#0a0f1a;border:1px solid #1d2840;border-radius:8px;padding:10px 11px;color:#e8edf7;outline:none;font:400 12.5px 'IBM Plex Sans';")
-    const labelStyle = s("font:600 8.5px 'IBM Plex Sans';letter-spacing:.07em;text-transform:uppercase;color:#6b7794;margin-bottom:5px;")
-    const primaryBtn = { ...s("display:flex;align-items:center;justify-content:center;border-radius:9px;padding:11px 14px;font:600 13px 'IBM Plex Sans';cursor:pointer;color:#fff;"), background: busy ? '#2a3a5c' : '#2f6df6' }
-    const linkStyle = s("font:500 11px 'IBM Plex Sans';color:#5a93f9;cursor:pointer;text-align:center;")
-    const field = (label, value, onChange, type, onEnter, placeholder) => (
-      <div>
-        <div style={labelStyle}>{label}</div>
-        <input type={type} value={value} placeholder={placeholder || ''} autoComplete={type === 'password' ? 'current-password' : 'email'}
-          onChange={(e) => onChange(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') onEnter() }} style={inStyle} />
-      </div>
-    )
-    // Mirrors the WorkOS "Strong" password policy. The length rule is deterministic,
-    // so we check it live; complexity (zxcvbn ≥ 3) and breach (haveibeenpwned) are
-    // enforced by WorkOS on submit, shown here so there are no surprises.
-    const pwPolicy = () => {
-      const pw = this.state.pwPass || ''
-      const rule = (met, live, text) => {
-        const color = live ? (met ? '#7fe0a8' : '#6b7794') : '#9aa7c2'
-        const mark = live ? (met ? '✓' : '○') : '•'
-        return (
-          <div style={{ ...s("display:flex;align-items:center;gap:7px;font:400 10.5px/1.5 'IBM Plex Sans';"), color }}>
-            <span style={s('width:11px;text-align:center;flex:none;')}>{mark}</span>
-            <span>{text}</span>
-          </div>
-        )
-      }
-      return (
-        <div style={s('display:flex;flex-direction:column;gap:3px;background:#0a0f1a;border:1px solid #1d2840;border-radius:8px;padding:9px 11px;margin-top:-3px;')}>
-          {rule(pw.length >= 10, true, 'At least 10 characters')}
-          {rule(false, false, 'Not a common or easily guessed password')}
-          {rule(false, false, 'Not found in a known data breach')}
-        </div>
-      )
-    }
-    const banners = (
-      <>
-        {mode === 'signin' && errText && <div style={s("font:400 11.5px/1.5 'IBM Plex Sans';color:#ffb4b4;background:#2a1115;border:1px solid #4a1f25;border-radius:8px;padding:10px 12px;")}>{errText}</div>}
-        {this.state.pwMsg && <div style={s("font:400 11.5px/1.5 'IBM Plex Sans';color:#ffb4b4;background:#2a1115;border:1px solid #4a1f25;border-radius:8px;padding:10px 12px;")}>{this.state.pwMsg}</div>}
-        {this.state.pwOk && <div style={s("font:400 11.5px/1.5 'IBM Plex Sans';color:#7fe0a8;background:#0c2a1e;border:1px solid #1d4536;border-radius:8px;padding:10px 12px;")}>{this.state.pwOk}</div>}
-      </>
-    )
-    let body
-    if (mode === 'forgot') {
-      body = (<>
-        {banners}
-        {field('Email', this.state.pwEmail, (v) => this.setState({ pwEmail: v }), 'email', () => this._requestReset(), 'you@uoregon.edu')}
-        <div onClick={() => this._requestReset()} style={primaryBtn}>{busy ? '…' : 'Send reset link'}</div>
-        <div onClick={() => this.setState({ signMode: 'signin', pwMsg: '', pwOk: '' })} style={linkStyle}>‹ Back to sign in</div>
-      </>)
-    } else if (mode === 'reset') {
-      body = (<>
-        {banners}
-        {field('New password', this.state.pwPass, (v) => this.setState({ pwPass: v }), 'password', () => this._confirmReset(), 'At least 10 characters')}
-        {pwPolicy()}
-        {field('Confirm password', this.state.pwPass2, (v) => this.setState({ pwPass2: v }), 'password', () => this._confirmReset())}
-        <div onClick={() => this._confirmReset()} style={primaryBtn}>{busy ? '…' : 'Set password'}</div>
-      </>)
-    } else if (mode === 'verify') {
-      body = (<>
-        {banners}
-        {field('Verification code', this.state.pwCode, (v) => this.setState({ pwCode: v }), 'text', () => this._verifyEmail(), '6-digit code')}
-        <div onClick={() => this._verifyEmail()} style={primaryBtn}>{busy ? '…' : 'Verify'}</div>
-        <div onClick={() => this.setState({ signMode: 'signin', pwMsg: '', pwOk: '' })} style={linkStyle}>‹ Back to sign in</div>
-      </>)
-    } else if (mode === 'accept') {
-      const info = this.state.inviteInfo
-      const googleBtn = (
-        <a href={loginUrl(this.state.inviteToken)} style={s("display:flex;align-items:center;justify-content:center;gap:10px;text-decoration:none;background:#fff;color:#1a1a1a;border-radius:9px;padding:11px 14px;font:600 13px 'IBM Plex Sans';cursor:pointer;")}>
-          <svg width="17" height="17" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.97 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/></svg>
-          Continue with Google
-        </a>
-      )
-      const orRule = (
-        <div style={s('display:flex;align-items:center;gap:10px;margin:2px 0;')}><div style={s('flex:1;height:1px;background:#1d2840;')}></div><span style={s("font:500 9.5px 'IBM Plex Sans';letter-spacing:.08em;text-transform:uppercase;color:#3c465e;")}>or</span><div style={s('flex:1;height:1px;background:#1d2840;')}></div></div>
-      )
-      if (info === 'loading' || info == null) {
-        body = (<div style={s("font:400 12px 'IBM Plex Sans';color:#6b7794;text-align:center;padding:8px 0;")}>Checking your invitation…</div>)
-      } else if (info === 'invalid' || !info.pending) {
-        const msg = info === 'invalid' ? 'This invitation link is invalid or could not be found.'
-          : info.state === 'accepted' ? 'This invitation was already accepted — just sign in below.'
-          : info.state === 'revoked' ? 'This invitation was revoked. Ask an admin to send a new one.'
-          : 'This invitation has expired. Ask an admin to resend it.'
-        body = (<>
-          <div style={s("font:400 11.5px/1.6 'IBM Plex Sans';color:#ffb4b4;background:#2a1115;border:1px solid #4a1f25;border-radius:8px;padding:11px 13px;")}>{msg}</div>
-          <div onClick={() => this.setState({ signMode: 'signin', pwMsg: '', pwOk: '' })} style={primaryBtn}>Go to sign in</div>
-        </>)
-      } else {
-        body = (<>
-          {banners}
-          <div style={s("font:400 11.5px/1.6 'IBM Plex Sans';color:#9aa7c2;")}>You’ve been invited to the UOIG Endowment Terminal as <span style={s('color:#e8edf7;')}>{info.email}</span>. Set a password to finish — or continue with Google.</div>
-          <div style={s('display:grid;grid-template-columns:1fr 1fr;gap:10px;')}>
-            {field('First name', this.state.pwFirst, (v) => this.setState({ pwFirst: v }), 'text', () => this._acceptPassword(), 'Optional')}
-            {field('Last name', this.state.pwLast, (v) => this.setState({ pwLast: v }), 'text', () => this._acceptPassword(), 'Optional')}
-          </div>
-          {field('Create password', this.state.pwPass, (v) => this.setState({ pwPass: v }), 'password', () => this._acceptPassword(), 'At least 10 characters')}
-          {pwPolicy()}
-          {field('Confirm password', this.state.pwPass2, (v) => this.setState({ pwPass2: v }), 'password', () => this._acceptPassword())}
-          <div onClick={() => this._acceptPassword()} style={primaryBtn}>{busy ? '…' : 'Accept & enter'}</div>
-          {orRule}
-          {googleBtn}
-        </>)
-      }
-    } else {
-      body = (<>
-        {banners}
-        {field('Email', this.state.pwEmail, (v) => this.setState({ pwEmail: v }), 'email', () => this._passwordLogin(), 'you@uoregon.edu')}
-        {field('Password', this.state.pwPass, (v) => this.setState({ pwPass: v }), 'password', () => this._passwordLogin())}
-        <div onClick={() => this._passwordLogin()} style={primaryBtn}>{busy ? '…' : 'Sign in'}</div>
-        <div onClick={() => this.setState({ signMode: 'forgot', pwMsg: '', pwOk: '' })} style={linkStyle}>Forgot / set password</div>
-        <div style={s('display:flex;align-items:center;gap:10px;margin:2px 0;')}><div style={s('flex:1;height:1px;background:#1d2840;')}></div><span style={s("font:500 9.5px 'IBM Plex Sans';letter-spacing:.08em;text-transform:uppercase;color:#3c465e;")}>or</span><div style={s('flex:1;height:1px;background:#1d2840;')}></div></div>
-        <a href={loginUrl()} style={s("display:flex;align-items:center;justify-content:center;gap:10px;text-decoration:none;background:#fff;color:#1a1a1a;border-radius:9px;padding:11px 14px;font:600 13px 'IBM Plex Sans';cursor:pointer;")}>
-          <svg width="17" height="17" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.97 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/></svg>
-          Continue with Google
-        </a>
-        <div style={s("font:400 10.5px/1.5 'IBM Plex Sans';color:#5d6a85;text-align:center;")}>Access is invite-only — use the email or Google account that received your invitation.</div>
-      </>)
-    }
-    const heading = { signin: null, forgot: 'Reset your password', reset: 'Set a new password', verify: 'Verify your email', accept: 'Accept your invitation' }[mode]
-    return (
-      <div style={s("height:100vh;width:100%;display:flex;align-items:center;justify-content:center;background:radial-gradient(1200px 600px at 50% -10%,#0d1426,#070a12 60%);color:#e8edf7;font-family:'IBM Plex Sans',sans-serif;")}>
-        <div style={s('width:380px;max-width:calc(100vw - 32px);display:flex;flex-direction:column;align-items:center;gap:18px;')}>
-          <img src="/uoig-logo.png" alt="UOIG" style={s('width:52px;height:52px;object-fit:contain;background:#fff;border-radius:11px;padding:5px;')} />
-          <div style={s('text-align:center;')}>
-            <div style={s("font:600 18px 'IBM Plex Sans';color:#e8edf7;")}>University of Oregon Investment Group</div>
-            <div style={s("font:500 12px 'IBM Plex Mono';color:#6b7794;letter-spacing:.14em;text-transform:uppercase;margin-top:6px;")}>Endowment Terminal</div>
-          </div>
-          <div style={s('width:100%;background:#0e1422;border:1px solid #1d2840;border-radius:12px;padding:22px;display:flex;flex-direction:column;gap:13px;box-shadow:0 22px 60px rgba(0,0,0,.5);')}>
-            {heading && <div style={s("font:600 13px 'IBM Plex Sans';color:#e8edf7;text-align:center;margin-bottom:2px;")}>{heading}</div>}
-            {body}
-          </div>
-          <div style={s("font:400 10px 'IBM Plex Mono';color:#3c465e;")}>Tall Firs · Alumni Fund</div>
-        </div>
-      </div>
-    )
-  }
 
   render() {
     // Auth gate — the entire terminal renders only for signed-in users.
-    if (this.state.auth === 'loading') return <div style={s("height:100vh;display:flex;align-items:center;justify-content:center;background:#070a12;color:#6b7794;font-family:'IBM Plex Mono';font-size:12px;")}>Authenticating…</div>
-    if (!this.state.auth) return this._renderSignIn()
-    if (this.state.error) return <div style={s('color:#ff5666;font-family:sans-serif;padding:40px;')}>{this.state.error}</div>
-    if (!this.state.data) return <div style={s("height:100vh;display:flex;align-items:center;justify-content:center;background:#070a12;color:#6b7794;font-family:'IBM Plex Mono';font-size:12px;")}>Loading terminal…</div>
+    if (this.state.auth === 'loading') return <LoadingScreen label="Authenticating…" />
+    if (!this.state.auth) return <AuthScreen onAuthenticated={(me) => { this.setState({ auth: me }); this._loadData() }} />
+    if (this.state.error) return <ErrorScreen title="Couldn't load the terminal" message="We reached the server but couldn't load your portfolio data. This is usually temporary — give it another try." actions={[{ label: 'Retry', onClick: () => this.setState({ error: null, data: null }, () => this._loadData()), primary: true }, { label: 'Sign out', onClick: () => this._signOut() }]} />
+    if (!this.state.data) return <LoadingScreen label="Loading terminal…" />
     const v = this.renderVals()
     const F = this.funds
     return (
