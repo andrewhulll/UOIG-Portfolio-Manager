@@ -33,7 +33,7 @@ from api.build import FUND_META, build_terminal_data  # noqa: E402
 from src.auth import sessions as auth_sessions  # noqa: E402
 from src.auth import invitations as auth_invites  # noqa: E402
 from src.auth import workos_client as wc  # noqa: E402
-from workos._errors import (AuthenticationError, BadRequestError,  # noqa: E402
+from workos._errors import (AuthenticationError, BadRequestError, ConflictError,  # noqa: E402
                             EmailPasswordAuthDisabledError,
                             EmailVerificationRequiredError,
                             UnprocessableEntityError, WorkOSError)
@@ -270,7 +270,7 @@ def auth_accept_password(payload: dict):
             (payload.get("firstName") or "").strip(),
             (payload.get("lastName") or "").strip(),
         )
-    except (BadRequestError, UnprocessableEntityError) as exc:
+    except (BadRequestError, ConflictError, UnprocessableEntityError) as exc:
         # "Email already in use" is benign — the invitee started before, so fall
         # through and authenticate. Any OTHER create failure must surface (don't
         # silently swallow it and 401 later with a misleading message).
@@ -298,7 +298,12 @@ def auth_accept_password(payload: dict):
         log.warning("accept-password: auth failed for %s (existed=%s): %s",
                     inv.email, user_existed, getattr(exc, "message", exc))
         if user_existed:
-            raise HTTPException(409, "account_exists")
+            raise HTTPException(
+                409,
+                "An account already exists for this email. If an earlier invite attempt "
+                "created it without a password, use Forgot / set password, then reopen "
+                "this invitation and enter that password.",
+            )
         raise HTTPException(401, "could not complete sign-in")
     except WorkOSError as exc:
         log.exception("accept-password: unexpected WorkOS error for %s", inv.email)

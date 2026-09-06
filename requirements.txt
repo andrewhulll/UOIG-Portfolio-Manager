@@ -10,5 +10,5 @@ requests>=2.31         # Alpha Vantage ETF_PROFILE (benchmark constituents)
 fastapi>=0.110
 uvicorn[standard]>=0.29
 anthropic>=0.112       # Ask-Claude research co-pilot (model claude-opus-4-8)
-workos>=5.0            # User Management / AuthKit: invite-only Google OAuth sign-in
+workos==10.2.0         # User Management / AuthKit; pin because major SDKs change password types
 psycopg[binary]>=3.1   # Postgres driver (Supabase); SQLite stays the default when DATABASE_URL is unset

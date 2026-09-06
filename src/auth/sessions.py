@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Optional, Tuple
 
+from workos.user_management import PasswordPlaintext
+
 from src.auth import workos_client as wc
 
 
@@ -42,7 +44,8 @@ def create_user_with_password(email: str, password: str,
     of the inbox. Marking the email verified up front skips the one-time-code
     challenge WorkOS would otherwise require on the first password sign-in."""
     return wc.client().user_management.create_user(
-        email=email, password=password, email_verified=email_verified,
+        email=email, password=PasswordPlaintext(password=password),
+        email_verified=email_verified,
         first_name=first_name or None, last_name=last_name or None,
     )
 

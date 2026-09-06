@@ -403,10 +403,22 @@ export default class App extends React.Component {
         if (r && r.needsVerification) { this.setState({ pwBusy: false, signMode: 'verify', pendingToken: r.pendingToken, pwOk: 'Enter the code we emailed you to finish setting up your account.' }); return }
         this._afterLogin()
       })
-      .catch((e) => this.setState({ pwBusy: false, pwMsg: String(e).includes('409')
-        ? 'That account already exists — sign in instead, or use Continue with Google.'
-        : String(e).includes('401') ? 'Could not set the password. Try Continue with Google.'
-        : 'Could not complete setup. Try again.' }))
+      .catch((e) => {
+        const status = e?.status
+        const detail = e?.detail
+        const msg = status === 409
+          ? (detail || 'That account already exists. Use Forgot / set password, then reopen this invitation.')
+          : status === 400
+            ? (detail || 'WorkOS rejected the account details. Check the password requirements and try again.')
+            : status === 404
+              ? 'This invitation is invalid or expired. Ask your PM to send a new one.'
+              : status === 503
+                ? 'Password sign-up is temporarily unavailable. Try again shortly or use Google.'
+                : status === 401
+                  ? 'Could not set the password. Try Continue with Google.'
+                  : 'Could not complete setup. Try again.'
+        this.setState({ pwBusy: false, pwMsg: msg })
+      })
   }
 
   _loadData() {
