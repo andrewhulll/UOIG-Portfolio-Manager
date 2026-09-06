@@ -191,6 +191,9 @@ export default class AuthScreen extends React.Component {
   }
   _acceptErr(e) {
     if (e?.status === 409) return e.detail || 'That account already exists. Use Forgot / set password, then reopen this invitation.'
+    // 422 = WorkOS rejected the *password* against the org policy (too common, or
+    // found in a breach — neither of which we can check client-side).
+    if (e?.status === 422) return e.detail || "That password doesn't meet the requirements — try a longer, less common one."
     if (e?.status === 400) return e.detail || 'WorkOS rejected the account details. Check the password requirements and try again.'
     if (e?.status === 503) return 'Password sign-up is temporarily unavailable. Try again shortly or use Google.'
     const c = String(e)

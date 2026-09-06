@@ -266,6 +266,42 @@ def auth_invitation(token: str = ""):
     }
 
 
+def _workos_error_signals(exc) -> tuple[set[str], str]:
+    """Collect the machine-readable codes and a lowercased text blob from a WorkOS
+    APIError. create_user reports a *generic* top-level message ('Could not create
+    user.') and puts the real reason in `code` plus the `errors` list — so to tell
+    'email already taken' (code email_not_available) from 'weak password' (code
+    password_strength_error) we must inspect those, not just the message text."""
+    codes: set[str] = set()
+    parts: list[str] = []
+    code = getattr(exc, "code", None)
+    if code:
+        codes.add(str(code))
+    msg = getattr(exc, "message", None)
+    if msg:
+        parts.append(str(msg))
+    errors = getattr(exc, "errors", None) or []
+    if isinstance(errors, (list, tuple)):
+        for item in errors:
+            if isinstance(item, dict):
+                if item.get("code"):
+                    codes.add(str(item["code"]))
+                if item.get("message"):
+                    parts.append(str(item["message"]))
+    return codes, " ".join(parts).lower()
+
+
+def _password_policy_message(exc) -> str:
+    """A human-readable reason (or reasons) a password was rejected, drawn from
+    exc.errors — e.g. the specific 'found N times in data breaches' text — falling
+    back to the top-level message."""
+    reasons = [str(item["message"]) for item in (getattr(exc, "errors", None) or [])
+               if isinstance(item, dict) and item.get("message")]
+    if reasons:
+        return " ".join(reasons)
+    return str(getattr(exc, "message", "") or "That password doesn't meet the requirements.")
+
+
 @app.post("/api/auth/accept-password")
 def auth_accept_password(payload: dict):
     """Invitee 'set a password' path: validate the invite token, create the user
@@ -291,13 +327,41 @@ def auth_accept_password(payload: dict):
             (payload.get("lastName") or "").strip(),
         )
     except (BadRequestError, ConflictError, UnprocessableEntityError) as exc:
-        # "Email already in use" is benign — the invitee started before, so fall
-        # through and authenticate. Any OTHER create failure must surface (don't
-        # silently swallow it and 401 later with a misleading message).
-        emsg = str(getattr(exc, "message", "") or exc).lower()
-        if any(k in emsg for k in ("already", "taken", "exists", "in use")):
+        codes, detail = _workos_error_signals(exc)
+        if "email_not_available" in codes or any(
+            k in detail for k in ("already", "taken", "exists", "in use", "not available")
+        ):
+            # Expected: the invitee already exists. WorkOS provisions a *passwordless*
+            # user the moment an invitation is sent, so create_user always fails here
+            # with a generic "Could not create user." (code email_not_available) — we
+            # match the code, not just the message. A never-signed-in invitee has no
+            # password yet, so set the one they just chose on that existing user;
+            # otherwise the password sign-in below can't succeed. Don't touch the
+            # password of someone who has signed in before (a returning user).
             user_existed = True
-            log.info("accept-password: %s already exists; authenticating instead", inv.email)
+            existing = auth_sessions.find_user_by_email(inv.email)
+            if existing is not None and getattr(existing, "last_sign_in_at", None) is None:
+                try:
+                    auth_sessions.set_user_password(
+                        existing.id, password,
+                        (payload.get("firstName") or "").strip(),
+                        (payload.get("lastName") or "").strip(),
+                    )
+                except (BadRequestError, UnprocessableEntityError) as pexc:
+                    pcodes, _ = _workos_error_signals(pexc)
+                    if "password_strength_error" in pcodes or any(
+                        c.startswith("password_") for c in pcodes
+                    ):
+                        raise HTTPException(422, _password_policy_message(pexc))
+                    log.exception("accept-password: set_user_password failed for %s", inv.email)
+                    raise HTTPException(400, f"could not create the account: {getattr(pexc, 'message', pexc)}")
+            log.info("accept-password: %s already provisioned; authenticating", inv.email)
+        elif "password_strength_error" in codes or any(c.startswith("password_") for c in codes):
+            # The chosen password failed the org policy (too short, too common, or
+            # found in a breach — the last of which the page can't check client-side).
+            # Surface the specific reason(s) as a 422 so the page shows them.
+            log.info("accept-password: weak password for %s: %s", inv.email, sorted(codes))
+            raise HTTPException(422, _password_policy_message(exc))
         else:
             log.exception("accept-password: create_user failed for %s", inv.email)
             raise HTTPException(400, f"could not create the account: {getattr(exc, 'message', exc)}")
