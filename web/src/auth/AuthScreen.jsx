@@ -161,7 +161,14 @@ export default class AuthScreen extends React.Component {
     this.setState({ busy: true, msg: '', ok: '' })
     confirmPasswordReset(resetToken, pass)
       .then(() => this.setState({ busy: false, mode: 'signin', pass: '', pass2: '', ok: 'Password set. Sign in with your new password.' }))
-      .catch((e) => this.setState({ busy: false, msg: String(e).includes('400') ? 'That reset link is invalid or has expired. Request a new one.' : 'Could not set your password. Please try again.' }))
+      .catch((e) => this.setState({ busy: false, msg: this._resetErr(e) }))
+  }
+  _resetErr(e) {
+    // 422 = WorkOS rejected the password against the org policy (too short, low
+    // complexity, or breached); 400 = the reset link itself is bad/expired.
+    if (e?.status === 422) return e.detail || "That password doesn't meet the requirements — try a longer, less common one."
+    if (e?.status === 400 || String(e).includes('400')) return 'That reset link is invalid or has expired. Request a new one.'
+    return 'Could not set your password. Please try again.'
   }
 
   _verifyEmail = () => {
@@ -206,6 +213,31 @@ export default class AuthScreen extends React.Component {
       {opts.hint && <div style={s("font:400 10px 'IBM Plex Sans';color:#5d6a85;")}>{opts.hint}</div>}
     </div>
   )
+
+  // Live checklist mirroring the WorkOS "Strong" password policy. The length rule
+  // is deterministic so we check it as the user types; complexity (zxcvbn ≥ 3) and
+  // breach (haveibeenpwned) are enforced by WorkOS on submit and shown here so the
+  // requirements are no surprise.
+  _pwPolicy = () => {
+    const pw = this.state.pass || ''
+    const rule = (met, live, text) => {
+      const color = live ? (met ? '#7fe0a8' : '#6b7794') : '#9aa7c2'
+      const mark = live ? (met ? '✓' : '○') : '•'
+      return (
+        <div style={{ ...s("display:flex;align-items:center;gap:8px;font:400 10.5px/1.5 'IBM Plex Sans';"), color }}>
+          <span style={s('width:11px;text-align:center;flex:none;')}>{mark}</span>
+          <span>{text}</span>
+        </div>
+      )
+    }
+    return (
+      <div style={s('display:flex;flex-direction:column;gap:3px;background:#0e1422;border:1px solid #1d2840;border-radius:9px;padding:10px 12px;')}>
+        {rule(pw.length >= MIN_PW, true, `At least ${MIN_PW} characters`)}
+        {rule(false, false, 'Not a common or easily guessed password')}
+        {rule(false, false, 'Not found in a known data breach')}
+      </div>
+    )
+  }
 
   _primary = (label, onClick) => (
     <div onClick={this.state.busy ? undefined : onClick} className="dc-hover"
@@ -268,7 +300,8 @@ export default class AuthScreen extends React.Component {
         tagline: "Almost there. Choose a strong password and you'll be back on the desk.",
         body: (<>
           {this._banners()}
-          {this._field('New password', 'pass', 'password', this._confirmReset, { autoComplete: 'new-password', hint: `At least ${MIN_PW} characters, not a commonly breached password.` })}
+          {this._field('New password', 'pass', 'password', this._confirmReset, { autoComplete: 'new-password', placeholder: `At least ${MIN_PW} characters` })}
+          {this._pwPolicy()}
           {this._field('Confirm password', 'pass2', 'password', this._confirmReset, { autoComplete: 'new-password' })}
           {this._primary('Set password', this._confirmReset)}
           {this._link('‹ Back to sign in', () => this._go('signin'))}
@@ -312,7 +345,8 @@ export default class AuthScreen extends React.Component {
             {this._field('First name', 'first', 'text', this._acceptPassword, { placeholder: 'Optional', autoComplete: 'given-name' })}
             {this._field('Last name', 'last', 'text', this._acceptPassword, { placeholder: 'Optional', autoComplete: 'family-name' })}
           </div>
-          {this._field('Create password', 'pass', 'password', this._acceptPassword, { autoComplete: 'new-password', hint: `At least ${MIN_PW} characters, not a commonly breached password.` })}
+          {this._field('Create password', 'pass', 'password', this._acceptPassword, { autoComplete: 'new-password', placeholder: `At least ${MIN_PW} characters` })}
+          {this._pwPolicy()}
           {this._field('Confirm password', 'pass2', 'password', this._acceptPassword, { autoComplete: 'new-password' })}
           {this._primary('Accept & enter', this._acceptPassword)}
           {orRule}

@@ -229,6 +229,15 @@ def auth_password_reset_confirm(payload: dict):
         raise HTTPException(400, "token and password are required")
     try:
         auth_sessions.confirm_reset(token, password)
+    except (BadRequestError, UnprocessableEntityError) as exc:
+        # WorkOS rejected the *password* against the org policy (too short, low
+        # complexity, or found in a breach) — surface that so the user can fix it,
+        # rather than blaming the (valid) reset link.
+        msg = str(getattr(exc, "message", "") or exc)
+        emsg = msg.lower()
+        if any(k in emsg for k in ("token", "expired", "invalid")) and "password" not in emsg:
+            raise HTTPException(400, "invalid or expired reset link")
+        raise HTTPException(422, msg or "password does not meet the requirements")
     except WorkOSError:
         raise HTTPException(400, "invalid or expired reset link")
     return {"ok": True}
