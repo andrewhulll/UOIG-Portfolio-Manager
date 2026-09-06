@@ -375,11 +375,20 @@ export default class App extends React.Component {
   _confirmReset() {
     const { resetToken, pwPass, pwPass2 } = this.state
     if (!pwPass || this.state.pwBusy) return
+    if (pwPass.length < 10) { this.setState({ pwMsg: 'Use at least 10 characters.' }); return }
     if (pwPass !== pwPass2) { this.setState({ pwMsg: 'Passwords don’t match.' }); return }
     this.setState({ pwBusy: true, pwMsg: '', pwOk: '' })
     confirmPasswordReset(resetToken, pwPass)
       .then(() => this.setState({ pwBusy: false, signMode: 'signin', pwPass: '', pwPass2: '', pwOk: 'Password set — sign in below.' }))
-      .catch((e) => this.setState({ pwBusy: false, pwMsg: String(e).includes('400') ? 'That reset link is invalid or expired.' : 'Could not set the password. Try again.' }))
+      .catch((e) => {
+        const detail = e?.detail
+        const msg = e?.status === 422
+          ? (detail || 'That password doesn’t meet the requirements — try a longer, less common one.')
+          : e?.status === 400
+            ? 'That reset link is invalid or expired.'
+            : 'Could not set the password. Try again.'
+        this.setState({ pwBusy: false, pwMsg: msg })
+      })
   }
 
   _verifyEmail() {
@@ -395,7 +404,7 @@ export default class App extends React.Component {
   _acceptPassword() {
     const { inviteToken, pwPass, pwPass2, pwFirst, pwLast } = this.state
     if (!pwPass || this.state.pwBusy) return
-    if (pwPass.length < 8) { this.setState({ pwMsg: 'Use at least 8 characters.' }); return }
+    if (pwPass.length < 10) { this.setState({ pwMsg: 'Use at least 10 characters.' }); return }
     if (pwPass !== pwPass2) { this.setState({ pwMsg: 'Passwords don’t match.' }); return }
     this.setState({ pwBusy: true, pwMsg: '', pwOk: '' })
     acceptPassword({ invitationToken: inviteToken, password: pwPass, firstName: pwFirst.trim(), lastName: pwLast.trim() })
@@ -974,6 +983,29 @@ export default class App extends React.Component {
           onChange={(e) => onChange(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') onEnter() }} style={inStyle} />
       </div>
     )
+    // Mirrors the WorkOS "Strong" password policy. The length rule is deterministic,
+    // so we check it live; complexity (zxcvbn ≥ 3) and breach (haveibeenpwned) are
+    // enforced by WorkOS on submit, shown here so there are no surprises.
+    const pwPolicy = () => {
+      const pw = this.state.pwPass || ''
+      const rule = (met, live, text) => {
+        const color = live ? (met ? '#7fe0a8' : '#6b7794') : '#9aa7c2'
+        const mark = live ? (met ? '✓' : '○') : '•'
+        return (
+          <div style={{ ...s("display:flex;align-items:center;gap:7px;font:400 10.5px/1.5 'IBM Plex Sans';"), color }}>
+            <span style={s('width:11px;text-align:center;flex:none;')}>{mark}</span>
+            <span>{text}</span>
+          </div>
+        )
+      }
+      return (
+        <div style={s('display:flex;flex-direction:column;gap:3px;background:#0a0f1a;border:1px solid #1d2840;border-radius:8px;padding:9px 11px;margin-top:-3px;')}>
+          {rule(pw.length >= 10, true, 'At least 10 characters')}
+          {rule(false, false, 'Not a common or easily guessed password')}
+          {rule(false, false, 'Not found in a known data breach')}
+        </div>
+      )
+    }
     const banners = (
       <>
         {mode === 'signin' && errText && <div style={s("font:400 11.5px/1.5 'IBM Plex Sans';color:#ffb4b4;background:#2a1115;border:1px solid #4a1f25;border-radius:8px;padding:10px 12px;")}>{errText}</div>}
@@ -992,7 +1024,8 @@ export default class App extends React.Component {
     } else if (mode === 'reset') {
       body = (<>
         {banners}
-        {field('New password', this.state.pwPass, (v) => this.setState({ pwPass: v }), 'password', () => this._confirmReset())}
+        {field('New password', this.state.pwPass, (v) => this.setState({ pwPass: v }), 'password', () => this._confirmReset(), 'At least 10 characters')}
+        {pwPolicy()}
         {field('Confirm password', this.state.pwPass2, (v) => this.setState({ pwPass2: v }), 'password', () => this._confirmReset())}
         <div onClick={() => this._confirmReset()} style={primaryBtn}>{busy ? '…' : 'Set password'}</div>
       </>)
@@ -1033,7 +1066,8 @@ export default class App extends React.Component {
             {field('First name', this.state.pwFirst, (v) => this.setState({ pwFirst: v }), 'text', () => this._acceptPassword(), 'Optional')}
             {field('Last name', this.state.pwLast, (v) => this.setState({ pwLast: v }), 'text', () => this._acceptPassword(), 'Optional')}
           </div>
-          {field('Create password', this.state.pwPass, (v) => this.setState({ pwPass: v }), 'password', () => this._acceptPassword(), 'At least 8 characters')}
+          {field('Create password', this.state.pwPass, (v) => this.setState({ pwPass: v }), 'password', () => this._acceptPassword(), 'At least 10 characters')}
+          {pwPolicy()}
           {field('Confirm password', this.state.pwPass2, (v) => this.setState({ pwPass2: v }), 'password', () => this._acceptPassword())}
           <div onClick={() => this._acceptPassword()} style={primaryBtn}>{busy ? '…' : 'Accept & enter'}</div>
           {orRule}
