@@ -114,15 +114,15 @@ def auth_disabled() -> bool:
     return os.environ.get("UOIG_AUTH_DISABLED", "").lower() in ("1", "true", "yes")
 
 
-def pm_role() -> str:
-    """The WorkOS role slug that may invite teammates (the PM). Override per the
-    dashboard's role slug via WORKOS_PM_ROLE."""
-    return (os.environ.get("WORKOS_PM_ROLE") or "pm").strip()
+def admin_role() -> str:
+    """The WorkOS role slug that may invite teammates (the Admin). Override per the
+    dashboard's role slug via WORKOS_ADMIN_ROLE."""
+    return (os.environ.get("WORKOS_ADMIN_ROLE") or "admin").strip()
 
 
-def is_pm(role) -> bool:
-    """True if `role` is the PM role (case-insensitive)."""
-    return bool(role) and str(role).strip().lower() == pm_role().lower()
+def is_admin(role) -> bool:
+    """True if `role` is the Admin role (case-insensitive)."""
+    return bool(role) and str(role).strip().lower() == admin_role().lower()
 
 
 def configured() -> bool:

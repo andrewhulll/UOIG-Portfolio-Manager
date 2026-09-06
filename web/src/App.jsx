@@ -403,10 +403,22 @@ export default class App extends React.Component {
         if (r && r.needsVerification) { this.setState({ pwBusy: false, signMode: 'verify', pendingToken: r.pendingToken, pwOk: 'Enter the code we emailed you to finish setting up your account.' }); return }
         this._afterLogin()
       })
-      .catch((e) => this.setState({ pwBusy: false, pwMsg: String(e).includes('409')
-        ? 'That account already exists — sign in instead, or use Continue with Google.'
-        : String(e).includes('401') ? 'Could not set the password. Try Continue with Google.'
-        : 'Could not complete setup. Try again.' }))
+      .catch((e) => {
+        const status = e?.status
+        const detail = e?.detail
+        const msg = status === 409
+          ? (detail || 'That account already exists. Use Forgot / set password, then reopen this invitation.')
+          : status === 400
+            ? (detail || 'WorkOS rejected the account details. Check the password requirements and try again.')
+            : status === 404
+              ? 'This invitation is invalid or expired. Ask your PM to send a new one.'
+              : status === 503
+                ? 'Password sign-up is temporarily unavailable. Try again shortly or use Google.'
+                : status === 401
+                  ? 'Could not set the password. Try Continue with Google.'
+                  : 'Could not complete setup. Try again.'
+        this.setState({ pwBusy: false, pwMsg: msg })
+      })
   }
 
   _loadData() {
@@ -945,7 +957,7 @@ export default class App extends React.Component {
   _renderSignIn() {
     const err = this.state.authErr
     const errText = err === 'not_invited'
-      ? 'That account isn’t on the invite list. Access is invite-only — ask your PM to send an invitation.'
+      ? 'That account isn’t on the invite list. Access is invite-only — ask an admin to send an invitation.'
       : (err === 'bad_state' || err === 'auth_failed')
         ? 'Sign-in didn’t complete. Please try again.'
         : null
@@ -1007,8 +1019,8 @@ export default class App extends React.Component {
       } else if (info === 'invalid' || !info.pending) {
         const msg = info === 'invalid' ? 'This invitation link is invalid or could not be found.'
           : info.state === 'accepted' ? 'This invitation was already accepted — just sign in below.'
-          : info.state === 'revoked' ? 'This invitation was revoked. Ask your PM to send a new one.'
-          : 'This invitation has expired. Ask your PM to resend it.'
+          : info.state === 'revoked' ? 'This invitation was revoked. Ask an admin to send a new one.'
+          : 'This invitation has expired. Ask an admin to resend it.'
         body = (<>
           <div style={s("font:400 11.5px/1.6 'IBM Plex Sans';color:#ffb4b4;background:#2a1115;border:1px solid #4a1f25;border-radius:8px;padding:11px 13px;")}>{msg}</div>
           <div onClick={() => this.setState({ signMode: 'signin', pwMsg: '', pwOk: '' })} style={primaryBtn}>Go to sign in</div>

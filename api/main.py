@@ -33,7 +33,7 @@ from api.build import FUND_META, build_terminal_data  # noqa: E402
 from src.auth import sessions as auth_sessions  # noqa: E402
 from src.auth import invitations as auth_invites  # noqa: E402
 from src.auth import workos_client as wc  # noqa: E402
-from workos._errors import (AuthenticationError, BadRequestError,  # noqa: E402
+from workos._errors import (AuthenticationError, BadRequestError, ConflictError,  # noqa: E402
                             EmailPasswordAuthDisabledError,
                             EmailVerificationRequiredError,
                             UnprocessableEntityError, WorkOSError)
@@ -274,7 +274,7 @@ def auth_accept_password(payload: dict):
             (payload.get("firstName") or "").strip(),
             (payload.get("lastName") or "").strip(),
         )
-    except (BadRequestError, UnprocessableEntityError) as exc:
+    except (BadRequestError, ConflictError, UnprocessableEntityError) as exc:
         # "Email already in use" is benign — the invitee started before, so fall
         # through and authenticate. Any OTHER create failure must surface (don't
         # silently swallow it and 401 later with a misleading message).
@@ -302,7 +302,12 @@ def auth_accept_password(payload: dict):
         log.warning("accept-password: auth failed for %s (existed=%s): %s",
                     inv.email, user_existed, getattr(exc, "message", exc))
         if user_existed:
-            raise HTTPException(409, "account_exists")
+            raise HTTPException(
+                409,
+                "An account already exists for this email. If an earlier invite attempt "
+                "created it without a password, use Forgot / set password, then reopen "
+                "this invitation and enter that password.",
+            )
         raise HTTPException(401, "could not complete sign-in")
     except WorkOSError as exc:
         log.exception("accept-password: unexpected WorkOS error for %s", inv.email)
@@ -316,12 +321,12 @@ def auth_me(request: Request):
     if wc.auth_disabled():
         return {"user": {"id": "dev", "email": "dev@local", "name": "Dev User",
                          "firstName": "Dev", "lastName": "User", "profilePictureUrl": None},
-                "role": wc.pm_role(), "canInvite": True}
+                "role": wc.admin_role(), "canInvite": True}
     res, new_sealed = _current(request)
     if res is None:
         raise HTTPException(401, "not authenticated")
     payload, role = auth_sessions.user_payload(res)
-    resp = JSONResponse({"user": payload, "role": role, "canInvite": wc.is_pm(role)})
+    resp = JSONResponse({"user": payload, "role": role, "canInvite": wc.is_admin(role)})
     if new_sealed:
         _set_session_cookie(resp, new_sealed)
     return resp
@@ -336,14 +341,14 @@ def auth_logout():
 
 @app.post("/api/auth/invite")
 def auth_invite(request: Request, payload: dict):
-    """Invite a teammate by email. PM-only (the first role-gated action); enforced
+    """Invite a teammate by email. Admin-only (the first role-gated action); enforced
     server-side as well as hidden in the UI. Invites can also be sent from the dashboard."""
     if not wc.auth_disabled():
         res, _ = _current(request)
         if res is None:
             raise HTTPException(401, "not authenticated")
-        if not wc.is_pm(getattr(res, "role", None)):
-            raise HTTPException(403, "only a PM can invite teammates")
+        if not wc.is_admin(getattr(res, "role", None)):
+            raise HTTPException(403, "only an admin can invite teammates")
     if not wc.configured():
         raise HTTPException(503, "WorkOS is not configured on the server")
     email = (payload.get("email") or "").strip()

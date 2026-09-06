@@ -4,7 +4,22 @@
 // credentials:'include' sends the session cookie on every call — required when the
 // frontend and backend are on different origins (and harmless same-origin).
 const BASE = import.meta.env.VITE_API_BASE || ''
-const j = (r) => { if (!r.ok) throw new Error(r.status); return r.json() }
+const j = async (r) => {
+  if (!r.ok) {
+    let detail = ''
+    try {
+      const body = await r.json()
+      detail = body?.detail || body?.message || ''
+    } catch (_) {
+      // Some proxy/platform failures return HTML or an empty body.
+    }
+    const error = new Error(detail ? `${r.status}: ${detail}` : String(r.status))
+    error.status = r.status
+    error.detail = detail
+    throw error
+  }
+  return r.json()
+}
 const get = (path) => fetch(`${BASE}${path}`, { credentials: 'include' }).then(j)
 const post = (path, body) =>
   fetch(`${BASE}${path}`, {
