@@ -5,7 +5,9 @@ Tables
 securities    Intrinsic, ticker-keyed reference data (name, sector, cap, type).
 holdings      Current positions per fund (shares, cost basis, benchmark weight).
 transactions  Trade ledger (buys/sells/dividends/fees) — populated going forward.
-prices        Daily price history per ticker (cached from the data provider).
+daily_prices  Capital IQ OHLCV history; the dashboard's price cache.
+prices        Legacy workbook snapshots retained only as a cash/fallback source.
+price_refresh_runs  Durable success/failure log for each nightly price refresh.
 dividends     Dividend history per ticker.
 benchmarks    Index level history (IWV, IWM, SPY, ...).
 nav_history   Daily fund value and net external cash flow (for TWR).
@@ -61,6 +63,29 @@ CREATE TABLE IF NOT EXISTS prices (
     adj_close  REAL,
     source     TEXT,
     PRIMARY KEY (ticker, date)
+);
+
+CREATE TABLE IF NOT EXISTS daily_prices (
+    ticker      TEXT NOT NULL,
+    date        DATE NOT NULL,
+    open        NUMERIC,
+    high        NUMERIC,
+    low         NUMERIC,
+    close       NUMERIC,
+    volume      BIGINT,
+    fetched_at  TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (ticker, date)
+);
+
+CREATE TABLE IF NOT EXISTS price_refresh_runs (
+    run_id              TEXT PRIMARY KEY,
+    started_at          TIMESTAMPTZ NOT NULL,
+    finished_at         TIMESTAMPTZ,
+    status              TEXT NOT NULL CHECK (status IN ('running', 'success', 'partial', 'failed')),
+    tickers_total       INTEGER NOT NULL DEFAULT 0,
+    tickers_succeeded   INTEGER NOT NULL DEFAULT 0,
+    rows_upserted       INTEGER NOT NULL DEFAULT 0,
+    error               TEXT
 );
 
 CREATE TABLE IF NOT EXISTS dividends (
@@ -124,7 +149,7 @@ CREATE TABLE IF NOT EXISTS benchmark_sectors (
 
 _TABLES = [
     "import_meta", "fundamentals", "benchmark_holdings", "benchmark_sectors",
-    "nav_history", "benchmarks", "dividends",
+    "nav_history", "benchmarks", "dividends", "price_refresh_runs", "daily_prices",
     "prices", "transactions", "holdings", "securities",
 ]
 

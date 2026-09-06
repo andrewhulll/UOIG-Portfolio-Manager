@@ -40,7 +40,10 @@ from workos._errors import (AuthenticationError, BadRequestError,  # noqa: E402
 from src.analytics.pnl import load_positions  # noqa: E402
 from src.ingest.research import stock_research  # noqa: E402
 from src.ingest.lookup import (search_symbols, quote_overview,  # noqa: E402
-                               live_series, institutional_holders)
+                               live_series, institutional_holders,
+                               HeldPriceCacheMiss)
+from src.ingest.capital_iq import (CapitalIQConfigurationError,  # noqa: E402
+                                   validate_ticker)
 from src.ingest.predictions import stock_predictions  # noqa: E402
 from src.ingest.thesis import stock_thesis  # noqa: E402
 from src.assistant import answer as llm_answer, api_key as llm_key  # noqa: E402
@@ -50,6 +53,7 @@ from src.analytics.optimize import (fund_diagnostics, solve_optimizer,  # noqa: 
 from src.analytics.series import (price_frame, period_return, synthetic_index,  # noqa: E402
                                   ticker_series, trailing_return)
 from src.config import db_path, load_config  # noqa: E402
+from src.model import db, schema  # noqa: E402
 from src.model.schema import get_connection  # noqa: E402
 
 CFG = load_config()
@@ -350,30 +354,9 @@ def auth_invite(request: Request, payload: dict):
 
 
 def _conn():
-    return get_connection(db_path(CFG))
-
-
-def _held_tickers() -> list[str]:
-    """Current non-cash holdings — the universe the live-price poller refreshes."""
-    conn = _conn()
-    try:
-        return [r[0] for r in conn.execute(
-            "SELECT ticker FROM securities WHERE sec_type != 'cash'")]
-    finally:
-        conn.close()
-
-
-@app.on_event("startup")
-def _start_live_prices() -> None:
-    """Refresh held-ticker quotes on a background thread (market hours only), so
-    /api/data serves live spot prices while everything else stays nightly."""
-    from src.ingest.live_prices import start as _start_poller
-    interval = float((CFG.get("market_data") or {}).get("live_interval_seconds", 45))
-    try:
-        _start_poller(_held_tickers, interval=interval)
-        log.info("live-price poller started (interval=%ss)", interval)
-    except Exception:  # noqa: BLE001 — never block startup on the poller
-        log.exception("live-price poller failed to start")
+    conn = get_connection(db_path(CFG))
+    schema.create_schema(conn)
+    return conn
 
 
 def _fund_name(key: str):
@@ -416,6 +399,10 @@ def data():
 
 @app.get("/api/series/{ticker}")
 def series(ticker: str, period: str = "YTD"):
+    try:
+        ticker = validate_ticker(ticker)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
     conn = _conn()
     try:
         pf = price_frame(conn)
@@ -423,32 +410,69 @@ def series(ticker: str, period: str = "YTD"):
         if s["close"]:
             return {"ticker": ticker, "period": period,
                     "ret": period_return(pf, ticker, period), **s}
+        held = conn.execute(db.q(conn, "SELECT 1 FROM holdings WHERE ticker=? LIMIT 1"),
+                            (ticker,)).fetchone()
     finally:
         conn.close()
-    # Not a portfolio holding — pull a live series straight from yfinance.
-    live = live_series(ticker, period)
+    # Non-held names are fetched live and never written to the cache table.
+    if held:
+        raise HTTPException(503, f"{ticker} is held but its nightly price cache is empty")
+    try:
+        live = live_series(ticker, period)
+    except CapitalIQConfigurationError as exc:
+        raise HTTPException(503, str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"Capital IQ series fetch failed: {exc}")
     if not live["close"]:
         raise HTTPException(404, f"no series for {ticker}")
-    return {"ticker": ticker.upper(), "period": period, **live}
+    return JSONResponse({"ticker": ticker, "period": period, **live}, headers={
+        "Cache-Control": "public, max-age=300, s-maxage=300",
+    })
 
 
 @app.get("/api/search")
 def search(q: str = "", limit: int = 8):
-    """Yahoo Finance symbol search (equities only) for the global search box."""
-    return {"results": search_symbols(q, limit)}
+    """Held names locally, then a five-minute cached Capital IQ search."""
+    conn = _conn()
+    try:
+        results = search_symbols(q, limit, conn=conn)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except CapitalIQConfigurationError as exc:
+        raise HTTPException(503, str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"Capital IQ search failed: {exc}")
+    finally:
+        conn.close()
+    return JSONResponse({"results": results}, headers={
+        "Cache-Control": "public, max-age=300, s-maxage=300",
+    })
 
 
 @app.get("/api/quote/{ticker}")
 def quote(ticker: str):
     """Live overview for any equity, so off-portfolio tickers can open a stock
     page. Returns 404 for non-equities / unknown symbols."""
+    conn = _conn()
     try:
-        ov = quote_overview(ticker)
+        ov = quote_overview(ticker, conn=conn)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except CapitalIQConfigurationError as exc:
+        raise HTTPException(503, str(exc))
+    except HeldPriceCacheMiss as exc:
+        raise HTTPException(503, str(exc))
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(502, f"quote fetch failed: {exc}")
+        raise HTTPException(502, f"Capital IQ quote fetch failed: {exc}")
+    finally:
+        conn.close()
     if ov is None:
         raise HTTPException(404, f"no equity quote for {ticker}")
-    return ov
+    if ov.get("held"):
+        return ov
+    return JSONResponse(ov, headers={
+        "Cache-Control": "public, max-age=300, s-maxage=300",
+    })
 
 
 @app.get("/api/holders/{ticker}")

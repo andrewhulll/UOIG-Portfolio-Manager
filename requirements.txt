@@ -3,8 +3,11 @@ openpyxl>=3.1          # read the source workbook (seed only)
 pandas>=2.0
 numpy>=1.26
 pyyaml>=6.0
-yfinance>=0.2.40       # market data: prices, dividends, fundamentals
+yfinance>=0.2.40       # legacy research/fundamentals/holders only (not price data)
 requests>=2.31         # Alpha Vantage ETF_PROFILE (benchmark constituents)
+
+# Capital IQ's licensed spgmi_api_sdk is not published on PyPI. Install the
+# S&P-provided tarball separately (CI uses the CIQ_SDK_URL repository secret).
 
 # API backend (serves the React terminal in web/)
 fastapi>=0.110
