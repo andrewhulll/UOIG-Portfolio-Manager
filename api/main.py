@@ -1,4 +1,4 @@
-"""FastAPI backend for the UOIG Endowment Terminal
+"""FastAPI backend for the UOIG Investment Terminal
 
 Serves the React frontend's data from the existing analytics layer. Run:
     python -m uvicorn api.main:app --reload --port 8000
@@ -57,7 +57,7 @@ from src.model import db, schema  # noqa: E402
 from src.model.schema import get_connection  # noqa: E402
 
 CFG = load_config()
-app = FastAPI(title="UOIG Endowment Terminal API")
+app = FastAPI(title="UOIG Investment Terminal API")
 # Same-origin dev: wildcard CORS, no credentials. Split deploy (Vercel frontend +
 # separate backend): set CORS_ORIGINS to the exact frontend origin(s) so cookies
 # can ride cross-site (credentials require a non-wildcard origin). The middleware
@@ -73,6 +73,13 @@ _CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(","
 # The SPA (static mount at /) stays public; the client redirects to sign-in.
 # ---------------------------------------------------------------------------
 _AUTH_PUBLIC = ("/api/health", "/api/auth/")
+
+# Surface a closed invite gate at boot: with WorkOS configured but no org id,
+# is_member() fails closed and denies every sign-in. Warn so operators notice
+# before users hit a wall of "not invited".
+if wc.configured() and not wc.org_id() and not wc.auth_disabled():
+    log.warning("WorkOS is configured but WORKOS_ORG_ID is unset — the invite "
+                "gate is closed and all sign-ins will be denied until it is set.")
 
 
 def _set_session_cookie(resp, sealed: str) -> None:
@@ -656,7 +663,7 @@ def _chat_system(conn, context: str) -> str:
     data = build_terminal_data(CFG, conn)
     lines = [
         "You are the research co-pilot embedded in the University of Oregon Investment "
-        "Group (UOIG) endowment terminal. You help the portfolio manager reason about the "
+        "Group (UOIG) investment terminal. You help the portfolio manager reason about the "
         "Tall Firs and Alumni Fund portfolios.",
         "Be concise and specific; ground every claim in the data below. Use plain text "
         "with **bold** for key figures. If something isn't in the data, say so rather than "

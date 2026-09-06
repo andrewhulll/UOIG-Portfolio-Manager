@@ -19,6 +19,7 @@ import pandas as pd
 import yfinance as yf
 
 from src.ingest.providers import to_yf
+from src.model import cache
 
 _CACHE: dict[str, tuple[float, dict]] = {}
 _TTL = 900  # seconds
@@ -401,6 +402,10 @@ def stock_research(ticker: str) -> dict:
     hit = _CACHE.get(ticker)
     if hit and (now - hit[0]) < _TTL:
         return hit[1]
+    cached = cache.get("research", ticker)
+    if cached is not cache.MISS:
+        _CACHE[ticker] = (now, cached)
+        return cached
 
     tk = yf.Ticker(to_yf(ticker))
     financials, rev_summary = _financials(tk)
@@ -412,4 +417,8 @@ def stock_research(ticker: str) -> dict:
         "research": _research(tk),
     }
     _CACHE[ticker] = (now, payload)
+    # Persist only when a section actually resolved, so a transient yfinance
+    # failure (every section empty) doesn't poison the shared cache for 15 min.
+    if any(payload[k] for k in ("financials", "earnings", "news", "research")):
+        cache.set("research", ticker, payload, _TTL)
     return payload

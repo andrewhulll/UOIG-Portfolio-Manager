@@ -16,6 +16,8 @@ from pathlib import Path
 
 import requests
 
+from src.model import cache
+
 try:
     from zoneinfo import ZoneInfo
     _ET = ZoneInfo("America/New_York")
@@ -162,6 +164,10 @@ def stock_predictions(ticker: str) -> dict:
     hit = _CACHE.get(ticker)
     if hit and (now - hit[0]) < _TTL:
         return hit[1]
+    cached = cache.get("predictions", ticker)
+    if cached is not cache.MISS:
+        _CACHE[ticker] = (now, cached)
+        return cached
 
     entries = load_market_map().get(ticker, [])
     cards = []
@@ -174,4 +180,6 @@ def stock_predictions(ticker: str) -> dict:
             cards.append(c)
     payload = {"ticker": ticker, "cards": cards}
     _CACHE[ticker] = (now, payload)
+    if cards:
+        cache.set("predictions", ticker, payload, _TTL)
     return payload

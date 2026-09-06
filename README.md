@@ -1,4 +1,4 @@
-# UOIG Endowment Terminal
+# UOIG Investment Terminal
 
 A Bloomberg-style portfolio terminal for the **Tall Firs** and **Alumni Fund**
 portfolios: live market data, P&L, holding-period returns, 3-year daily beta,
