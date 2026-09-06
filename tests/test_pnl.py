@@ -27,11 +27,13 @@ def _seed(tmp: str) -> dict:
     cfg["database"] = str(Path(tmp) / "t.db")
     import_workbook(cfg)
     conn = get_connection(cfg["database"])
-    # synthetic live prices for AAPL: prev=100, latest=110 (override snapshot)
+    # synthetic Capital IQ cache prices for AAPL: prev=100, latest=110
     conn.executemany(
-        "INSERT OR REPLACE INTO prices (ticker, date, close, adj_close, source)"
-        " VALUES (?, ?, ?, ?, 'yfinance')",
-        [("AAPL", "2026-06-24", 100.0, 100.0), ("AAPL", "2026-06-25", 110.0, 110.0)],
+        "INSERT OR REPLACE INTO daily_prices "
+        "(ticker, date, open, high, low, close, volume, fetched_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [("AAPL", "2026-06-24", 99, 101, 98, 100.0, 1000, "2026-06-25T01:00:00Z"),
+         ("AAPL", "2026-06-25", 108, 111, 107, 110.0, 1200, "2026-06-26T01:00:00Z")],
     )
     # a dividend after AAPL's entry date (2022-01-27)
     conn.execute("INSERT OR REPLACE INTO dividends (ticker, ex_date, amount)"

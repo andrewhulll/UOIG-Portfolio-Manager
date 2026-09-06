@@ -26,9 +26,10 @@ def _seed(tmp):
     rows = [("AAPL", "2022-01-27", 100.0), ("AAPL", "2026-06-25", 150.0),
             ("IWV", "2022-01-27", 100.0), ("IWV", "2026-06-25", 120.0)]
     conn.executemany(
-        "INSERT OR REPLACE INTO prices (ticker, date, close, adj_close, source)"
-        " VALUES (?, ?, ?, ?, 'yfinance')",
-        [(t, d, p, p) for t, d, p in rows])
+        "INSERT OR REPLACE INTO daily_prices "
+        "(ticker, date, open, high, low, close, volume, fetched_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [(t, d, p, p, p, p, 1000, "2026-06-26T01:00:00Z") for t, d, p in rows])
     conn.commit()
     return cfg, conn
 

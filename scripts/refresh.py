@@ -28,7 +28,7 @@ def main() -> None:
     cfg = load_config()
     s = refresh(cfg, history_years=args.years, full=args.full)
     print(f"Refreshed {s['tickers']} tickers: "
-          f"{s['prices']} price rows, {s['dividends']} dividends")
+          f"{s['prices']} Capital IQ price rows ({s['status']}, run {s['run_id']})")
     if s["failed"]:
         print(f"  failed ({len(s['failed'])}): {', '.join(s['failed'])}")
 
@@ -46,6 +46,9 @@ def main() -> None:
             print(f"Benchmark holdings pull failed: {exc}")
     else:
         print("Benchmark holdings skipped (no Alpha Vantage key)")
+
+    if s["failed"]:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

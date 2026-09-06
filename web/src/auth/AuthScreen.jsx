@@ -183,6 +183,9 @@ export default class AuthScreen extends React.Component {
       .catch((e) => this.setState({ busy: false, msg: this._acceptErr(e) }))
   }
   _acceptErr(e) {
+    if (e?.status === 409) return e.detail || 'That account already exists. Use Forgot / set password, then reopen this invitation.'
+    if (e?.status === 400) return e.detail || 'WorkOS rejected the account details. Check the password requirements and try again.'
+    if (e?.status === 503) return 'Password sign-up is temporarily unavailable. Try again shortly or use Google.'
     const c = String(e)
     if (c.includes('409')) return 'An account already exists for this invite. Sign in below, or continue with Google.'
     if (c.includes('401')) return 'Could not sign you in after creating the account. Try signing in below.'

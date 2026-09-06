@@ -24,14 +24,13 @@ TRADING_DAYS = 252
 
 def daily_returns_matrix(conn: sqlite3.Connection, years: float) -> pd.DataFrame:
     """Wide (date x ticker) daily simple returns over the trailing window."""
-    p = pd.read_sql(
-        "SELECT ticker, date, adj_close FROM prices WHERE source = 'yfinance'", conn)
+    p = pd.read_sql("SELECT ticker, date, close FROM daily_prices", conn)
     if p.empty:
         return pd.DataFrame()
     p["date"] = pd.to_datetime(p["date"])
     cutoff = p["date"].max() - pd.Timedelta(days=int(years * 365.25))
     p = p[p["date"] >= cutoff]
-    wide = p.pivot(index="date", columns="ticker", values="adj_close").sort_index()
+    wide = p.pivot(index="date", columns="ticker", values="close").sort_index()
     return wide.pct_change()
 
 

@@ -1,11 +1,11 @@
 """Durable, dialect-agnostic API cache: (namespace, key) -> JSON payload + TTL.
 
 Backs the in-memory caches in ``src/ingest/*`` with a row in the shared store
-(SQLite locally, Supabase/Postgres in prod) so cached yfinance / Kalshi results
+(SQLite locally, Supabase/Postgres in prod) so cached Capital IQ / yfinance / Kalshi results
 survive restarts and are shared across instances — cutting repeat calls and the
 rate-limiting (HTTP 429) that follows.
 
-yfinance stays the source of truth: this only stores what a fetch already
+The upstream provider stays the source of truth: this only stores what a fetch already
 returned. Every operation **fails soft** — any DB error (or a non-serializable
 value) is treated as a cache miss / skipped write, so a cache problem can never
 break a request; the caller just falls through to a live fetch.

@@ -333,7 +333,7 @@ export default class App extends React.Component {
       .catch((e) => this.setState({ inviteState: 'error', inviteMsg: String(e).includes('503') ? 'WorkOS isn’t configured yet.' : 'Could not send invite. Try again.' }))
   }
 
-  // Initials for the nav-rail avatar, from the signed-in user (falls back to 'PM').
+  // Initials for the header avatar, from the signed-in user (falls back to 'PM').
   _userInitials() {
     const u = (this.state.auth && this.state.auth.user) || null
     if (!u) return 'PM'
@@ -360,7 +360,7 @@ export default class App extends React.Component {
     return (
       <>
         <div onClick={() => this.setState({ profileOpen: false })} style={s('position:fixed;inset:0;z-index:90;')}></div>
-        <div style={s('position:fixed;left:12px;bottom:14px;width:264px;background:#0e1422;border:1px solid #1d2840;border-radius:12px;box-shadow:0 20px 56px rgba(0,0,0,.6);z-index:91;overflow:hidden;')}>
+        <div style={s('position:fixed;right:12px;top:56px;width:264px;background:#0e1422;border:1px solid #1d2840;border-radius:12px;box-shadow:0 20px 56px rgba(0,0,0,.6);z-index:91;overflow:hidden;')}>
           <div style={s('display:flex;align-items:center;gap:11px;padding:15px;border-bottom:1px solid #1d2840;')}>
             {this._avatar(38, 13)}
             <div style={s('min-width:0;')}>
@@ -890,6 +890,8 @@ export default class App extends React.Component {
           <div style={s('flex:1;')}></div>
           <div style={s("display:flex;align-items:center;gap:7px;font-family:'IBM Plex Mono';font-size:11px;color:#9aa7c2;")}><span style={{ ...s('width:7px;height:7px;border-radius:50%;'), background: v.marketOpen ? '#21d07a' : '#6b7794', animation: v.marketOpen ? 'pulseDot 2s infinite' : 'none' }}></span>{v.marketOpen ? 'MARKETS OPEN' : 'MARKETS CLOSED'}</div>
           <div style={s("font-family:'IBM Plex Mono';font-size:11px;color:#6b7794;")}>{v.asOf}</div>
+          <div onClick={() => this.setState((st) => ({ profileOpen: !st.profileOpen }))} title={(this.state.auth && this.state.auth.user && (this.state.auth.user.name || this.state.auth.user.email)) || 'Profile'} className="dc-hover" style={s('cursor:pointer;display:flex;')}>{this._avatar(28, 10.5)}</div>
+          {this.state.profileOpen && this._renderProfileMenu()}
         </div>
 
         {/* BODY */}
@@ -899,9 +901,7 @@ export default class App extends React.Component {
             {v.nav.map((item) => (
               <div key={item.key} onClick={item.on} title={item.label} className="dc-hover" style={{ ...s('width:40px;height:38px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;'), background: item.bg, color: item.color }}>{item.icon}</div>
             ))}
-            <div onClick={() => this.setState((st) => ({ profileOpen: !st.profileOpen }))} title={(this.state.auth && this.state.auth.user && (this.state.auth.user.name || this.state.auth.user.email)) || 'Profile'} className="dc-hover" style={s('margin-top:auto;cursor:pointer;display:flex;')}>{this._avatar(28, 10.5)}</div>
           </div>
-          {this.state.profileOpen && this._renderProfileMenu()}
 
           {/* MAIN */}
           <div ref={this.mainRef} style={s('flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;')}>

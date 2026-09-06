@@ -42,7 +42,7 @@ The frontend talks to these JSON endpoints (Vite proxies `/api` to `:8000` in de
 | `POST /api/auth/password-reset/confirm` | Set a new password from a reset token |
 | `GET /api/auth/me` | Current user + role, or 401 |
 | `POST /api/auth/logout` | Clear the session cookie |
-| `POST /api/auth/invite` | Invite a teammate by email (**PM role only**) |
+| `POST /api/auth/invite` | Invite a teammate by email (**Admin role only**) |
 
 Every `/api/*` route except `/api/health` and `/api/auth/*` requires a valid session
 (see **Authentication** below).
@@ -61,14 +61,14 @@ only people invited by email can get an account. Sign in with **Google** or
 an invited user sets their first password). Auth is handled by **WorkOS User
 Management / AuthKit**; the backend code lives in `src/auth/` (`workos_client`, `sessions`,
 `invitations`) and the routes in `api/main.py`. Roles are read from WorkOS and surfaced;
-only the invite action is role-gated (PM) so far.
+only the invite action is role-gated (Admin) so far.
 
 **One-time WorkOS dashboard setup**
 - Enable AuthKit / User Management; add a **Google OAuth** connection **and** enable the **Email + Password** auth method.
-- Create an **Organization** (its membership is the invite gate) and define roles (e.g. `pm`, `analyst`).
+- Create an **Organization** (its membership is the invite gate) and define the three roles: `admin`, `sector-leader`, `analyst`.
 - Add the OAuth redirect URI: dev `http://localhost:5173/api/auth/callback`, prod `https://<domain>/api/auth/callback`.
 - Set the **password-reset redirect URL** to the app with a `reset` marker: dev `http://localhost:5173/?reset=1`, prod `https://<domain>/?reset=1` (WorkOS appends the `token`; the SPA shows the set-password form).
-- Invite teammates by email (dashboard, or `POST /api/auth/invite` — PM only).
+- Invite teammates by email (dashboard, or `POST /api/auth/invite` — admin only).
 
 **Secrets / config** (env var first, else a git-ignored `*.txt` at repo root — same pattern as `anthropic.key.txt`):
 
@@ -79,15 +79,15 @@ only the invite action is role-gated (PM) so far.
 | `WORKOS_COOKIE_PASSWORD` | `workos.cookie.txt` | 32+ chars; seals the session cookie |
 | `WORKOS_ORG_ID` | `workos.org.txt` | the invite-only org |
 | `WORKOS_REDIRECT_URI` | — | defaults to `http://localhost:5173/api/auth/callback` |
-| `WORKOS_PM_ROLE` | — | role slug allowed to invite teammates (default `pm`) |
+| `WORKOS_ADMIN_ROLE` | — | role slug allowed to invite teammates (default `admin`) |
 | `UOIG_COOKIE_SECURE` | — | set `1` in production (HTTPS) for Secure cookies |
 | `UOIG_AUTH_DISABLED` | — | **dev only** — bypass the gate; never set in production |
 
 **Profile menu.** The nav-rail avatar opens a profile menu: Google photo (initials
-fallback), name, email, role badge, and Sign out. Users whose role is the PM role
-(`WORKOS_PM_ROLE`) also get an inline **Invite teammate** form — invite is the one
+fallback), name, email, role badge, and Sign out. Users whose role is the Admin role
+(`WORKOS_ADMIN_ROLE`) also get an inline **Invite teammate** form — invite is the one
 role-gated action and is enforced server-side (`POST /api/auth/invite` returns `403`
-for non-PMs), not just hidden in the UI.
+for non-admins), not just hidden in the UI.
 
 Until the three secrets are set, the app stays locked: the sign-in page shows and every
 data route returns `401`. For local UI work without WorkOS, set `UOIG_AUTH_DISABLED=1`.
@@ -157,7 +157,7 @@ configured, so after migrating you can run nightly refreshes straight against Su
 | E Packaging | done | Single-container Docker, this runbook, Streamlit retired |
 | F Global search | done | Yahoo Finance search + live quote/series; any equity opens a stock page (`src/ingest/lookup.py`) |
 | G Auth — sign-in | done | WorkOS invite-only Google OAuth; whole app gated; roles tracked (`src/auth/`) |
-| G2 Auth — profile menu | done | Profile dropdown (photo/name/email/role, sign out) + PM-only invite (`src/auth/`) |
+| G2 Auth — profile menu | done | Profile dropdown (photo/name/email/role, sign out) + admin-only invite (`src/auth/`) |
 | G3 Auth — email/password | done | Email + password sign-in + forgot/set-password reset, alongside Google |
 | H Database — Supabase | done | Dual-backend SQLite/Postgres; one-command migrate (`src/model/db.py`, `scripts/migrate_to_postgres.py`) |
 | Later | | Live Ask-Claude (Anthropic API); deploy backend host + frontend to Vercel |

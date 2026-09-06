@@ -22,40 +22,24 @@ from src.model.schema import get_connection
 def _latest_two(conn: sqlite3.Connection) -> pd.DataFrame:
     """Latest and previous close per ticker.
 
-    Live (yfinance) prices win over the xlsx snapshot regardless of date — the
-    snapshot is dated 'today' but is the stale manually-entered sheet price, so
-    it is used only as a fallback for tickers with no live data (i.e. cash).
+    Capital IQ cache prices win over the stale workbook snapshot. The snapshot
+    is only a fallback for tickers that do not have cached data (notably cash).
     """
-    p = pd.read_sql("SELECT ticker, date, close, source FROM prices", conn)
-    if p.empty:
-        return pd.DataFrame(columns=["ticker", "price", "prev_close"])
-
-    live = p[p.source != "xlsx_snapshot"].sort_values(["ticker", "date"])
-    last2 = live.groupby("ticker").tail(2)
+    live = pd.read_sql("SELECT ticker, date, close FROM daily_prices", conn)
+    last2 = live.sort_values(["ticker", "date"]).groupby("ticker").tail(2)
     res = pd.concat([
         last2.groupby("ticker").tail(1).set_index("ticker")["close"].rename("price"),
         last2.groupby("ticker").head(1).set_index("ticker")["close"].rename("prev_close"),
     ], axis=1)
     res.index.name = "ticker"
 
-    snap = (p[p.source == "xlsx_snapshot"].sort_values(["ticker", "date"])
+    snapshots = pd.read_sql(
+        "SELECT ticker, date, close FROM prices WHERE source='xlsx_snapshot'", conn)
+    snap = (snapshots.sort_values(["ticker", "date"])
             .groupby("ticker").tail(1).set_index("ticker")["close"])
     for tk, close in snap.items():
         if tk not in res.index:
             res.loc[tk] = {"price": close, "prev_close": close}
-
-    # Live intraday override: a fresh latest quote from the background poller
-    # (src.ingest.live_prices) wins over the nightly DB close so spot price, day
-    # change, weights and AUM are current. Quotes go stale outside market hours,
-    # so this is a no-op when the market is closed (DB close is used instead).
-    try:
-        from src.ingest.live_prices import overrides as _live_overrides
-        for tk, q in _live_overrides().items():
-            if tk in res.index:
-                res.loc[tk, "price"] = q["price"]
-                res.loc[tk, "prev_close"] = q["prev_close"]
-    except Exception:  # noqa: BLE001 — analytics must not depend on the poller
-        pass
 
     return res.reset_index()
 

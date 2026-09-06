@@ -1,13 +1,8 @@
-"""Live Yahoo Finance lookup for arbitrary equities (search + quote + series).
+"""Ticker search and off-portfolio pricing.
 
-Powers the terminal's global search box and lets any equity ticker — not just a
-portfolio holding — open a populated stock page. Everything here is read-only
-yfinance; results are cached in-process for a few minutes so re-querying is cheap.
-
-Three public helpers:
-  search_symbols(q)   -> [{symbol, name, exchange}]  (equities only)
-  quote_overview(t)   -> overview dict mirroring api/build.py holding fields
-  live_series(t, per) -> {dates, close, ret}  (same shape as analytics.series)
+Held names are resolved from the local database and ``daily_prices`` cache.
+Non-held search, quote, and chart requests call Capital IQ and are cached for
+five minutes. Yahoo remains only for the separate institutional-holders panel.
 """
 from __future__ import annotations
 
@@ -15,39 +10,50 @@ import datetime as dt
 import math
 import time
 
-import pandas as pd
 import yfinance as yf
 
+from src.ingest.capital_iq import CapitalIQProvider, validate_ticker
 from src.ingest.providers import to_yf
 from src.model import cache
 
 _SEARCH_CACHE: dict[str, tuple[float, list]] = {}
-_QUOTE_CACHE: dict[str, tuple[float, dict]] = {}
+_QUOTE_CACHE: dict[str, tuple[float, dict | None]] = {}
 _SERIES_CACHE: dict[str, tuple[float, dict]] = {}
 _HOLDERS_CACHE: dict[str, tuple[float, list]] = {}
-_TTL = 300  # seconds
-
-# yfinance history() period / interval per terminal period button.
-_YF_PERIOD = {"1M": "1mo", "3M": "3mo", "6M": "6mo", "YTD": "ytd", "1Y": "1y", "5Y": "5y"}
+_TTL = 300
+_CIQ_DAYS = {"1M": 30, "3M": 91, "6M": 182, "1Y": 365, "5Y": 1826}
 
 
-def _num(v):
+class HeldPriceCacheMiss(RuntimeError):
+    pass
+
+
+def _num(value):
     try:
-        f = float(v)
-        return None if (math.isnan(f) or math.isinf(f)) else f
+        result = float(value)
+        return None if math.isnan(result) or math.isinf(result) else result
     except (TypeError, ValueError):
         return None
 
 
-# ---------- search ----------
-def search_symbols(query: str, limit: int = 8) -> list[dict]:
-    """Yahoo Finance search, restricted to equities. Empty list on any failure."""
-    q = (query or "").strip()
-    if len(q) < 1:
-        return []
-    key = f"{q.lower()}|{limit}"
-    hit = _SEARCH_CACHE.get(key)
+def _ciq_provider() -> CapitalIQProvider:
+    return CapitalIQProvider()
+
+
+def _search_query(value: str) -> str:
+    query = (value or "").strip()
+    if not query or len(query) > 80 or not all(c.isalnum() or c in " .&-'" for c in query):
+        raise ValueError("search must be 1-80 letters, numbers, spaces, or basic punctuation")
+    return query
+
+
+def search_symbols(query: str, limit: int = 8, conn=None) -> list[dict]:
+    """Return held names locally first; otherwise query Capital IQ company search."""
+    q = _search_query(query)
+    limit = max(1, min(int(limit), 20))
+    key = f"ciq|{q.lower()}|{limit}"
     now = time.time()
+    hit = _SEARCH_CACHE.get(key)
     if hit and (now - hit[0]) < _TTL:
         return hit[1]
     cached = cache.get("search", key)
@@ -56,174 +62,119 @@ def search_symbols(query: str, limit: int = 8) -> list[dict]:
         return cached
 
     out: list[dict] = []
-    try:
-        res = yf.Search(q, max_results=max(limit * 3, 12), news_count=0)
-        for r in (res.quotes or []):
-            if r.get("quoteType") != "EQUITY":
-                continue
-            sym = r.get("symbol")
-            if not sym:
-                continue
-            name = r.get("longname") or r.get("shortname") or sym
-            exch = r.get("exchDisp") or r.get("exchange") or ""
-            out.append({"symbol": sym, "name": name, "exchange": exch})
+    if conn is not None:
+        like = f"%{q.upper()}%"
+        sql = (
+            "SELECT DISTINCT s.ticker, s.name FROM securities s "
+            "JOIN holdings h ON h.ticker=s.ticker "
+            "WHERE UPPER(s.ticker) LIKE ? OR UPPER(s.name) LIKE ? "
+            "ORDER BY s.ticker"
+        )
+        from src.model import db as _db
+        for ticker, name in conn.execute(_db.q(conn, sql), (like, like)).fetchall():
+            out.append({"symbol": ticker, "name": name or ticker, "exchange": ""})
             if len(out) >= limit:
                 break
-    except Exception:  # noqa: BLE001 — search is best-effort
-        out = []
 
+    # A local match is sufficient: held-name search must not depend on vendor
+    # uptime, credentials, or consume a live request merely to fill the menu.
+    if out:
+        _SEARCH_CACHE[key] = (now, out[:limit])
+        return out[:limit]
+
+    out = _ciq_provider().search_companies(q, limit=limit)
     _SEARCH_CACHE[key] = (now, out)
     if out:
         cache.set("search", key, out, _TTL)
     return out
 
 
-# ---------- quote / overview ----------
-def quote_overview(ticker: str) -> dict | None:
-    """Overview fields for any equity, shaped like a holding row so the stock
-    page can render off-portfolio names. Returns None if not a real equity."""
-    t = ticker.upper()
+def _cached_quote(conn, ticker: str) -> dict | None:
+    from src.model import db as _db
+    security = conn.execute(_db.q(conn,
+        "SELECT s.name, s.sector FROM securities s WHERE s.ticker=? "
+        "AND EXISTS (SELECT 1 FROM holdings h WHERE h.ticker=s.ticker)"),
+        (ticker,)).fetchone()
+    if not security:
+        return None
+    rows = conn.execute(_db.q(conn,
+        "SELECT date, close FROM daily_prices WHERE ticker=? ORDER BY date DESC LIMIT 2"),
+        (ticker,)).fetchall()
+    if not rows:
+        return None
+    price = _num(rows[0][1])
+    previous = _num(rows[1][1]) if len(rows) > 1 else None
+    if price is None:
+        return None
+    fundamentals = conn.execute(_db.q(conn,
+        "SELECT pe, pb, ev_ebitda, market_cap, week52_low, week52_high, description "
+        "FROM fundamentals WHERE ticker=?"), (ticker,)).fetchone()
+    values = fundamentals or [None] * 7
+    change = ((price / previous - 1) * 100) if previous else None
+    return {
+        "t": ticker, "n": security[0] or ticker, "s": security[1],
+        "industry": None, "exchange": "", "px": round(price, 2),
+        "chg": round(change, 2) if change is not None else None,
+        "mc": round(float(values[3]) / 1e9, 2) if values[3] else None,
+        "pe": _num(values[0]), "pb": _num(values[1]), "evEbitda": _num(values[2]),
+        "dy": None, "beta": None, "lo": _num(values[4]), "hi": _num(values[5]),
+        "desc": values[6], "currency": "USD", "held": True,
+    }
+
+
+def quote_overview(ticker: str, conn=None) -> dict | None:
+    """Use the database cache for a holding and Capital IQ live EOD otherwise."""
+    name = validate_ticker(ticker)
+    if conn is not None:
+        cached = _cached_quote(conn, name)
+        if cached is not None:
+            return cached
+        from src.model import db as _db
+        held = conn.execute(_db.q(conn, "SELECT 1 FROM holdings WHERE ticker=? LIMIT 1"),
+                            (name,)).fetchone()
+        if held:
+            raise HeldPriceCacheMiss(f"{name} is held but its nightly price cache is empty")
+
     now = time.time()
-    hit = _QUOTE_CACHE.get(t)
+    key = f"ciq|{name}"
+    hit = _QUOTE_CACHE.get(key)
     if hit and (now - hit[0]) < _TTL:
         return hit[1]
-    cached = cache.get("quote", t)
+    cached = cache.get("quote", key)
     if cached is not cache.MISS:
-        _QUOTE_CACHE[t] = (now, cached)
+        _QUOTE_CACHE[key] = (now, cached)
         return cached
 
-    tk = yf.Ticker(to_yf(t))
-    try:
-        info = tk.info or {}
-    except Exception:  # noqa: BLE001
-        info = {}
-
-    qtype = info.get("quoteType")
-    px = _num(info.get("currentPrice")) or _num(info.get("regularMarketPrice"))
-    if px is None:
-        try:
-            px = _num(tk.fast_info.get("last_price"))
-        except Exception:  # noqa: BLE001
-            px = None
-    # Reject non-equities and dead symbols (no price / no type).
-    if not info or qtype not in (None, "EQUITY") or px is None:
-        if qtype is not None and qtype != "EQUITY":
-            _QUOTE_CACHE[t] = (now, None)
-            return None
-    if px is None:
-        _QUOTE_CACHE[t] = (now, None)
+    frame = _ciq_provider().get_price_history(
+        [name], start=(dt.date.today() - dt.timedelta(days=14)).isoformat())
+    if frame.empty:
+        _QUOTE_CACHE[key] = (now, None)
+        cache.set("quote", key, None, _TTL)
         return None
-
-    prev = _num(info.get("regularMarketPreviousClose")) or _num(info.get("previousClose"))
-    chg = ((px - prev) / prev * 100) if (prev and px is not None) else _num(info.get("regularMarketChangePercent"))
-
-    mc = _num(info.get("marketCap"))
-    pe = _num(info.get("forwardPE")) or _num(info.get("trailingPE"))
-    pb = _num(info.get("priceToBook"))
-    ev_ebitda = _num(info.get("enterpriseToEbitda"))
-    beta = _num(info.get("beta"))
-
-    # Dividend yield -> percent. yfinance has used both fractions and percents;
-    # prefer the trailing rate / price, fall back to the reported yield field.
-    rate = _num(info.get("trailingAnnualDividendRate")) or _num(info.get("dividendRate"))
-    if rate is not None and px:
-        dy = rate / px * 100
-    else:
-        raw = _num(info.get("dividendYield"))
-        dy = (raw if (raw is not None and raw > 1) else (raw * 100 if raw is not None else None))
-
-    lo = _num(info.get("fiftyTwoWeekLow"))
-    hi = _num(info.get("fiftyTwoWeekHigh"))
-
+    closes = frame.sort_values("date")["close"].dropna().tolist()
+    price = float(closes[-1])
+    previous = float(closes[-2]) if len(closes) > 1 else None
+    change = ((price / previous - 1) * 100) if previous else None
+    meta = next((row for row in _ciq_provider().search_companies(name, limit=5)
+                 if row["symbol"] == name), {})
     payload = {
-        "t": t,
-        "n": info.get("longName") or info.get("shortName") or t,
-        "s": info.get("sector"),
-        "industry": info.get("industry"),
-        "exchange": info.get("fullExchangeName") or info.get("exchange") or "",
-        "px": round(px, 2),
-        "chg": round(chg, 2) if chg is not None else None,
-        "mc": round(mc / 1e9, 2) if mc is not None else None,  # billions
-        "pe": round(pe, 2) if pe is not None else None,
-        "pb": round(pb, 2) if pb is not None else None,
-        "evEbitda": round(ev_ebitda, 2) if ev_ebitda is not None else None,
-        "dy": round(dy, 2) if dy is not None else None,
-        "beta": round(beta, 2) if beta is not None else None,
-        "lo": round(lo, 2) if lo is not None else None,
-        "hi": round(hi, 2) if hi is not None else None,
-        "desc": info.get("longBusinessSummary"),
-        "currency": info.get("currency") or "USD",
-        "held": False,
+        "t": name, "n": meta.get("name", name), "s": None,
+        "industry": None, "exchange": meta.get("exchange", ""),
+        "px": round(price, 2), "chg": round(change, 2) if change is not None else None,
+        "mc": None, "pe": None, "pb": None, "evEbitda": None,
+        "dy": None, "beta": None, "lo": None, "hi": None, "desc": None,
+        "currency": "USD", "held": False,
     }
-    _QUOTE_CACHE[t] = (now, payload)
-    cache.set("quote", t, payload, _TTL)
+    _QUOTE_CACHE[key] = (now, payload)
+    cache.set("quote", key, payload, _TTL)
     return payload
 
 
-# ---------- institutional holders ----------
-def institutional_holders(ticker: str, limit: int = 5) -> list[dict]:
-    """Top institutional shareholders from yfinance's institutional_holders
-    endpoint. Returns up to `limit` rows [{holder, pct, shares, value}], largest
-    by shares first. Empty list when Yahoo has no 13F data for the symbol."""
-    t = ticker.upper()
-    key = f"{t}|{limit}"
-    now = time.time()
-    hit = _HOLDERS_CACHE.get(key)
-    if hit and (now - hit[0]) < _TTL:
-        return hit[1]
-    cached = cache.get("holders", key)
-    if cached is not cache.MISS:
-        _HOLDERS_CACHE[key] = (now, cached)
-        return cached
-
-    try:
-        df = yf.Ticker(to_yf(t)).institutional_holders
-    except Exception:  # noqa: BLE001 — best-effort
-        df = None
-
-    out: list[dict] = []
-    if df is not None and not df.empty:
-        # yfinance has shipped a few column spellings; resolve each defensively.
-        cols = {str(c).lower(): c for c in df.columns}
-
-        def pick(*names):
-            for n in names:
-                if n in cols:
-                    return cols[n]
-            return None
-
-        c_holder = pick("holder")
-        c_pct = pick("pctheld", "% out")
-        c_shares = pick("shares")
-        c_value = pick("value")
-
-        rows = df.sort_values(c_shares, ascending=False) if c_shares else df
-        for _, r in rows.head(limit).iterrows():
-            pct = _num(r.get(c_pct)) if c_pct else None
-            # pctHeld comes as a fraction (0.083); legacy "% Out" already a percent.
-            if pct is not None and c_pct and str(c_pct).lower() == "pctheld":
-                pct *= 100
-            shares = _num(r.get(c_shares)) if c_shares else None
-            value = _num(r.get(c_value)) if c_value else None
-            holder = r.get(c_holder) if c_holder else None
-            out.append({
-                "holder": str(holder) if holder is not None else "—",
-                "pct": round(pct, 2) if pct is not None else None,
-                "shares": int(shares) if shares is not None else None,
-                "value": round(value / 1e6, 1) if value is not None else None,  # $M
-            })
-
-    _HOLDERS_CACHE[key] = (now, out)
-    cache.set("holders", key, out, _TTL)
-    return out
-
-
-# ---------- live price series ----------
 def live_series(ticker: str, period: str = "YTD", points: int = 64) -> dict:
-    """Live yfinance price series for any ticker (charts off-portfolio names)."""
-    t = ticker.upper()
-    per = period if period in _YF_PERIOD else "YTD"
-    key = f"{t}|{per}"
+    """Capital IQ EOD series for a validated, non-held ticker."""
+    name = validate_ticker(ticker)
+    period = period if period in {*_CIQ_DAYS, "YTD"} else "YTD"
+    key = f"ciq|{name}|{period}"
     now = time.time()
     hit = _SERIES_CACHE.get(key)
     if hit and (now - hit[0]) < _TTL:
@@ -232,28 +183,68 @@ def live_series(ticker: str, period: str = "YTD", points: int = 64) -> dict:
     if cached is not cache.MISS:
         _SERIES_CACHE[key] = (now, cached)
         return cached
-
-    try:
-        h = yf.Ticker(to_yf(t)).history(period=_YF_PERIOD[per], interval="1d", auto_adjust=False)
-    except Exception:  # noqa: BLE001
-        h = pd.DataFrame()
-
-    if h is None or h.empty or "Close" not in h:
+    today = dt.date.today()
+    start = (dt.date(today.year, 1, 1) if period == "YTD"
+             else today - dt.timedelta(days=_CIQ_DAYS[period]))
+    frame = _ciq_provider().get_price_history([name], start=start.isoformat())
+    if frame.empty:
         out = {"dates": [], "close": [], "ret": None}
-        _SERIES_CACHE[key] = (now, out)
-        return out
-
-    sub = h.dropna(subset=["Close"])
-    closes = [round(float(x), 2) for x in sub["Close"].to_numpy()]
-    dates = [d.date().isoformat() for d in sub.index]
-    if len(closes) > points:
-        step = (len(closes) - 1) / (points - 1)
-        idx = sorted({round(i * step) for i in range(points)})
-        closes = [closes[i] for i in idx]
-        dates = [dates[i] for i in idx]
-    ret = (closes[-1] / closes[0] - 1) if len(closes) >= 2 and closes[0] else None
-
-    out = {"dates": dates, "close": closes, "ret": ret}
+    else:
+        frame = frame.sort_values("date")
+        if len(frame) > points:
+            indexes = sorted({round(i * (len(frame) - 1) / (points - 1)) for i in range(points)})
+            frame = frame.iloc[indexes]
+        closes = [round(float(value), 2) for value in frame["close"]]
+        dates = frame["date"].tolist()
+        ret = closes[-1] / closes[0] - 1 if len(closes) >= 2 and closes[0] else None
+        out = {"dates": dates, "close": closes, "ret": ret}
     _SERIES_CACHE[key] = (now, out)
     cache.set("series", key, out, _TTL)
+    return out
+
+
+def institutional_holders(ticker: str, limit: int = 5) -> list[dict]:
+    """Legacy Yahoo 13F panel; intentionally outside the price-data boundary."""
+    ticker = validate_ticker(ticker)
+    key = f"{ticker}|{limit}"
+    now = time.time()
+    hit = _HOLDERS_CACHE.get(key)
+    if hit and (now - hit[0]) < _TTL:
+        return hit[1]
+    cached = cache.get("holders", key)
+    if cached is not cache.MISS:
+        _HOLDERS_CACHE[key] = (now, cached)
+        return cached
+    try:
+        frame = yf.Ticker(to_yf(ticker)).institutional_holders
+    except Exception:  # best-effort auxiliary research data
+        frame = None
+
+    out: list[dict] = []
+    if frame is not None and not frame.empty:
+        columns = {str(column).lower(): column for column in frame.columns}
+
+        def pick(*names):
+            return next((columns[name] for name in names if name in columns), None)
+
+        holder_col = pick("holder")
+        percent_col = pick("pctheld", "% out")
+        shares_col = pick("shares")
+        value_col = pick("value")
+        rows = frame.sort_values(shares_col, ascending=False) if shares_col else frame
+        for _, row in rows.head(limit).iterrows():
+            percent = _num(row.get(percent_col)) if percent_col else None
+            if percent is not None and percent_col and str(percent_col).lower() == "pctheld":
+                percent *= 100
+            shares = _num(row.get(shares_col)) if shares_col else None
+            value = _num(row.get(value_col)) if value_col else None
+            holder = row.get(holder_col) if holder_col else None
+            out.append({
+                "holder": str(holder) if holder is not None else "—",
+                "pct": round(percent, 2) if percent is not None else None,
+                "shares": int(shares) if shares is not None else None,
+                "value": round(value / 1e6, 1) if value is not None else None,
+            })
+    _HOLDERS_CACHE[key] = (now, out)
+    cache.set("holders", key, out, _TTL)
     return out
