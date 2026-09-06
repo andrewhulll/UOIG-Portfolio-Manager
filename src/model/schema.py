@@ -10,6 +10,7 @@ dividends     Dividend history per ticker.
 benchmarks    Index level history (IWV, IWM, SPY, ...).
 nav_history   Daily fund value and net external cash flow (for TWR).
 import_meta   Key/value provenance for the last seed/import.
+api_cache     Durable TTL cache for live yfinance / Kalshi lookups (shared, survives restarts).
 """
 from __future__ import annotations
 
@@ -120,9 +121,19 @@ CREATE TABLE IF NOT EXISTS benchmark_sectors (
     updated      TEXT,
     PRIMARY KEY (index_ticker, sector)
 );
+
+CREATE TABLE IF NOT EXISTS api_cache (
+    namespace   TEXT NOT NULL,     -- cache bucket: quote, series, holders, search, research, predictions
+    key         TEXT NOT NULL,     -- ticker or composite key within the namespace
+    payload     TEXT NOT NULL,     -- JSON-encoded cached value
+    fetched_at  TEXT NOT NULL,     -- ISO-8601 UTC timestamp of the fetch
+    ttl         INTEGER NOT NULL,  -- seconds this entry stays fresh
+    PRIMARY KEY (namespace, key)
+);
 """
 
 _TABLES = [
+    "api_cache",
     "import_meta", "fundamentals", "benchmark_holdings", "benchmark_sectors",
     "nav_history", "benchmarks", "dividends",
     "prices", "transactions", "holdings", "securities",

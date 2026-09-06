@@ -19,6 +19,7 @@ import pandas as pd
 import yfinance as yf
 
 from src.ingest.providers import to_yf
+from src.model import cache
 
 _SEARCH_CACHE: dict[str, tuple[float, list]] = {}
 _QUOTE_CACHE: dict[str, tuple[float, dict]] = {}
@@ -49,6 +50,10 @@ def search_symbols(query: str, limit: int = 8) -> list[dict]:
     now = time.time()
     if hit and (now - hit[0]) < _TTL:
         return hit[1]
+    cached = cache.get("search", key)
+    if cached is not cache.MISS:
+        _SEARCH_CACHE[key] = (now, cached)
+        return cached
 
     out: list[dict] = []
     try:
@@ -68,6 +73,8 @@ def search_symbols(query: str, limit: int = 8) -> list[dict]:
         out = []
 
     _SEARCH_CACHE[key] = (now, out)
+    if out:
+        cache.set("search", key, out, _TTL)
     return out
 
 
@@ -80,6 +87,10 @@ def quote_overview(ticker: str) -> dict | None:
     hit = _QUOTE_CACHE.get(t)
     if hit and (now - hit[0]) < _TTL:
         return hit[1]
+    cached = cache.get("quote", t)
+    if cached is not cache.MISS:
+        _QUOTE_CACHE[t] = (now, cached)
+        return cached
 
     tk = yf.Ticker(to_yf(t))
     try:
@@ -145,6 +156,7 @@ def quote_overview(ticker: str) -> dict | None:
         "held": False,
     }
     _QUOTE_CACHE[t] = (now, payload)
+    cache.set("quote", t, payload, _TTL)
     return payload
 
 
@@ -159,6 +171,10 @@ def institutional_holders(ticker: str, limit: int = 5) -> list[dict]:
     hit = _HOLDERS_CACHE.get(key)
     if hit and (now - hit[0]) < _TTL:
         return hit[1]
+    cached = cache.get("holders", key)
+    if cached is not cache.MISS:
+        _HOLDERS_CACHE[key] = (now, cached)
+        return cached
 
     try:
         df = yf.Ticker(to_yf(t)).institutional_holders
@@ -198,6 +214,7 @@ def institutional_holders(ticker: str, limit: int = 5) -> list[dict]:
             })
 
     _HOLDERS_CACHE[key] = (now, out)
+    cache.set("holders", key, out, _TTL)
     return out
 
 
@@ -211,6 +228,10 @@ def live_series(ticker: str, period: str = "YTD", points: int = 64) -> dict:
     hit = _SERIES_CACHE.get(key)
     if hit and (now - hit[0]) < _TTL:
         return hit[1]
+    cached = cache.get("series", key)
+    if cached is not cache.MISS:
+        _SERIES_CACHE[key] = (now, cached)
+        return cached
 
     try:
         h = yf.Ticker(to_yf(t)).history(period=_YF_PERIOD[per], interval="1d", auto_adjust=False)
@@ -234,4 +255,5 @@ def live_series(ticker: str, period: str = "YTD", points: int = 64) -> dict:
 
     out = {"dates": dates, "close": closes, "ret": ret}
     _SERIES_CACHE[key] = (now, out)
+    cache.set("series", key, out, _TTL)
     return out
