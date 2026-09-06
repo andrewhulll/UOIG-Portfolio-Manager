@@ -945,7 +945,7 @@ export default class App extends React.Component {
   _renderSignIn() {
     const err = this.state.authErr
     const errText = err === 'not_invited'
-      ? 'That account isn’t on the invite list. Access is invite-only — ask your PM to send an invitation.'
+      ? 'That account isn’t on the invite list. Access is invite-only — ask an admin to send an invitation.'
       : (err === 'bad_state' || err === 'auth_failed')
         ? 'Sign-in didn’t complete. Please try again.'
         : null
@@ -1007,8 +1007,8 @@ export default class App extends React.Component {
       } else if (info === 'invalid' || !info.pending) {
         const msg = info === 'invalid' ? 'This invitation link is invalid or could not be found.'
           : info.state === 'accepted' ? 'This invitation was already accepted — just sign in below.'
-          : info.state === 'revoked' ? 'This invitation was revoked. Ask your PM to send a new one.'
-          : 'This invitation has expired. Ask your PM to resend it.'
+          : info.state === 'revoked' ? 'This invitation was revoked. Ask an admin to send a new one.'
+          : 'This invitation has expired. Ask an admin to resend it.'
         body = (<>
           <div style={s("font:400 11.5px/1.6 'IBM Plex Sans';color:#ffb4b4;background:#2a1115;border:1px solid #4a1f25;border-radius:8px;padding:11px 13px;")}>{msg}</div>
           <div onClick={() => this.setState({ signMode: 'signin', pwMsg: '', pwOk: '' })} style={primaryBtn}>Go to sign in</div>
