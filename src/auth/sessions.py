@@ -53,6 +53,31 @@ def create_user_with_password(email: str, password: str,
     )
 
 
+def find_user_by_email(email: str):
+    """Return the WorkOS user with this email, or None. WorkOS provisions a
+    (passwordless) user the moment an invitation is sent, so the invitee already
+    exists by the time they open the accept page — this looks that user up."""
+    page = wc.client().user_management.list_users(email=email, limit=1)
+    data = getattr(page, "data", None)
+    if data is None:
+        data = list(page)
+    return data[0] if data else None
+
+
+def set_user_password(user_id: str, password: str,
+                      first_name: Optional[str] = None,
+                      last_name: Optional[str] = None):
+    """Set (or replace) an existing user's password — used to finish onboarding for
+    an invitee WorkOS provisioned without one. Also marks the email verified, since
+    the invitation link (emailed to that address) already proves inbox control.
+    Raises the same password-policy errors as create_user if the password is weak."""
+    return wc.client().user_management.update_user(
+        user_id, password=PasswordPlaintext(password=password),
+        email_verified=True,
+        first_name=first_name or None, last_name=last_name or None,
+    )
+
+
 # ---- email + password (and the reset / verification flows) ----
 def password_login(email: str, password: str, invitation_token: Optional[str] = None):
     """Authenticate with email + password -> AuthenticateResponse. Pass
