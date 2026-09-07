@@ -145,6 +145,8 @@ def authenticate(sealed: str) -> Tuple[Optional[object], Optional[str]]:
     except Exception:  # noqa: BLE001
         return None, None
     if getattr(refreshed, "authenticated", False):
+        if not is_member(refreshed):
+            return None, None
         return refreshed, getattr(refreshed, "sealed_session", None)
     return None, None
 
