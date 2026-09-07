@@ -75,17 +75,16 @@ def fund_risk_table(positions: pd.DataFrame, rets: pd.DataFrame, cfg: dict) -> p
     for fund, g in positions.groupby("fund"):
         bench = bench_map.get(fund)
 
-        m = g["port_w"].notna() & g["beta"].notna()
-        wbeta = (float((g.loc[m, "port_w"] * g.loc[m, "beta"]).sum() / g.loc[m, "port_w"].sum())
+        m = g["market_value"].notna() & g["beta"].notna()
+        wbeta = (float((g.loc[m, "market_value"] * g.loc[m, "beta"]).sum() / g.loc[m, "market_value"].sum())
                  if m.any() else np.nan)
 
-        s = g[g.sec_type == "stock"]
-        ms = s["class_w"].notna() & s["beta"].notna()
-        abeta = (float((s.loc[ms, "class_w"] * s.loc[ms, "beta"]).sum() / s.loc[ms, "class_w"].sum())
-                 if ms.any() else np.nan)
+        m_active = g["port_w"].notna() & g["beta"].notna()
+        abeta = (float((g.loc[m_active, "port_w"] * g.loc[m_active, "beta"]).sum() / g.loc[m_active, "port_w"].sum())
+                 if m_active.any() else np.nan)
 
         syn_beta = syn_r2 = ann_vol = np.nan
-        cols = [t for t in g.loc[m, "ticker"] if t in rets.columns]
+        cols = [t for t in g.loc[m_active, "ticker"] if t in rets.columns]
         if cols and bench in rets.columns:
             w = g.set_index("ticker").loc[cols, "port_w"]
             w = w / w.sum()

@@ -14,6 +14,7 @@ import time
 import uuid
 import warnings
 from pathlib import Path
+from typing import Dict, List
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -773,6 +774,34 @@ def thesis(ticker: str):
     return stock_thesis(ticker.upper())
 
 
+_RATE_LIMITS: Dict[str, Dict[str, List[float]]] = {}
+_RATE_LIMIT_LOCK = threading.Lock()
+
+def _enforce_rate_limit(request: Request, kind: str, limit: int, window: int = 3600):
+    user_id = "anonymous"
+    res = getattr(request.state, "user", None)
+    if res:
+        try:
+            from src.auth import sessions as auth_sessions
+            user, _ = auth_sessions.user_payload(res)
+            user_id = user.get("id") or getattr(request.client, "host", "anonymous")
+        except Exception:
+            user_id = getattr(request.client, "host", "anonymous")
+    else:
+        user_id = getattr(request.client, "host", "anonymous")
+
+    now = time.time()
+    with _RATE_LIMIT_LOCK:
+        user_limits = _RATE_LIMITS.setdefault(user_id, {})
+        history = user_limits.setdefault(kind, [])
+        history = [ts for ts in history if now - ts < window]
+        if len(history) >= limit:
+            user_limits[kind] = history
+            raise HTTPException(429, "Rate limit exceeded")
+        history.append(now)
+        user_limits[kind] = history
+
+
 def _chat_system(conn, context: str) -> str:
     """System prompt that grounds the co-pilot in the live portfolio."""
     data = build_terminal_data(CFG, conn)
@@ -971,6 +1000,8 @@ def agent_run(request: Request, payload: dict):
         "market analysis for our portfolio: the key macro and sector drivers, notable "
         "moves in our holdings, and any risks or names to watch. Be concise and "
         "specific; cite sources where you used them.")
+
+
 
     def _worker():
         try:

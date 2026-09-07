@@ -18,7 +18,7 @@ import time
 import pandas as pd
 import yfinance as yf
 
-from src.ingest.providers import yf_ticker, yf_retry
+from src.ingest.providers import yf_ticker, yf_retry, yf_session
 from src.model import cache
 
 _SEARCH_CACHE: dict[str, tuple[float, list]] = {}
@@ -57,9 +57,18 @@ def search_symbols(query: str, limit: int = 8) -> list[dict]:
         return value
 
     out: list[dict] = []
+
+    def _do_search():
+        sess = yf_session()
+        if sess is not None:
+            try:
+                return yf.Search(q, max_results=max(limit * 3, 12), news_count=0, session=sess)
+            except Exception:  # noqa: BLE001
+                pass
+        return yf.Search(q, max_results=max(limit * 3, 12), news_count=0)
+
     try:
-        res = yf_retry(lambda: yf.Search(q, max_results=max(limit * 3, 12), news_count=0),
-                       retry_empty=False)
+        res = yf_retry(_do_search, retry_empty=False)
         for r in ((res.quotes if res else None) or []):
             if r.get("quoteType") != "EQUITY":
                 continue

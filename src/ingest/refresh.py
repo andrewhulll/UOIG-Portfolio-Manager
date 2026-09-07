@@ -50,13 +50,42 @@ def refresh(cfg: dict, history_years: float | None = None,
             db.q(conn, "SELECT MAX(date) FROM prices WHERE ticker = ? AND source != 'xlsx_snapshot'"),
             (t,),
         ).fetchone()[0]
-        start = default_start if (full or not last) else (
-            dt.date.fromisoformat(last) + dt.timedelta(days=1)).isoformat()
+        start = default_start if (full or not last) else max(
+            default_start,
+            (dt.date.fromisoformat(last) - dt.timedelta(days=400)).isoformat()
+        )
 
         ph = provider.get_price_history([t], start=start)
         if ph.empty:
             summary["failed"].append(t)
             continue
+
+        sp = provider.get_splits([t], start=start)
+        if not sp.empty:
+            for r in sp.itertuples():
+                ratio = float(r.ratio)
+                if ratio > 0:
+                    conn.execute(
+                        db.q(conn, "UPDATE holdings SET shares = shares * ?, entry_price = entry_price / ? WHERE ticker = ? AND (entry_date IS NULL OR entry_date < ?)"),
+                        (ratio, ratio, t, r.date)
+                    )
+                    conn.execute(
+                        db.q(conn, "UPDATE prices SET close = close / ?, adj_close = adj_close / ? WHERE ticker = ? AND date < ?"),
+                        (ratio, ratio, t, r.date)
+                    )
+                    conn.execute(
+                        db.q(conn, "UPDATE dividends SET amount = amount / ? WHERE ticker = ? AND ex_date < ?"),
+                        (ratio, t, r.date)
+                    )
+                    if t in bench_tickers:
+                        conn.execute(
+                            db.q(conn, "UPDATE benchmarks SET close = close / ? WHERE index_ticker = ? AND date < ?"),
+                            (ratio, t, r.date)
+                        )
+                        conn.execute(
+                            db.q(conn, "UPDATE holdings SET bench_entry_price = bench_entry_price / ? WHERE bench_ticker = ? AND (entry_date IS NULL OR entry_date < ?)"),
+                            (ratio, t, r.date)
+                        )
 
         db.executemany(
             conn,

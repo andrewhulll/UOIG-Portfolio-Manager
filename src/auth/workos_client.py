@@ -22,7 +22,7 @@ STATE_COOKIE = "uoig_oauth_state"
 # Carries an invitation token across the Google-OAuth round trip, so the callback
 # can accept the invite when an invitee signs in with Google. Short-lived.
 INVITE_COOKIE = "uoig_invite"
-SESSION_MAX_AGE = 60 * 60 * 24 * 14  # 14 days
+SESSION_MAX_AGE = 60 * 60 * 24  # 1 day
 
 
 def _parse_file(text: str) -> str | None:
