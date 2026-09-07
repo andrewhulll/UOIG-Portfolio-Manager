@@ -103,18 +103,6 @@ def overrides() -> dict[str, dict]:
                 for t, q in _LIVE.items() if q["ts"] >= cutoff}
 
 
-def _loop(get_tickers, interval: float, idle_interval: float) -> None:
-    while not _stop.is_set():
-        wait = idle_interval
-        if market_open():
-            try:
-                poll_once(get_tickers())
-                wait = interval
-            except Exception:  # noqa: BLE001 — never let the poller thread die
-                wait = interval
-        _stop.wait(wait)
-
-
 def start(get_tickers, interval: float = 45.0, idle_interval: float = 300.0) -> None:
     """Start the background poller once (idempotent).
 
@@ -124,8 +112,20 @@ def start(get_tickers, interval: float = 45.0, idle_interval: float = 300.0) -> 
     if _thread is not None and _thread.is_alive():
         return
     _stop.clear()
+
+    def _loop() -> None:
+        while not _stop.is_set():
+            wait = idle_interval
+            if market_open():
+                try:
+                    poll_once(get_tickers())
+                    wait = interval
+                except Exception:  # noqa: BLE001 — never let the poller thread die
+                    wait = interval
+            _stop.wait(wait)
+
     _thread = threading.Thread(
-        target=_loop, args=(get_tickers, interval, idle_interval),
+        target=_loop,
         name="live-prices", daemon=True)
     _thread.start()
 
