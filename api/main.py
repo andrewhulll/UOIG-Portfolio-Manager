@@ -875,6 +875,7 @@ def _get_user_id(request: Request) -> str:
 
 @app.post("/api/chat")
 def chat(request: Request, payload: dict):
+    _enforce_rate_limit(request, "chat", limit=50, window=3600)
     """Live Ask-Claude turn via the Anthropic API (claude-haiku-4-5)."""
     user_id = _get_user_id(request)
     if not _enforce_rate_limit(user_id, _USER_CHAT_RUNS, lock=_CHAT_LOCK, limit=15, window=60):
@@ -954,6 +955,7 @@ _AGENT_JOBS: dict[str, dict] = {}
 
 @app.post("/api/agent/run")
 def agent_run(request: Request, payload: dict):
+    _enforce_rate_limit(request, "agent", limit=5, window=3600)
     """Start a Managed Agent (market analysis) run in the background and return a
     job id immediately. Poll GET /api/agent/run/{job_id} for the result. Agent id is
     `agent_id` in config.yaml (an ANTHROPIC_AGENT_ID env var overrides it)."""
@@ -1002,6 +1004,22 @@ def agent_run(request: Request, payload: dict):
         "specific; cite sources where you used them.")
 
 
+    MAX_CONCURRENT_RUNS = 2
+    JOB_TTL = 3600
+
+    # TTL cleanup
+    now = time.time()
+    for jid, job in list(_AGENT_JOBS.items()):
+        if now - job.get("created_at", now) > JOB_TTL:
+            _AGENT_JOBS.pop(jid, None)
+
+    # Max concurrent check
+    running_jobs = sum(1 for job in _AGENT_JOBS.values() if job["status"] == "running")
+    if running_jobs >= MAX_CONCURRENT_RUNS:
+        raise HTTPException(429, "Too many concurrent agent runs across the system")
+
+    job_id = uuid.uuid4().hex
+    _AGENT_JOBS[job_id] = {"status": "running", "reply": None, "error": None, "created_at": time.time()}
 
     def _worker():
         try:
