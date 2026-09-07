@@ -97,6 +97,39 @@ def test_quote_overview(monkeypatch):
     # Not an equity
     assert quote_overview("BTC") is None
 
+def test_quote_overview_falls_back_to_fast_info_when_info_is_empty(monkeypatch):
+    # Reproduces production: tk.info comes back empty (e.g. Yahoo throttling the
+    # heavier quoteSummary endpoint) while the lighter chart-backed fast_info still
+    # works. quote_overview must use attribute access (fast_info aliases
+    # last_price/previous_close from Yahoo's camelCase) rather than .get(), which
+    # does not apply that aliasing and always misses.
+    class MockFastInfo:
+        last_price = 230.36
+        previous_close = 225.0
+
+    class MockTicker:
+        @property
+        def info(self):
+            return {}
+        @property
+        def fast_info(self):
+            return MockFastInfo()
+
+    def mock_retry(fn, *args, **kwargs):
+        return fn()
+
+    monkeypatch.setattr(lookup_mod, "yf_ticker", lambda t: MockTicker())
+    monkeypatch.setattr(lookup_mod, "yf_retry", mock_retry)
+    monkeypatch.setattr(cache, "get", lambda *args: cache.MISS)
+    monkeypatch.setattr(cache, "set", lambda *args: None)
+
+    lookup_mod._QUOTE_CACHE.clear()
+
+    quote = quote_overview("NVDA")
+    assert quote is not None
+    assert quote["t"] == "NVDA"
+    assert quote["px"] == 230.36
+
 def test_institutional_holders(monkeypatch):
     class MockTicker:
         @property
