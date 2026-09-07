@@ -33,6 +33,7 @@ from api.build import FUND_META, build_terminal_data  # noqa: E402
 from src.auth import sessions as auth_sessions  # noqa: E402
 from src.auth import invitations as auth_invites  # noqa: E402
 from src.auth import workos_client as wc  # noqa: E402
+from src.auth import organization as auth_organization  # noqa: E402
 from workos._errors import (AuthenticationError, BadRequestError, ConflictError,  # noqa: E402
                             EmailPasswordAuthDisabledError,
                             EmailVerificationRequiredError,
@@ -432,6 +433,55 @@ def auth_invite(request: Request, payload: dict):
         raise HTTPException(400, "email is required")
     inv = auth_invites.send_invite(email, payload.get("role_slug"))
     return {"ok": True, "id": getattr(inv, "id", None), "email": email}
+
+
+def _dev_directory():
+    """Build the same allowlisted directory shape without WorkOS for local UI work."""
+    roster_path = Path(__file__).resolve().parents[1] / "data" / "mock_uoig_roster.json"
+    raw = json.loads(roster_path.read_text(encoding="utf-8"))
+    people = {}
+    for sector, assignments in raw.items():
+        for name, ticker in assignments:
+            people.setdefault(name, []).append({"sector": sector, "ticker": ticker})
+    members = [{
+        "id": "mock-" + name.lower().replace(" ", "-"), "name": name,
+        "email": "mock." + name.lower().replace(" ", ".") + "@uoig.example.invalid",
+        "profilePictureUrl": None, "role": "member", "roleName": "Analyst", "isMock": True,
+        "coverage": coverage,
+        "sectors": list(dict.fromkeys(row["sector"] for row in coverage)),
+    } for name, coverage in people.items()]
+    members.insert(0, {"id": "dev", "name": "Dev User", "email": "dev@local",
+                       "profilePictureUrl": None, "role": "admin", "roleName": "Admin",
+                       "isMock": False, "coverage": [], "sectors": []})
+    return {"organization": {"id": "dev-uoig", "name": "UOIG"}, "members": members}
+
+
+@app.get("/api/organization/members")
+def organization_members():
+    try:
+        return _dev_directory() if wc.auth_disabled() else auth_organization.list_members()
+    except auth_organization.OrganizationError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@app.patch("/api/profile")
+def update_profile(request: Request, payload: dict):
+    first = str(payload.get("firstName") or "").strip()
+    last = str(payload.get("lastName") or "").strip()
+    if not first or len(first) > 60 or len(last) > 60:
+        raise HTTPException(400, "Enter a first name and keep each name under 60 characters")
+    if wc.auth_disabled():
+        return {"user": {"id": "dev", "email": "dev@local", "firstName": first,
+                         "lastName": last, "name": (first + " " + last).strip(),
+                         "profilePictureUrl": None}}
+    res = getattr(request.state, "user", None)
+    user, _ = auth_sessions.user_payload(res)
+    if not user.get("id"):
+        raise HTTPException(401, "not authenticated")
+    try:
+        return {"user": auth_organization.update_user(user["id"], first, last)}
+    except auth_organization.OrganizationError as exc:
+        raise HTTPException(502, str(exc)) from exc
 
 
 def _conn():

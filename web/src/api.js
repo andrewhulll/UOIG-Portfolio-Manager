@@ -28,6 +28,11 @@ const post = (path, body) =>
     headers: { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   }).then(j)
+const patch = (path, body) =>
+  fetch(`${BASE}${path}`, {
+    method: 'PATCH', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }).then(j)
 
 export const getData = () => get('/api/data')
 export const getSeries = (ticker, period) =>
@@ -57,6 +62,8 @@ export const logout = () => post('/api/auth/logout')
 export const loginUrl = (invitationToken) =>
   `${BASE}/api/auth/login${invitationToken ? `?invitation_token=${encodeURIComponent(invitationToken)}` : ''}`
 export const sendInvite = (email, roleSlug) => post('/api/auth/invite', { email, role_slug: roleSlug })
+export const getOrganizationMembers = () => get('/api/organization/members')
+export const updateProfile = (body) => patch('/api/profile', body)
 // Invitee accept flow: look up an invitation by token; set a password to accept.
 export const getInvitation = (token) => get(`/api/auth/invitation?token=${encodeURIComponent(token)}`)
 export const acceptPassword = (body) => post('/api/auth/accept-password', body)

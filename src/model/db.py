@@ -33,6 +33,10 @@ def database_url() -> str | None:
 
 
 def use_postgres() -> bool:
+    # Explicit local/test override when a developer has a saved production URL but
+    # needs the bundled SQLite database. Never enabled unless deliberately set.
+    if os.environ.get("UOIG_FORCE_SQLITE", "").lower() in ("1", "true", "yes"):
+        return False
     return bool(database_url())
 
 
