@@ -33,6 +33,9 @@ def test_refresh(monkeypatch):
                 "adj_close": [99.0]
             })
 
+        def get_splits(self, tickers, start):
+            return pd.DataFrame()
+
         def get_dividends(self, tickers, start):
             if tickers[0] == "AAPL":
                 return pd.DataFrame({
