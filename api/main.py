@@ -10,9 +10,11 @@ import logging
 import os
 import sys
 import threading
+import time
 import uuid
 import warnings
 from pathlib import Path
+from typing import Dict, List
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -772,6 +774,34 @@ def thesis(ticker: str):
     return stock_thesis(ticker.upper())
 
 
+_RATE_LIMITS: Dict[str, Dict[str, List[float]]] = {}
+_RATE_LIMIT_LOCK = threading.Lock()
+
+def _enforce_rate_limit(request: Request, kind: str, limit: int, window: int = 3600):
+    user_id = "anonymous"
+    res = getattr(request.state, "user", None)
+    if res:
+        try:
+            from src.auth import sessions as auth_sessions
+            user, _ = auth_sessions.user_payload(res)
+            user_id = user.get("id") or getattr(request.client, "host", "anonymous")
+        except Exception:
+            user_id = getattr(request.client, "host", "anonymous")
+    else:
+        user_id = getattr(request.client, "host", "anonymous")
+
+    now = time.time()
+    with _RATE_LIMIT_LOCK:
+        user_limits = _RATE_LIMITS.setdefault(user_id, {})
+        history = user_limits.setdefault(kind, [])
+        history = [ts for ts in history if now - ts < window]
+        if len(history) >= limit:
+            user_limits[kind] = history
+            raise HTTPException(429, "Rate limit exceeded")
+        history.append(now)
+        user_limits[kind] = history
+
+
 def _chat_system(conn, context: str) -> str:
     """System prompt that grounds the co-pilot in the live portfolio."""
     data = build_terminal_data(CFG, conn)
@@ -815,7 +845,8 @@ def _chat_system(conn, context: str) -> str:
 
 
 @app.post("/api/chat")
-def chat(payload: dict):
+def chat(request: Request, payload: dict):
+    _enforce_rate_limit(request, "chat", limit=50, window=3600)
     """Live Ask-Claude turn via the Anthropic API (claude-haiku-4-5)."""
     messages = payload.get("messages") or []
     context = str(payload.get("context") or "")
@@ -880,7 +911,8 @@ _AGENT_JOBS: dict[str, dict] = {}
 
 
 @app.post("/api/agent/run")
-def agent_run(payload: dict):
+def agent_run(request: Request, payload: dict):
+    _enforce_rate_limit(request, "agent", limit=5, window=3600)
     """Start a Managed Agent (market analysis) run in the background and return a
     job id immediately. Poll GET /api/agent/run/{job_id} for the result. Agent id is
     `agent_id` in config.yaml (an ANTHROPIC_AGENT_ID env var overrides it)."""
@@ -902,8 +934,23 @@ def agent_run(payload: dict):
         "moves in our holdings, and any risks or names to watch. Be concise and "
         "specific; cite sources where you used them.")
 
+
+    MAX_CONCURRENT_RUNS = 2
+    JOB_TTL = 3600
+
+    # TTL cleanup
+    now = time.time()
+    for jid, job in list(_AGENT_JOBS.items()):
+        if now - job.get("created_at", now) > JOB_TTL:
+            _AGENT_JOBS.pop(jid, None)
+
+    # Max concurrent check
+    running_jobs = sum(1 for job in _AGENT_JOBS.values() if job["status"] == "running")
+    if running_jobs >= MAX_CONCURRENT_RUNS:
+        raise HTTPException(429, "Too many concurrent agent runs across the system")
+
     job_id = uuid.uuid4().hex
-    _AGENT_JOBS[job_id] = {"status": "running", "reply": None, "error": None}
+    _AGENT_JOBS[job_id] = {"status": "running", "reply": None, "error": None, "created_at": time.time()}
 
     def _worker():
         try:
