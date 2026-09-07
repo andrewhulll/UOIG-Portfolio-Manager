@@ -32,17 +32,21 @@ def test_portfolio_beta_weighting():
     rets = pd.DataFrame({"AAA": 2 * b, "BBB": 1 * b, "BENCH": b})
     pos = pd.DataFrame([
         {"fund": "F", "ticker": "AAA", "sec_type": "stock", "bench_ticker": "BENCH",
-         "port_w": 0.5, "class_w": 0.5},
+         "port_w": 0.5, "class_w": 0.5, "market_value": 50.0},
         {"fund": "F", "ticker": "BBB", "sec_type": "stock", "bench_ticker": "BENCH",
-         "port_w": 0.5, "class_w": 0.5},
+         "port_w": 0.5, "class_w": 0.5, "market_value": 50.0},
+        {"fund": "F", "ticker": "CASH", "sec_type": "cash", "bench_ticker": "BENCH",
+         "port_w": np.nan, "class_w": np.nan, "market_value": 100.0},
     ])
     pos = add_betas(pos, rets)
     assert abs(pos.loc[pos.ticker == "AAA", "beta"].iloc[0] - 2.0) < 1e-9
     assert abs(pos.loc[pos.ticker == "BBB", "beta"].iloc[0] - 1.0) < 1e-9
+    assert pos.loc[pos.ticker == "CASH", "beta"].iloc[0] == 0.0
 
     cfg = {"funds": [{"name": "F", "benchmark": "BENCH"}], "risk": {"beta_window_years": 3}}
     fr = fund_risk_table(pos, rets, cfg).set_index("fund")
-    assert abs(fr.loc["F", "beta"] - 1.5) < 1e-9       # 0.5*2 + 0.5*1 (bottom-up)
+    assert abs(fr.loc["F", "beta"] - 0.75) < 1e-9       # (50/200)*2 + (50/200)*1 + (100/200)*0
+    assert abs(fr.loc["F", "active_beta"] - 1.5) < 1e-9 # 0.5*2 + 0.5*1
     assert abs(fr.loc["F", "syn_beta"] - 1.5) < 1e-9   # synthetic series cross-check
 
 
