@@ -4,6 +4,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -81,11 +82,10 @@ def test_is_member_matching_org_id_fast_path(monkeypatch):
     monkeypatch.setattr(sessions.wc, "auth_disabled", lambda: False)
     monkeypatch.setattr(sessions.wc, "org_id", lambda: "org_123")
 
-    def _no_api_call():
-        raise AssertionError("wc.client() should not be called on the fast path")
-
-    monkeypatch.setattr(sessions.wc, "client", _no_api_call)
+    client = Mock(side_effect=AssertionError("wc.client() should not be called on the fast path"))
+    monkeypatch.setattr(sessions.wc, "client", client)
     assert sessions.is_member(_res(org="org_123")) is True
+    client.assert_not_called()
 
 
 def test_is_member_mismatch_without_email_denied(monkeypatch):
