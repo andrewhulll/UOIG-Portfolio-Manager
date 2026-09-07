@@ -43,23 +43,29 @@ def pull_fundamentals(cfg: dict, conn: sqlite3.Connection | None = None,
 
     today = dt.date.today().isoformat()
     summary = {"updated": 0, "failed": []}
+    rows = []
     for t in tickers:
         info = _info(t)
         if not info:
             summary["failed"].append(t)
             continue
-        conn.execute(
-            db.upsert_sql(conn, "fundamentals",
-                          ["ticker", "gics_sector", "pe", "pb", "ev_ebitda", "market_cap",
-                           "week52_low", "week52_high", "description", "updated"], ["ticker"]),
+        rows.append(
             (t, info.get("sector"),
              _f(info.get("forwardPE") or info.get("trailingPE")),
              _f(info.get("priceToBook")), _f(info.get("enterpriseToEbitda")),
              _f(info.get("marketCap")),
              _f(info.get("fiftyTwoWeekLow")), _f(info.get("fiftyTwoWeekHigh")),
-             (info.get("longBusinessSummary") or "")[:600], today),
+             (info.get("longBusinessSummary") or "")[:600], today)
         )
         summary["updated"] += 1
+    if rows:
+        db.executemany(
+            conn,
+            db.upsert_sql(conn, "fundamentals",
+                          ["ticker", "gics_sector", "pe", "pb", "ev_ebitda", "market_cap",
+                           "week52_low", "week52_high", "description", "updated"], ["ticker"]),
+            rows
+        )
     conn.commit()
     if own:
         conn.close()
