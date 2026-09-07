@@ -59,23 +59,22 @@ def market_open(ts: pd.Timestamp | None = None) -> bool:
     return 9 * 60 + 30 <= mins < 16 * 60
 
 
-def _fetch_one(ticker: str) -> tuple[float, float] | None:
-    """(last_price, previous_close) from Yahoo's quote feed, or None on failure."""
-    try:
-        fi = yf.Ticker(to_yf(ticker)).fast_info
-        # Attribute access applies fast_info's snake_case aliasing; .get() does
-        # not (its keys are camelCase: lastPrice/previousClose), so use attrs.
-        px = _num(fi.last_price)
-        prev = _num(fi.previous_close)
-    except Exception:  # noqa: BLE001 — best-effort; keep the prior cached quote
-        return None
-    if px is None or prev is None or prev == 0:
-        return None
-    return px, prev
-
-
 def poll_once(tickers: list[str]) -> int:
     """Refresh the cache for ``tickers``. Returns how many quotes updated."""
+    def _fetch(ticker: str) -> tuple[float, float] | None:
+        """(last_price, previous_close) from Yahoo's quote feed, or None on failure."""
+        try:
+            fi = yf.Ticker(to_yf(ticker)).fast_info
+            # Attribute access applies fast_info's snake_case aliasing; .get() does
+            # not (its keys are camelCase: lastPrice/previousClose), so use attrs.
+            px = _num(fi.last_price)
+            prev = _num(fi.previous_close)
+        except Exception:  # noqa: BLE001 — best-effort; keep the prior cached quote
+            return None
+        if px is None or prev is None or prev == 0:
+            return None
+        return px, prev
+
     tickers = [t for t in dict.fromkeys(tickers) if t]
     if not tickers:
         return 0
@@ -83,7 +82,7 @@ def poll_once(tickers: list[str]) -> int:
     updated = 0
     workers = min(_MAX_WORKERS, len(tickers))
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        for t, res in zip(tickers, ex.map(_fetch_one, tickers)):
+        for t, res in zip(tickers, ex.map(_fetch, tickers)):
             if res is None:
                 continue
             px, prev = res
