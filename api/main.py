@@ -490,24 +490,24 @@ def _conn():
     return get_connection(db_path(CFG))
 
 
-def _held_tickers() -> list[str]:
-    """Current non-cash holdings — the universe the live-price poller refreshes."""
-    conn = _conn()
-    try:
-        return [r[0] for r in conn.execute(
-            "SELECT ticker FROM securities WHERE sec_type != 'cash'")]
-    finally:
-        conn.close()
-
-
 @app.on_event("startup")
 def _start_live_prices() -> None:
     """Refresh held-ticker quotes on a background thread (market hours only), so
     /api/data serves live spot prices while everything else stays nightly."""
     from src.ingest.live_prices import start as _start_poller
+
+    def _get_held_tickers() -> list[str]:
+        """Current non-cash holdings — the universe the live-price poller refreshes."""
+        conn = _conn()
+        try:
+            return [r[0] for r in conn.execute(
+                "SELECT ticker FROM securities WHERE sec_type != 'cash'")]
+        finally:
+            conn.close()
+
     interval = float((CFG.get("market_data") or {}).get("live_interval_seconds", 45))
     try:
-        _start_poller(_held_tickers, interval=interval)
+        _start_poller(_get_held_tickers, interval=interval)
         log.info("live-price poller started (interval=%ss)", interval)
     except Exception:  # noqa: BLE001 — never block startup on the poller
         log.exception("live-price poller failed to start")
