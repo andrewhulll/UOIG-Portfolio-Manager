@@ -4,6 +4,7 @@ import { getData, getSeries, getFundSeries, getSectorSeries, getStock, getPredic
 import AuthScreen from './auth/AuthScreen.jsx'
 import { LoadingScreen, ErrorScreen } from './StatusScreens.jsx'
 import { ProfilePage, PreferencesPage, OrganizationPage } from './profile/SettingsPages.jsx'
+import { MyCoverage } from './coverage/MyCoverage.jsx'
 import { s } from './ui.js'
 
 // UOIG sector taxonomy: the five groups the club uses, each rolling up one or
@@ -278,7 +279,14 @@ export default class App extends React.Component {
     // Gate on sign-in first; only load portfolio data once authenticated. AuthScreen
     // (rendered when auth is null) owns the sign-in / invite / reset URL handling.
     getMe()
-      .then((me) => { this.setState({ auth: me }); this._loadData() })
+      .then((me) => {
+        // Analysts land on their coverage by default (unless they've picked an
+        // explicit landing page in Preferences); admins/leadership keep the dashboard.
+        const view = (me.role === 'member' && !this.state.preferences.landingPage)
+          ? 'coverage' : this.state.view
+        this.setState({ auth: me, view })
+        this._loadData()
+      })
       .catch(() => this.setState({ auth: null }))
     // Re-render once a minute so the markets-open badge and date stay current.
     this._clock = setInterval(() => this.forceUpdate(), 30000)
@@ -750,6 +758,7 @@ export default class App extends React.Component {
     if (name === 'sectors') return mk([React.createElement('circle', { key: 1, cx: 8, cy: 8, r: 6, style: { fill: 'none', stroke: 'currentColor', strokeWidth: 1.8 } }), React.createElement('path', { key: 2, d: 'M8 2 A6 6 0 0 1 13.2 8 L8 8 Z', style: { fill: 'currentColor', stroke: 'none' } })], false)
     if (name === 'optimize') return mk([React.createElement('line', { key: 1, x1: 3, y1: 2, x2: 3, y2: 14 }), React.createElement('line', { key: 2, x1: 8, y1: 2, x2: 8, y2: 14 }), React.createElement('line', { key: 3, x1: 13, y1: 2, x2: 13, y2: 14 }), React.createElement('circle', { key: 4, cx: 3, cy: 5, r: 1.6, style: { fill: 'currentColor' } }), React.createElement('circle', { key: 5, cx: 8, cy: 10, r: 1.6, style: { fill: 'currentColor' } }), React.createElement('circle', { key: 6, cx: 13, cy: 6, r: 1.6, style: { fill: 'currentColor' } })], false)
     if (name === 'assistant') return mk([React.createElement('path', { key: 1, d: 'M8 1.4 L9.5 6.2 L14.6 8 L9.5 9.8 L8 14.6 L6.5 9.8 L1.4 8 L6.5 6.2 Z' })], true)
+    if (name === 'coverage') return mk([React.createElement('circle', { key: 1, cx: 8, cy: 8, r: 6.4 }), React.createElement('circle', { key: 2, cx: 8, cy: 8, r: 1.6, style: { fill: 'currentColor', stroke: 'none' } })], false)
     return null
   }
 
@@ -901,6 +910,7 @@ export default class App extends React.Component {
             {this.state.view === 'profile' && <ProfilePage auth={this.state.auth} onNavigate={(view) => this._go(view)} onUserUpdated={(user) => this.setState((st) => ({ auth: { ...st.auth, user }, avatarImgFailed: false }))} />}
             {this.state.view === 'preferences' && <PreferencesPage fundOptions={[{ value: 'all', label: 'All Funds' }, ...this.fundKeys.map(k => ({ value: k, label: this.funds[k].name }))]} currentFund={this.state.fund} currentPeriod={this.state.period} onNavigate={(view) => this._go(view)} onApply={(preferences) => this.setState({ preferences, fund: preferences.defaultFund, period: preferences.defaultPeriod })} />}
             {this.state.view === 'organization' && <OrganizationPage auth={this.state.auth} onNavigate={(view) => this._go(view)} onOpenStock={(ticker) => this._openStock(ticker, 'organization')} />}
+            {this.state.view === 'coverage' && <MyCoverage onOpenStock={(ticker) => this._openStock(ticker, 'coverage')} />}
           </div>
 
         </div>
@@ -2049,10 +2059,15 @@ export default class App extends React.Component {
     v.isDashboard = st.view === 'dashboard'; v.isStocks = st.view === 'stocks'
     v.isSectors = st.view === 'sectors'; v.isStock = st.view === 'stock'; v.isSector = st.view === 'sector'
     v.isOptimize = st.view === 'optimize'; v.isAssistant = st.view === 'assistant'
+    v.isCoverage = st.view === 'coverage'
     v.fundAName = F[fundA].name; v.fundBName = F[fundB].name
 
-    const navDef = [['funds', 'Funds', 'dashboard'], ['stocks', 'Stocks', 'stocks'], ['sectors', 'Sectors', 'sectors'], ['optimize', 'Optimize', 'optimize'], ['assistant', 'Assistant', 'assistant']]
-    const activeMap = { dashboard: ['funds'], stocks: ['stocks'], sectors: ['sectors'], stock: ['stocks'], sector: ['sectors'], optimize: ['optimize'], assistant: ['assistant'] }
+    const isAnalyst = st.auth && st.auth.role === 'member'
+    const navDef = [
+      ...(isAnalyst ? [['coverage', 'My Coverage', 'coverage']] : []),
+      ['funds', 'Funds', 'dashboard'], ['stocks', 'Stocks', 'stocks'], ['sectors', 'Sectors', 'sectors'], ['optimize', 'Optimize', 'optimize'], ['assistant', 'Assistant', 'assistant'],
+    ]
+    const activeMap = { dashboard: ['funds'], stocks: ['stocks'], sectors: ['sectors'], stock: ['stocks'], sector: ['sectors'], optimize: ['optimize'], assistant: ['assistant'], coverage: ['coverage'] }
     v.nav = navDef.map(([id, label, go]) => {
       const active = (activeMap[st.view] || []).indexOf(id) >= 0
       return { key: id, label, icon: this._icon(id, active), bg: active ? '#13203a' : 'transparent', color: active ? '#5a93f9' : '#5d6a85', on: () => this._go(go) }
@@ -2251,7 +2266,7 @@ export default class App extends React.Component {
           sharesStr: r.shares != null ? (r.shares >= 1e6 ? (r.shares / 1e6).toFixed(1) + 'M' : Math.round(r.shares).toLocaleString('en-US')) : '—',
           valueStr: r.value != null ? '$' + (r.value >= 1000 ? (r.value / 1000).toFixed(1) + 'B' : r.value.toFixed(0) + 'M') : '—',
         })) : []
-        v.stkBackLabel = st.prevView === 'stocks' ? 'All Holdings' : (st.prevView === 'sector' ? (st.sector || 'Sector') : 'Dashboard')
+        v.stkBackLabel = st.prevView === 'stocks' ? 'All Holdings' : (st.prevView === 'sector' ? (st.sector || 'Sector') : (st.prevView === 'coverage' ? 'My Coverage' : 'Dashboard'))
       }
     }
 

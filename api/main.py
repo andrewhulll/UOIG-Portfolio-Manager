@@ -14,6 +14,7 @@ import time
 import uuid
 import warnings
 from contextlib import asynccontextmanager
+from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List
 
@@ -52,7 +53,7 @@ from src.analytics.risk import daily_returns_matrix  # noqa: E402
 from src.analytics.optimize import (fund_diagnostics, solve_optimizer,  # noqa: E402
                                     whatif_payload)
 from src.analytics.series import (price_frame, period_return, synthetic_index,  # noqa: E402
-                                  ticker_series, trailing_return)
+                                  ticker_series, trailing_return, mtd_return)
 from src.config import db_path, load_config  # noqa: E402
 from src.model.schema import get_connection  # noqa: E402
 
@@ -617,6 +618,134 @@ def holders(ticker: str):
         raise HTTPException(502, f"holders fetch failed: {exc}")
 
 
+def _current_user_id(request: Request) -> str | None:
+    if wc.auth_disabled():
+        return "dev"
+    res, _ = _current(request)
+    if res is None:
+        return None
+    payload, _role = auth_sessions.user_payload(res)
+    return payload.get("id")
+
+
+def _relevant_news(ticker: str, name: str | None, items: list[dict] | None) -> list[dict]:
+    """Yahoo's related-news feed is noisy (e.g. another sector's headlines show up
+    on this ticker's page) — keep only items that actually mention the ticker or
+    the first word of the company name (catches "Novo Nordisk" from "Novo Nordisk A/S")."""
+    if not items:
+        return []
+    needles = {ticker.upper()}
+    if name:
+        needles.add(name.split()[0].upper())
+    out = []
+    for item in items:
+        haystack = (item.get("title") or "").upper()
+        if any(len(n) > 1 and n in haystack for n in needles):
+            out.append(item)
+    return out
+
+
+def _coverage_price_bundle(pf, ticker: str) -> dict:
+    """Name + price + day/MTD change for a covered ticker: the portfolio price
+    store when it's a holding (same source as /api/series), a live yfinance
+    quote otherwise. Name always comes from the live quote (cheap, TTL-cached)
+    since it's needed either way for news-relevance filtering."""
+    try:
+        q = quote_overview(ticker)
+    except Exception:  # noqa: BLE001
+        q = None
+    name = q.get("n") if q else None
+
+    s = pf[pf.ticker == ticker]
+    if len(s) >= 2:
+        last, prev = float(s["close"].iloc[-1]), float(s["close"].iloc[-2])
+        mtd = mtd_return(pf, ticker)
+        return {
+            "name": name,
+            "price": round(last, 2),
+            "dayChangePct": round((last / prev - 1) * 100, 2) if prev else None,
+            "mtdChangePct": round(mtd * 100, 2) if mtd is not None else None,
+        }
+
+    mtd_pct = None
+    try:
+        live = live_series(ticker, "1M")
+        closes, dates = live.get("close") or [], live.get("dates") or []
+        if closes:
+            month_start = date.today().replace(day=1)
+            idx = next((i for i, d in enumerate(dates)
+                       if date.fromisoformat(d) >= month_start), 0)
+            base = closes[idx]
+            if base:
+                mtd_pct = round((closes[-1] / base - 1) * 100, 2)
+    except Exception:  # noqa: BLE001
+        pass
+    return {
+        "name": name,
+        "price": q.get("px") if q else None,
+        "dayChangePct": q.get("chg") if q else None,
+        "mtdChangePct": mtd_pct,
+    }
+
+
+@app.get("/api/coverage/me")
+def coverage_me(request: Request):
+    """Coverage bundle for the signed-in analyst: price/day/MTD change, next
+    earnings date (+ countdown), and relevance-filtered headlines for each
+    covered ticker. Composed entirely from existing data paths — the same price
+    store behind /api/series, and the same yfinance research behind /api/stock."""
+    uid = _current_user_id(request)
+    if uid is None:
+        raise HTTPException(401, "not authenticated")
+    try:
+        directory = _dev_directory() if wc.auth_disabled() else auth_organization.list_members()
+    except auth_organization.OrganizationError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    me = next((m for m in directory["members"] if m["id"] == uid), None)
+    coverage = (me or {}).get("coverage") or []
+
+    conn = _conn()
+    try:
+        pf = price_frame(conn)
+    finally:
+        conn.close()
+
+    tickers = []
+    earnings_this_week = []
+    for row in coverage:
+        ticker = row["ticker"]
+        bundle = _coverage_price_bundle(pf, ticker)
+        try:
+            research = stock_research(ticker)
+        except Exception:  # noqa: BLE001
+            research = {}
+        earnings = research.get("earnings") or {}
+        next_earnings = earnings.get("next")
+        if next_earnings == "—":
+            next_earnings = None
+        days_until = None
+        if next_earnings:
+            try:
+                days_until = (datetime.strptime(next_earnings, "%b %d, %Y").date() - date.today()).days
+            except ValueError:
+                days_until = None
+        name = bundle.pop("name", None) or ticker
+        news = _relevant_news(ticker, name, research.get("news"))[:5]
+        tickers.append({
+            "ticker": ticker,
+            "name": name,
+            "sector": row.get("sector"),
+            **bundle,
+            "nextEarnings": next_earnings,
+            "earningsInDays": days_until,
+            "news": news,
+        })
+        if days_until is not None and 0 <= days_until <= 5:
+            earnings_this_week.append(ticker)
+
+    return {"tickers": tickers, "earningsThisWeek": earnings_this_week}
+
+
 @app.get("/api/optimize/diagnostics/{fund}")
 def optimize_diagnostics(fund: str):
     """Per-fund optimization diagnostics (active risk vs the benchmark): tracking
@@ -1075,6 +1204,9 @@ else:
 
 # Serve the built React terminal (single-container deploy). The /api routes above
 # are matched first; this catch-all mount serves the SPA for everything else.
+from api.submissions import router as submissions_router  # noqa: E402
+app.include_router(submissions_router)
+
 _DIST = Path(__file__).resolve().parents[1] / "web" / "dist"
 if _DIST.exists():
     app.mount("/", StaticFiles(directory=str(_DIST), html=True), name="web")
