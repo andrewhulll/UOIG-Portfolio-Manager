@@ -1,0 +1,7 @@
+{
+  "TMT": [["Sydney", "KD"], ["Brett", "ACIW"], ["Brett", "GOOG"], ["Jackson B", "AVGO"], ["Jackson B", "AAPL"], ["Johan", "WK"], ["Nick", "MSFT"], ["Tyler", "CSCO"], ["George", "PYPL"], ["Grace", "TWLO"], ["Ness", "OMC"], ["Kayla", "PRGS"], ["Mika", "BILL"]],
+  "Consumer": [["Jack", "AMZN"], ["Sydney", "DG"], ["Roland", "LKQ"], ["Nick", "SJM"], ["Koa", "WH"], ["Nathan", "BG"]],
+  "Financials": [["Grace", "BRK"], ["Johan", "C"], ["George", "CTRE"], ["Alex", "EVR"], ["Caleb", "UMBF"], ["Kayla", "AX"], ["Tanner", "SPGI"], ["Roland", "FOR"]],
+  "Healthcare": [["Anjali", "CVS"], ["AJ", "SEM"], ["Spencer", "MCK"], ["Nima", "PFE"], ["Hannah", "REGN"], ["Jackson L", "UHS"], ["Will Hackett", "CON"], ["Andrew Hull", "CPRX"], ["Millar", "IQV"], ["Millar", "OMCL"]],
+  "IME": [["Ryan", "ABM"], ["Amber", "BA"], ["Will Hutson", "CTVA"], ["Will Hutson", "AGX"], ["Alex", "CVX"], ["AJ", "KEX"], ["Timi", "NEE"], ["Isaac", "DAL"], ["Nathan", "SW"], ["Andrew Hull", "CACI"], ["Akash", "BLBD"], ["Tyler", "LEU"]]
+}

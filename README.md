@@ -43,6 +43,8 @@ The frontend talks to these JSON endpoints (Vite proxies `/api` to `:8000` in de
 | `GET /api/auth/me` | Current user + role, or 401 |
 | `POST /api/auth/logout` | Clear the session cookie |
 | `POST /api/auth/invite` | Invite a teammate by email (**Admin role only**) |
+| `PATCH /api/profile` | Update the current user's WorkOS first/last name |
+| `GET /api/organization/members` | Active UOIG member directory, roles, sectors, and coverage |
 
 Every `/api/*` route except `/api/health` and `/api/auth/*` requires a valid session
 (see **Authentication** below).
@@ -82,12 +84,13 @@ only the invite action is role-gated (Admin) so far.
 | `WORKOS_ADMIN_ROLE` | — | role slug allowed to invite teammates (default `admin`) |
 | `UOIG_COOKIE_SECURE` | — | set `1` in production (HTTPS) for Secure cookies |
 | `UOIG_AUTH_DISABLED` | — | **dev only** — bypass the gate; never set in production |
+| `UOIG_FORCE_SQLITE` | — | **dev/test only** — use local SQLite even when `supabase.url.txt` exists |
 
-**Profile menu.** The nav-rail avatar opens a profile menu: Google photo (initials
-fallback), name, email, role badge, and Sign out. Users whose role is the Admin role
-(`WORKOS_ADMIN_ROLE`) also get an inline **Invite teammate** form — invite is the one
-role-gated action and is enforced server-side (`POST /api/auth/invite` returns `403`
-for non-admins), not just hidden in the UI.
+**Profile and organization.** The avatar menu links to an editable profile,
+browser-persisted terminal preferences, and the UOIG member directory. The directory
+is visible to active members and shows allowlisted identity, role, sector, and company
+coverage fields. Admins also see the invite form; the backend still enforces that
+role (`POST /api/auth/invite` returns `403` for non-admins).
 
 Until the three secrets are set, the app stays locked: the sign-in page shows and every
 data route returns `401`. For local UI work without WorkOS, set `UOIG_AUTH_DISABLED=1`.

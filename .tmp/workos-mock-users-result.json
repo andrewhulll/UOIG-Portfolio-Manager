@@ -1,0 +1,565 @@
+{
+  "seed": "uoig-coverage-mock-v1",
+  "organization_id": "org_01KW88D2491HAFQCZE8EJ9GR72",
+  "users": [
+    {
+      "name": "Sydney",
+      "email": "mock.sydney@uoig.example.invalid",
+      "user_id": "user_01M1X46CSQJQ0BKK1XGA1JBHJB",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "TMT",
+          "ticker": "KD"
+        },
+        {
+          "sector": "Consumer",
+          "ticker": "DG"
+        }
+      ],
+      "membership_id": "om_01M1X46D4T18NA9JMJ25Z0XGWW",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Brett",
+      "email": "mock.brett@uoig.example.invalid",
+      "user_id": "user_01M1X46DN4E0P0KJFA6G95CE4D",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "TMT",
+          "ticker": "ACIW"
+        },
+        {
+          "sector": "TMT",
+          "ticker": "GOOG"
+        }
+      ],
+      "membership_id": "om_01M1X46E0VEX1GJGQ2S12APBH7",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Jackson B",
+      "email": "mock.jackson.b@uoig.example.invalid",
+      "user_id": "user_01M1X46EHJ0CGEAJG0856Z55JZ",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "TMT",
+          "ticker": "AVGO"
+        },
+        {
+          "sector": "TMT",
+          "ticker": "AAPL"
+        }
+      ],
+      "membership_id": "om_01M1X46F07QYT4GEM3N84GD2YS",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Johan",
+      "email": "mock.johan@uoig.example.invalid",
+      "user_id": "user_01M1X46FGA6RF4G2X4P0JPBSGD",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "TMT",
+          "ticker": "WK"
+        },
+        {
+          "sector": "Financials",
+          "ticker": "C"
+        }
+      ],
+      "membership_id": "om_01M1X46FV63XEHJVM6MJMWVW42",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Nick",
+      "email": "mock.nick@uoig.example.invalid",
+      "user_id": "user_01M1X46GEV7W9WE9KDQVG7GWM8",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "TMT",
+          "ticker": "MSFT"
+        },
+        {
+          "sector": "Consumer",
+          "ticker": "SJM"
+        }
+      ],
+      "membership_id": "om_01M1X46GSW8B2BS7FVRV1P3R15",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Tyler",
+      "email": "mock.tyler@uoig.example.invalid",
+      "user_id": "user_01M1X46HAJX4QTZYYDD2NADXFC",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "TMT",
+          "ticker": "CSCO"
+        },
+        {
+          "sector": "IME",
+          "ticker": "LEU"
+        }
+      ],
+      "membership_id": "om_01M1X46HNKPAX6QQFER5B1BVJA",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "George",
+      "email": "mock.george@uoig.example.invalid",
+      "user_id": "user_01M1X46JBM9FE0APTJF9N6QS25",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "TMT",
+          "ticker": "PYPL"
+        },
+        {
+          "sector": "Financials",
+          "ticker": "CTRE"
+        }
+      ],
+      "membership_id": "om_01M1X46JQCTCP1V99G76W3VC6H",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Grace",
+      "email": "mock.grace@uoig.example.invalid",
+      "user_id": "user_01M1X46K9WY221SN5SEPA6F71V",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "TMT",
+          "ticker": "TWLO"
+        },
+        {
+          "sector": "Financials",
+          "ticker": "BRK"
+        }
+      ],
+      "membership_id": "om_01M1X46KP6DR8EESMGRHH0EEKF",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Ness",
+      "email": "mock.ness@uoig.example.invalid",
+      "user_id": "user_01M1X46M5Z5XWH6MRADQV8JEE7",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "TMT",
+          "ticker": "OMC"
+        }
+      ],
+      "membership_id": "om_01M1X46MH1PGZMV4A477G7Z5GC",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Kayla",
+      "email": "mock.kayla@uoig.example.invalid",
+      "user_id": "user_01M1X46N0SETA9DGW21ZPXCR9Z",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "TMT",
+          "ticker": "PRGS"
+        },
+        {
+          "sector": "Financials",
+          "ticker": "AX"
+        }
+      ],
+      "membership_id": "om_01M1X46NBHVEXHBK955EY2P2F3",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Mika",
+      "email": "mock.mika@uoig.example.invalid",
+      "user_id": "user_01M1X46NW4HXA0N0SBBPZQJ5CF",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "TMT",
+          "ticker": "BILL"
+        }
+      ],
+      "membership_id": "om_01M1X46P6VTSJ4MB0DYMJ0YT00",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Jack",
+      "email": "mock.jack@uoig.example.invalid",
+      "user_id": "user_01M1X46PRA1EC1C862969J4KTK",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "Consumer",
+          "ticker": "AMZN"
+        }
+      ],
+      "membership_id": "om_01M1X46Q3Q1HTMSVKYPKXBBCZ4",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Roland",
+      "email": "mock.roland@uoig.example.invalid",
+      "user_id": "user_01M1X46QKY70SHAPGTKN3G35HJ",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "Consumer",
+          "ticker": "LKQ"
+        },
+        {
+          "sector": "Financials",
+          "ticker": "FOR"
+        }
+      ],
+      "membership_id": "om_01M1X46QYR68EV11JR087PRVJF",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Koa",
+      "email": "mock.koa@uoig.example.invalid",
+      "user_id": "user_01M1X46REVW4N3D54Q7H7V7AKQ",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "Consumer",
+          "ticker": "WH"
+        }
+      ],
+      "membership_id": "om_01M1X46RTAMYHJC274NMJMEDSW",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Nathan",
+      "email": "mock.nathan@uoig.example.invalid",
+      "user_id": "user_01M1X46SAZX9R237ZS8CYZCWJF",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "Consumer",
+          "ticker": "BG"
+        },
+        {
+          "sector": "IME",
+          "ticker": "SW"
+        }
+      ],
+      "membership_id": "om_01M1X46SQH0E6MC1P9VMZ2SXAS",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Alex",
+      "email": "mock.alex@uoig.example.invalid",
+      "user_id": "user_01M1X46T7Y158TF1DGP4JVF7VN",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "Financials",
+          "ticker": "EVR"
+        },
+        {
+          "sector": "IME",
+          "ticker": "CVX"
+        }
+      ],
+      "membership_id": "om_01M1X46TK2ZVXJRH1M0HBXDJ6R",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Caleb",
+      "email": "mock.caleb@uoig.example.invalid",
+      "user_id": "user_01M1X46V2GZVPG9JN26PTHPDYQ",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "Financials",
+          "ticker": "UMBF"
+        }
+      ],
+      "membership_id": "om_01M1X46VDNT1PY7P4XXYHT4JF9",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Tanner",
+      "email": "mock.tanner@uoig.example.invalid",
+      "user_id": "user_01M1X46W4YXFHSW49628R9QMK7",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "Financials",
+          "ticker": "SPGI"
+        }
+      ],
+      "membership_id": "om_01M1X46WGSZ7QG1VXYRQWA9580",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Anjali",
+      "email": "mock.anjali@uoig.example.invalid",
+      "user_id": "user_01M1X46X3AGF6NEYHNXXFZM7K2",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "Healthcare",
+          "ticker": "CVS"
+        }
+      ],
+      "membership_id": "om_01M1X46XEVMQ7EX96PFYWP7J22",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "AJ",
+      "email": "mock.aj@uoig.example.invalid",
+      "user_id": "user_01M1X46XZ5WYK6WGAHHHX00Q0Q",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "Healthcare",
+          "ticker": "SEM"
+        },
+        {
+          "sector": "IME",
+          "ticker": "KEX"
+        }
+      ],
+      "membership_id": "om_01M1X46Y9TMZFDM78K7HPSKPE7",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Spencer",
+      "email": "mock.spencer@uoig.example.invalid",
+      "user_id": "user_01M1X46YVTEAZ3NSE213NZ75S1",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "Healthcare",
+          "ticker": "MCK"
+        }
+      ],
+      "membership_id": "om_01M1X46Z74MKNTH8A1EXXWTKBW",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Nima",
+      "email": "mock.nima@uoig.example.invalid",
+      "user_id": "user_01M1X46ZSC7FNXPCD35BNBFRDV",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "Healthcare",
+          "ticker": "PFE"
+        }
+      ],
+      "membership_id": "om_01M1X470489JSXEQZ7QQM4MKFC",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Hannah",
+      "email": "mock.hannah@uoig.example.invalid",
+      "user_id": "user_01M1X470MGR0XTFRR9QXB9RPE0",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "Healthcare",
+          "ticker": "REGN"
+        }
+      ],
+      "membership_id": "om_01M1X470ZAMQJBV4E0ZFZ6K1Q3",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Jackson L",
+      "email": "mock.jackson.l@uoig.example.invalid",
+      "user_id": "user_01M1X471FBQMHDMYGB87JPFZQ7",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "Healthcare",
+          "ticker": "UHS"
+        }
+      ],
+      "membership_id": "om_01M1X471TEEE1CQ2R82N1CV5FJ",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Will Hackett",
+      "email": "mock.will.hackett@uoig.example.invalid",
+      "user_id": "user_01M1X472B0Q77CXWF28DEF7QGF",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "Healthcare",
+          "ticker": "CON"
+        }
+      ],
+      "membership_id": "om_01M1X472PD8RDH2B6RS6YKNFDX",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Andrew Hull",
+      "email": "mock.andrew.hull@uoig.example.invalid",
+      "user_id": "user_01M1X47376FKGBZ8Q7K7XXZCKH",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "Healthcare",
+          "ticker": "CPRX"
+        },
+        {
+          "sector": "IME",
+          "ticker": "CACI"
+        }
+      ],
+      "membership_id": "om_01M1X473J90W0Z6CKW7DBDXV3J",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Millar",
+      "email": "mock.millar@uoig.example.invalid",
+      "user_id": "user_01M1X4743FF9XNGR4MFB8QVKM5",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "Healthcare",
+          "ticker": "IQV"
+        },
+        {
+          "sector": "Healthcare",
+          "ticker": "OMCL"
+        }
+      ],
+      "membership_id": "om_01M1X474EBKHQ8HJC7D6BX9X1P",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Ryan",
+      "email": "mock.ryan@uoig.example.invalid",
+      "user_id": "user_01M1X474ZC4XKQZ3AYVJE9VX7X",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "IME",
+          "ticker": "ABM"
+        }
+      ],
+      "membership_id": "om_01M1X475AGZ1JH7X167RBV3RPZ",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Amber",
+      "email": "mock.amber@uoig.example.invalid",
+      "user_id": "user_01M1X475T961J5BYXRPVXX6JTK",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "IME",
+          "ticker": "BA"
+        }
+      ],
+      "membership_id": "om_01M1X4765B4G7HP8JKQGYKDFX9",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Will Hutson",
+      "email": "mock.will.hutson@uoig.example.invalid",
+      "user_id": "user_01M1X476NZK0420VN7RZEDXEJ4",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "IME",
+          "ticker": "CTVA"
+        },
+        {
+          "sector": "IME",
+          "ticker": "AGX"
+        }
+      ],
+      "membership_id": "om_01M1X4770SW59RQ0AERA8G78A5",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Timi",
+      "email": "mock.timi@uoig.example.invalid",
+      "user_id": "user_01M1X477H6XKET9CK91CV538R1",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "IME",
+          "ticker": "NEE"
+        }
+      ],
+      "membership_id": "om_01M1X477VCEGMWBS1VY2X35Y5X",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Isaac",
+      "email": "mock.isaac@uoig.example.invalid",
+      "user_id": "user_01M1X478BGDDPQSBYZK4FZTFMC",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "IME",
+          "ticker": "DAL"
+        }
+      ],
+      "membership_id": "om_01M1X478QD0DVPTPCTMK8MB6C2",
+      "status": "verified",
+      "role": "member"
+    },
+    {
+      "name": "Akash",
+      "email": "mock.akash@uoig.example.invalid",
+      "user_id": "user_01M1X4797AS42TX49JA8FK7H13",
+      "action": "created",
+      "coverage": [
+        {
+          "sector": "IME",
+          "ticker": "BLBD"
+        }
+      ],
+      "membership_id": "om_01M1X479J39MWXFVQQZ61QGXDJ",
+      "status": "verified",
+      "role": "member"
+    }
+  ]
+}

@@ -1,8 +1,9 @@
 import React from 'react'
 import { Analytics } from '@vercel/analytics/react'
-import { getData, getSeries, getFundSeries, getSectorSeries, getStock, getPredictions, getThesis, postChat, runAgent, getAgentRun, searchTickers, getQuote, getHolders, getOptimizeDiagnostics, getOptimizeWhatif, postOptimizeSolve, getMe, logout, sendInvite } from './api.js'
+import { getData, getSeries, getFundSeries, getSectorSeries, getStock, getPredictions, getThesis, postChat, runAgent, getAgentRun, searchTickers, getQuote, getHolders, getOptimizeDiagnostics, getOptimizeWhatif, postOptimizeSolve, getMe, logout } from './api.js'
 import AuthScreen from './auth/AuthScreen.jsx'
 import { LoadingScreen, ErrorScreen } from './StatusScreens.jsx'
+import { ProfilePage, PreferencesPage, OrganizationPage } from './profile/SettingsPages.jsx'
 import { s } from './ui.js'
 
 // UOIG sector taxonomy: the five groups the club uses, each rolling up one or
@@ -237,13 +238,16 @@ export default class App extends React.Component {
     super(props)
     this.mainRef = React.createRef()
     this.chatRef = React.createRef()
+    let preferences = {}
+    try { preferences = JSON.parse(localStorage.getItem('uoig.preferences') || '{}') } catch (_) { /* ignore invalid local state */ }
+    const landing = ['dashboard', 'stocks', 'sectors', 'optimize'].includes(preferences.landingPage) ? preferences.landingPage : 'dashboard'
     this.state = {
       auth: 'loading',  // 'loading' | { user, role, canInvite } | null (signed out)
       profileOpen: false,  // profile menu popover
       avatarImgFailed: false,  // fall back to initials if the Google photo 404s
-      inviteEmail: '', inviteState: 'idle', inviteMsg: '',  // PM invite form
       data: null, error: null,
-      view: 'dashboard', fund: (typeof localStorage !== 'undefined' && localStorage.getItem('uoig.fund')) || 'all', period: 'YTD',
+      view: landing, fund: preferences.defaultFund || (typeof localStorage !== 'undefined' && localStorage.getItem('uoig.fund')) || 'all', period: preferences.defaultPeriod || 'YTD',
+      preferences,
       ticker: null, sector: null, prevView: 'dashboard',
       stkTab: 'overview', chatOpen: false,
       sortKey: 'w', sortDir: 'desc', query: '',
@@ -325,15 +329,6 @@ export default class App extends React.Component {
     logout().catch(() => {}).then(() => this.setState({ auth: null, data: null, profileOpen: false }))
   }
 
-  _sendInvite() {
-    const email = (this.state.inviteEmail || '').trim()
-    if (!email || this.state.inviteState === 'sending') return
-    this.setState({ inviteState: 'sending', inviteMsg: '' })
-    sendInvite(email)
-      .then(() => this.setState({ inviteState: 'sent', inviteMsg: 'Invitation sent to ' + email, inviteEmail: '' }))
-      .catch((e) => this.setState({ inviteState: 'error', inviteMsg: String(e).includes('503') ? 'WorkOS isn’t configured yet.' : 'Could not send invite. Try again.' }))
-  }
-
   // Initials for the header avatar, from the signed-in user (falls back to 'PM').
   _userInitials() {
     const u = (this.state.auth && this.state.auth.user) || null
@@ -357,11 +352,12 @@ export default class App extends React.Component {
   _renderProfileMenu() {
     const a = this.state.auth || {}
     const u = a.user || {}
-    const inv = this.state.inviteState
+    const roleName = a.role === 'member' ? 'Analyst' : a.role === 'sector-leader' ? 'Sector Leader' : (a.role || 'Member')
+    const open = (view) => this.setState({ view, profileOpen: false })
     return (
       <>
         <div onClick={() => this.setState({ profileOpen: false })} style={s('position:fixed;inset:0;z-index:90;')}></div>
-        <div style={s('position:fixed;right:12px;top:56px;width:264px;background:#0e1422;border:1px solid #1d2840;border-radius:12px;box-shadow:0 20px 56px rgba(0,0,0,.6);z-index:91;overflow:hidden;')}>
+        <div style={s('position:fixed;right:12px;top:56px;width:276px;background:#0e1422;border:1px solid #1d2840;border-radius:12px;box-shadow:0 20px 56px rgba(0,0,0,.6);z-index:91;overflow:hidden;')}>
           <div style={s('display:flex;align-items:center;gap:11px;padding:15px;border-bottom:1px solid #1d2840;')}>
             {this._avatar(38, 13)}
             <div style={s('min-width:0;')}>
@@ -369,26 +365,14 @@ export default class App extends React.Component {
               <div style={s("font:400 11px 'IBM Plex Mono';color:#6b7794;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")}>{u.email || ''}</div>
             </div>
           </div>
-          {a.role && (
-            <div style={s('padding:11px 15px;border-bottom:1px solid #1d2840;display:flex;align-items:center;gap:8px;')}>
-              <span style={s("font:600 8.5px 'IBM Plex Sans';letter-spacing:.07em;text-transform:uppercase;color:#6b7794;")}>Role</span>
-              <span style={s("font:600 10px 'IBM Plex Sans';letter-spacing:.04em;text-transform:uppercase;color:#5a93f9;background:#13203a;border:1px solid #28406e;border-radius:5px;padding:3px 9px;")}>{a.role}</span>
-            </div>
-          )}
-          {a.canInvite && (
-            <div style={s('padding:13px 15px;border-bottom:1px solid #1d2840;')}>
-              <div style={s("font:600 8.5px 'IBM Plex Sans';letter-spacing:.07em;text-transform:uppercase;color:#6b7794;margin-bottom:8px;")}>Invite teammate</div>
-              <div style={s('display:flex;gap:6px;')}>
-                <input value={this.state.inviteEmail} onChange={(e) => this.setState({ inviteEmail: e.target.value, inviteState: 'idle', inviteMsg: '' })}
-                  onKeyDown={(e) => { if (e.key === 'Enter') this._sendInvite() }} placeholder="email@uoregon.edu"
-                  style={s("flex:1;min-width:0;background:#0a0f1a;border:1px solid #1d2840;border-radius:7px;padding:7px 9px;color:#e8edf7;outline:none;font:400 11px 'IBM Plex Sans';")} />
-                <span onClick={() => this._sendInvite()} style={{ ...s("display:flex;align-items:center;justify-content:center;border-radius:7px;padding:7px 11px;font:600 11px 'IBM Plex Sans';cursor:pointer;color:#fff;"), background: inv === 'sending' ? '#2a3a5c' : '#2f6df6' }}>{inv === 'sending' ? '…' : 'Send'}</span>
-              </div>
-              {this.state.inviteMsg && (
-                <div style={{ ...s("font:400 10px 'IBM Plex Sans';margin-top:7px;"), color: inv === 'sent' ? '#21d07a' : '#ff8a8a' }}>{this.state.inviteMsg}</div>
-              )}
-            </div>
-          )}
+          <div style={s('padding:10px 15px;border-bottom:1px solid #1d2840;display:flex;align-items:center;justify-content:space-between;')}><span style={s("font:600 8.5px 'IBM Plex Sans';letter-spacing:.07em;text-transform:uppercase;color:#6b7794;")}>UOIG member</span><span style={s("font:600 9px 'IBM Plex Sans';letter-spacing:.04em;text-transform:uppercase;color:#5a93f9;background:#13203a;border:1px solid #28406e;border-radius:5px;padding:3px 8px;")}>{roleName}</span></div>
+          <div style={s('padding:6px 0;border-bottom:1px solid #1d2840;')}>
+            {[
+              ['profile', '○', 'My profile', 'Identity and account details'],
+              ['preferences', '⚙', 'Preferences', 'Startup and display options'],
+              ['organization', '◎', 'Organization', 'Members and company coverage'],
+            ].map(([view, icon, title, subtitle]) => <button key={view} onClick={() => open(view)} className="dc-hover" style={s("width:100%;border:0;background:transparent;display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:8px;padding:10px 15px;cursor:pointer;text-align:left;color:#cdd6e8;font-family:'IBM Plex Sans';")}><span style={s('font-size:14px;color:#7283a4;')}>{icon}</span><span><span style={s('display:block;font-size:11.5px;font-weight:500;')}>{title}</span><small style={s('display:block;font-size:9px;color:#59657e;margin-top:2px;')}>{subtitle}</small></span><span style={s('color:#53617c;')}>›</span></button>)}
+          </div>
           <div onClick={() => this._signOut()} className="dc-hover" style={s("display:flex;align-items:center;gap:9px;padding:12px 15px;cursor:pointer;font:500 12px 'IBM Plex Sans';color:#cdd6e8;")}>
             <svg width="14" height="14" viewBox="0 0 16 16" style={{ fill: 'none', stroke: '#9aa7c2', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' }}><path d="M6 14H3.5A1.5 1.5 0 0 1 2 12.5v-9A1.5 1.5 0 0 1 3.5 2H6"></path><path d="M10.5 11 14 7.5 10.5 4"></path><path d="M14 7.5H6"></path></svg>
             Sign out
@@ -500,7 +484,7 @@ export default class App extends React.Component {
   _col(x) { return x >= 0 ? '#21d07a' : '#ff5666' }
 
   // ---------- navigation ----------
-  _go(view) { this.setState({ view }) }
+  _go(view) { this.setState({ view, profileOpen: false }) }
   _setFund(k) { try { localStorage.setItem('uoig.fund', k) } catch (e) { /* ignore */ } this.setState({ fund: k }) }
   _openStock(t, from) {
     const tk = (t || '').toUpperCase()
@@ -853,14 +837,14 @@ export default class App extends React.Component {
     const v = this.renderVals()
     const F = this.funds
     return (
-      <div style={s("height:100vh;width:100%;display:flex;flex-direction:column;background:#070a12;color:#e8edf7;font-family:'IBM Plex Sans',sans-serif;overflow:hidden;")}>
+      <div data-reduced-motion={String(!!this.state.preferences.reducedMotion)} data-density={this.state.preferences.density || 'comfortable'} style={s("height:100vh;width:100%;display:flex;flex-direction:column;background:#070a12;color:#e8edf7;font-family:'IBM Plex Sans',sans-serif;overflow:hidden;")}>
         {/* HEADER */}
-        <div style={s('height:48px;flex:0 0 48px;display:flex;align-items:center;gap:14px;padding:0 16px;background:#0a0f1a;border-bottom:1px solid #1d2840;')}>
-          <div style={s('display:flex;align-items:center;gap:10px;cursor:pointer;')} onClick={() => this._go('dashboard')}>
+        <div className="app-header" style={s('height:48px;flex:0 0 48px;display:flex;align-items:center;gap:14px;padding:0 16px;background:#0a0f1a;border-bottom:1px solid #1d2840;')}>
+          <div className="app-brand" style={s('display:flex;align-items:center;gap:10px;cursor:pointer;')} onClick={() => this._go('dashboard')}>
             <img src="/uoig-logo.png" alt="UOIG" style={s('width:26px;height:26px;object-fit:contain;background:#fff;border-radius:5px;padding:2px;')} />
-            <div style={s("font:600 14px 'IBM Plex Sans';color:#e8edf7;")}>University of Oregon Investment Group</div>
+            <div className="app-brand-name" style={s("font:600 14px 'IBM Plex Sans';color:#e8edf7;")}>University of Oregon Investment Group</div>
           </div>
-          <div style={s('position:relative;width:320px;margin-left:10px;')}>
+          <div className="app-header-search" style={s('position:relative;width:320px;margin-left:10px;')}>
             <div style={{ ...s('display:flex;align-items:center;gap:8px;background:#0e1422;border-radius:7px;padding:7px 11px;'), border: '1px solid ' + (this.state.searchOpen ? '#28406e' : '#1d2840') }}>
               <svg width="13" height="13" viewBox="0 0 16 16" style={{ fill: 'none', stroke: '#5d6a85', strokeWidth: 1.6 }}><circle cx="7" cy="7" r="4.5"></circle><line x1="11" y1="11" x2="14.5" y2="14.5" style={{ strokeLinecap: 'round' }}></line></svg>
               <input value={this.state.searchQ} onChange={(e) => this._onSearchChange(e.target.value)}
@@ -885,12 +869,12 @@ export default class App extends React.Component {
               </div>
             )}
           </div>
-          <div style={s('display:flex;background:#0e1422;border:1px solid #1d2840;border-radius:9px;padding:3px;gap:2px;margin-left:10px;')}>
+          <div className="app-fund-tabs" style={s('display:flex;background:#0e1422;border:1px solid #1d2840;border-radius:9px;padding:3px;gap:2px;margin-left:10px;')}>
             {v.fundTabs.map((t) => (<span key={t.k} onClick={t.on} style={{ ...s("padding:6px 15px;border-radius:6px;cursor:pointer;font-size:11.5px;font-family:'IBM Plex Sans';"), fontWeight: t.weight, background: t.bg, color: t.color }}>{t.label}</span>))}
           </div>
           <div style={s('flex:1;')}></div>
-          <div style={s("display:flex;align-items:center;gap:7px;font-family:'IBM Plex Mono';font-size:11px;color:#9aa7c2;")}><span style={{ ...s('width:7px;height:7px;border-radius:50%;'), background: v.marketOpen ? '#21d07a' : '#6b7794', animation: v.marketOpen ? 'pulseDot 2s infinite' : 'none' }}></span>{v.marketOpen ? 'MARKETS OPEN' : 'MARKETS CLOSED'}</div>
-          <div style={s("font-family:'IBM Plex Mono';font-size:11px;color:#6b7794;")}>{v.asOf}</div>
+          <div className="app-market-status" style={s("display:flex;align-items:center;gap:7px;font-family:'IBM Plex Mono';font-size:11px;color:#9aa7c2;")}><span style={{ ...s('width:7px;height:7px;border-radius:50%;'), background: v.marketOpen ? '#21d07a' : '#6b7794', animation: v.marketOpen ? 'pulseDot 2s infinite' : 'none' }}></span>{v.marketOpen ? 'MARKETS OPEN' : 'MARKETS CLOSED'}</div>
+          <div className="app-asof" style={s("font-family:'IBM Plex Mono';font-size:11px;color:#6b7794;")}>{v.asOf}</div>
           <div onClick={() => this.setState((st) => ({ profileOpen: !st.profileOpen }))} title={(this.state.auth && this.state.auth.user && (this.state.auth.user.name || this.state.auth.user.email)) || 'Profile'} className="dc-hover" style={s('cursor:pointer;display:flex;')}>{this._avatar(28, 10.5)}</div>
           {this.state.profileOpen && this._renderProfileMenu()}
         </div>
@@ -912,12 +896,15 @@ export default class App extends React.Component {
             {v.isStock && (v.stk ? this._renderStock(v) : this._renderStockMsg(v))}
             {v.isSector && v.sec && this._renderSector(v)}
             {v.isOptimize && this._renderOptimize(v)}
+            {this.state.view === 'profile' && <ProfilePage auth={this.state.auth} onNavigate={(view) => this._go(view)} onUserUpdated={(user) => this.setState((st) => ({ auth: { ...st.auth, user }, avatarImgFailed: false }))} />}
+            {this.state.view === 'preferences' && <PreferencesPage fundOptions={[{ value: 'all', label: 'All Funds' }, ...this.fundKeys.map(k => ({ value: k, label: this.funds[k].name }))]} currentFund={this.state.fund} currentPeriod={this.state.period} onNavigate={(view) => this._go(view)} onApply={(preferences) => this.setState({ preferences, fund: preferences.defaultFund, period: preferences.defaultPeriod })} />}
+            {this.state.view === 'organization' && <OrganizationPage auth={this.state.auth} onNavigate={(view) => this._go(view)} onOpenStock={(ticker) => this._openStock(ticker, 'organization')} />}
           </div>
 
         </div>
 
         {/* ASK-CLAUDE POPUP */}
-        {this.state.chatOpen && (
+        {this.state.chatOpen && !['profile', 'preferences', 'organization'].includes(this.state.view) && (
           <div style={s('position:fixed;right:22px;bottom:88px;width:374px;height:560px;max-height:calc(100vh - 120px);background:#0b0d1d;border:1px solid #241f3e;border-radius:16px;box-shadow:0 26px 64px rgba(0,0,0,.55);display:flex;flex-direction:column;overflow:hidden;z-index:60;')}>
             <div style={s('display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-bottom:1px solid #241f3e;background:linear-gradient(180deg,#140f2c,#0b0d1d);flex:0 0 auto;')}>
               <div style={s("display:flex;align-items:center;gap:8px;font:600 11px 'IBM Plex Sans';letter-spacing:.08em;text-transform:uppercase;color:#c3b9ff;")}><span style={s('font-size:15px;')}>✦</span>Ask Claude</div>
@@ -953,7 +940,7 @@ export default class App extends React.Component {
         )}
 
         {/* ASK-CLAUDE FAB */}
-        <div onClick={() => this.setState((st) => ({ chatOpen: !st.chatOpen }))} title="Ask Claude" style={{ ...s('position:fixed;right:22px;bottom:22px;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;font-size:23px;z-index:61;box-shadow:0 12px 30px rgba(90,79,214,.5);'), background: this.state.chatOpen ? '#2c2550' : 'linear-gradient(135deg,#5a4fd6,#3a31a8)' }}>{this.state.chatOpen ? '✕' : '✦'}</div>
+        {!['profile', 'preferences', 'organization'].includes(this.state.view) && <div onClick={() => this.setState((st) => ({ chatOpen: !st.chatOpen }))} title="Ask Claude" style={{ ...s('position:fixed;right:22px;bottom:22px;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;font-size:23px;z-index:61;box-shadow:0 12px 30px rgba(90,79,214,.5);'), background: this.state.chatOpen ? '#2c2550' : 'linear-gradient(135deg,#5a4fd6,#3a31a8)' }}>{this.state.chatOpen ? '✕' : '✦'}</div>}
         <Analytics />
       </div>
     )
