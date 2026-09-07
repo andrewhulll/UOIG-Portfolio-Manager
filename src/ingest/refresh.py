@@ -45,11 +45,14 @@ def refresh(cfg: dict, history_years: float | None = None,
     tickers, bench_tickers = _universe(conn, cfg)
 
     summary = {"tickers": len(tickers), "prices": 0, "dividends": 0, "failed": []}
+
+    last_dates_raw = conn.execute(
+        db.q(conn, "SELECT ticker, MAX(date) FROM prices WHERE source != 'xlsx_snapshot' GROUP BY ticker")
+    ).fetchall()
+    last_dates = {r[0]: r[1] for r in last_dates_raw}
+
     for t in tickers:
-        last = conn.execute(
-            db.q(conn, "SELECT MAX(date) FROM prices WHERE ticker = ? AND source != 'xlsx_snapshot'"),
-            (t,),
-        ).fetchone()[0]
+        last = last_dates.get(t)
         start = default_start if (full or not last) else max(
             default_start,
             (dt.date.fromisoformat(last) - dt.timedelta(days=400)).isoformat()
