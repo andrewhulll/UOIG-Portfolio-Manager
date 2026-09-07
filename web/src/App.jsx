@@ -968,7 +968,7 @@ export default class App extends React.Component {
         {/* stat tiles */}
         <div style={s('display:grid;grid-template-columns:repeat(6,1fr);gap:11px;')}>
           {v.heroStats.map((st2, i) => (
-            <div key={i} style={s('background:#0e1422;border:1px solid #1d2840;border-radius:8px;padding:11px 13px;')}>
+            <div key={i} title={st2.tooltip} style={s('background:#0e1422;border:1px solid #1d2840;border-radius:8px;padding:11px 13px;')}>
               <div style={s("font:600 8.5px 'IBM Plex Sans';letter-spacing:.07em;text-transform:uppercase;color:#6b7794;")}>{st2.l}</div>
               <div style={{ ...s("font-family:'IBM Plex Mono';font-size:19px;margin-top:6px;"), color: st2.c }}>{st2.v}</div>
               <div style={s('font-size:9px;color:#5d6a85;margin-top:2px;')}>{st2.sub}</div>
@@ -1406,7 +1406,7 @@ export default class App extends React.Component {
         </div>
         {/* snapshot */}
         <div style={s('display:grid;grid-template-columns:repeat(7,1fr);gap:11px;')}>
-          {v.stkSnapshot.map((st2, i) => (<div key={i} style={s('background:#0e1422;border:1px solid #1d2840;border-radius:8px;padding:11px 13px;')}><div style={s("font:600 8.5px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;color:#6b7794;")}>{st2.l}</div><div style={{ ...s("font-family:'IBM Plex Mono';margin-top:6px;color:#cdd6e8;"), fontSize: st2.size }}>{st2.v}</div></div>))}
+          {v.stkSnapshot.map((st2, i) => (<div key={i} title={st2.tooltip} style={s('background:#0e1422;border:1px solid #1d2840;border-radius:8px;padding:11px 13px;')}><div style={s("font:600 8.5px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;color:#6b7794;")}>{st2.l}</div><div style={{ ...s("font-family:'IBM Plex Mono';margin-top:6px;color:#cdd6e8;"), fontSize: st2.size }}>{st2.v}</div></div>))}
         </div>
         {/* price chart (full width) */}
         <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;padding:15px;')}>
@@ -1535,10 +1535,10 @@ export default class App extends React.Component {
     const k = d.kpis, c = d.concentration
     const pct = (x, dp) => (x == null ? '—' : x.toFixed(dp == null ? 1 : dp) + '%')
     const kpis = [
-      { l: 'Tracking Error', v: pct(k.tracking_error, 2), sub: 'active risk, ann.', accent: '#5a93f9' },
-      { l: 'Active Share', v: pct(k.active_share, 1), sub: 'vs benchmark', accent: '#5a93f9' },
-      { l: 'Beta vs ' + d.benchmark, v: k.beta == null ? '—' : k.beta.toFixed(2), sub: '3Y daily', accent: '#2a3a5c' },
-      { l: 'Portfolio Vol', v: pct(k.vol, 1), sub: 'total, ann.', accent: '#2a3a5c' },
+      { l: 'Tracking Error', v: pct(k.tracking_error, 2), sub: 'active risk, ann.', accent: '#5a93f9', tooltip: 'Realized standard deviation of active returns.' },
+      { l: 'Active Share', v: pct(k.active_share, 1), sub: 'vs benchmark', accent: '#5a93f9', tooltip: 'Percentage of the portfolio that differs from the benchmark.' },
+      { l: 'Beta vs ' + d.benchmark, v: k.beta == null ? '—' : k.beta.toFixed(2), sub: '3Y daily', accent: '#2a3a5c', tooltip: 'Portfolio beta relative to the benchmark.' },
+      { l: 'Portfolio Vol', v: pct(k.vol, 1), sub: 'total, ann.', accent: '#2a3a5c', tooltip: 'Total annualized volatility.' },
     ]
     const rows = (d.risk_contribution || []).slice(0, 12)
     const maxRC = Math.max.apply(null, rows.map((r) => Math.abs(r.risk_contrib)).concat([1]))
@@ -1548,7 +1548,7 @@ export default class App extends React.Component {
       <React.Fragment>
         <div style={s('display:grid;grid-template-columns:repeat(4,1fr);gap:11px;')}>
           {kpis.map((t, i) => (
-            <div key={i} style={{ ...s('background:#0e1422;border:1px solid #1d2840;border-radius:0 8px 8px 0;padding:11px 13px;'), borderLeft: '3px solid ' + t.accent }}>
+            <div key={i} title={t.tooltip} style={{ ...s('background:#0e1422;border:1px solid #1d2840;border-radius:0 8px 8px 0;padding:11px 13px;'), borderLeft: '3px solid ' + t.accent }}>
               <div style={s("font:600 8.5px 'IBM Plex Sans';letter-spacing:.05em;text-transform:uppercase;color:#6b7794;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")}>{t.l}</div>
               <div style={s("font-family:'IBM Plex Mono';font-size:20px;margin-top:5px;color:#e8edf7;")}>{t.v}</div>
               <div style={s('font-size:9px;color:#5d6a85;margin-top:2px;')}>{t.sub}</div>
@@ -1601,8 +1601,8 @@ export default class App extends React.Component {
           <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;padding:15px;')}>
             <div style={s("font:600 10px 'IBM Plex Sans';letter-spacing:.08em;text-transform:uppercase;color:#7e8aa6;margin-bottom:13px;")}>Concentration <span style={s("font-family:'IBM Plex Mono';font-weight:400;color:#5d6a85;text-transform:none;letter-spacing:0;")}>· stock sleeve</span></div>
             <div style={s('display:flex;flex-direction:column;gap:11px;')}>
-              {[['Stock picks', c.holdings], ['Effective # names', c.effective_n], ['Top-5 weight', c.top5 + '%'], ['HHI', c.hhi]].map((r, i) => (
-                <div key={i} style={s('display:flex;justify-content:space-between;align-items:baseline;')}><span style={s('font-size:11px;color:#9aa7c2;')}>{r[0]}</span><span style={s("font-family:'IBM Plex Mono';font-size:15px;color:#e8edf7;")}>{r[1]}</span></div>
+              {[['Stock picks', c.holdings, 'Number of individual stock positions.'], ['Effective # names', c.effective_n, 'Inverse of the Herfindahl-Hirschman Index (HHI).'], ['Top-5 weight', c.top5 + '%', 'Combined weight of the top 5 largest positions.'], ['HHI', c.hhi, 'Herfindahl-Hirschman Index, a measure of portfolio concentration.']].map((r, i) => (
+                <div key={i} title={r[2]} style={s('display:flex;justify-content:space-between;align-items:baseline;')}><span style={s('font-size:11px;color:#9aa7c2;')}>{r[0]}</span><span style={s("font-family:'IBM Plex Mono';font-size:15px;color:#e8edf7;")}>{r[1]}</span></div>
               ))}
             </div>
           </div>
@@ -1641,10 +1641,10 @@ export default class App extends React.Component {
       return { from: b2.toFixed(dp) + (pct ? '%' : ''), to: l2.toFixed(dp) + (pct ? '%' : ''), color, same }
     }
     const kpis = [
-      { l: 'Tracking Error', ...cmp(base.te, live.te, 2, true, true), sub: 'ex-ante, ann.' },
-      { l: 'Active Share', ...cmp(base.as, live.as, 1, true, null), sub: 'look-through' },
-      { l: 'Beta vs ' + d.benchmark, ...cmp(base.beta, live.beta, 2, false, null), sub: '3Y daily cov' },
-      { l: 'Portfolio Vol', ...cmp(base.vol, live.vol, 1, true, true), sub: 'total, ann.' },
+      { l: 'Tracking Error', ...cmp(base.te, live.te, 2, true, true), sub: 'ex-ante, ann.', tooltip: 'Realized standard deviation of active returns.' },
+      { l: 'Active Share', ...cmp(base.as, live.as, 1, true, null), sub: 'look-through', tooltip: 'Percentage of the portfolio that differs from the benchmark.' },
+      { l: 'Beta vs ' + d.benchmark, ...cmp(base.beta, live.beta, 2, false, null), sub: '3Y daily cov', tooltip: 'Portfolio beta relative to the benchmark.' },
+      { l: 'Portfolio Vol', ...cmp(base.vol, live.vol, 1, true, true), sub: 'total, ann.', tooltip: 'Total annualized volatility.' },
     ]
     const nCells = d.stocks.length
     const cell = Math.max(9, Math.min(15, Math.floor(430 / nCells)))
@@ -1655,7 +1655,7 @@ export default class App extends React.Component {
         {/* KPI strip: baseline -> live */}
         <div style={s('display:grid;grid-template-columns:repeat(4,1fr);gap:11px;')}>
           {kpis.map((t, i) => (
-            <div key={i} style={{ ...s('background:#0e1422;border:1px solid #1d2840;border-radius:0 8px 8px 0;padding:11px 13px;'), borderLeft: '3px solid ' + (i < 2 ? '#5a93f9' : '#2a3a5c') }}>
+            <div key={i} title={t.tooltip} style={{ ...s('background:#0e1422;border:1px solid #1d2840;border-radius:0 8px 8px 0;padding:11px 13px;'), borderLeft: '3px solid ' + (i < 2 ? '#5a93f9' : '#2a3a5c') }}>
               <div style={s("font:600 8.5px 'IBM Plex Sans';letter-spacing:.05em;text-transform:uppercase;color:#6b7794;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")}>{t.l}</div>
               <div style={s("font-family:'IBM Plex Mono';font-size:16px;margin-top:5px;")}>
                 <span style={{ color: t.same ? '#e8edf7' : '#5d6a85' }}>{t.from}</span>
@@ -2031,12 +2031,12 @@ export default class App extends React.Component {
       v.heroChartEl = this._chart('heroAll' + per, lines, 184)
       v.heroLegend = keys.map((k) => ({ mark: '●', label: F[k].name, color: F[k].color }))
       v.heroStats = [
-        { l: 'Blended α', v: this._sign(this._blend((f) => f.alpha), 1) + '%', sub: 'vs policy', c: '#21d07a' },
-        { l: 'Beta', v: this._blend((f) => f.beta).toFixed(2), sub: '3Y', c: '#cdd6e8' },
-        { l: 'Sharpe', v: this._blend((f) => f.sharpe).toFixed(2), sub: 'risk-adj', c: '#cdd6e8' },
-        { l: 'Volatility', v: this._blend((f) => f.vol).toFixed(1) + '%', sub: 'ann σ', c: '#cdd6e8' },
-        { l: 'Fwd P/E', v: this._blend((f) => f.pe).toFixed(1), sub: 'wtd', c: '#cdd6e8' },
-        { l: 'Div Yield', v: this._blend((f) => f.dy).toFixed(1) + '%', sub: 'ttm', c: '#cdd6e8' },
+        { l: 'Blended α', v: this._sign(this._blend((f) => f.alpha), 1) + '%', sub: 'vs policy', c: '#21d07a', tooltip: 'Active return compared to the benchmark.' },
+        { l: 'Beta', v: this._blend((f) => f.beta).toFixed(2), sub: '3Y', c: '#cdd6e8', tooltip: 'Volatility compared to the market.' },
+        { l: 'Sharpe', v: this._blend((f) => f.sharpe).toFixed(2), sub: 'risk-adj', c: '#cdd6e8', tooltip: 'Risk-adjusted return.' },
+        { l: 'Volatility', v: this._blend((f) => f.vol).toFixed(1) + '%', sub: 'ann σ', c: '#cdd6e8', tooltip: 'Annualized standard deviation of returns.' },
+        { l: 'Fwd P/E', v: this._blend((f) => f.pe).toFixed(1), sub: 'wtd', c: '#cdd6e8', tooltip: 'Forward Price-to-Earnings ratio.' },
+        { l: 'Div Yield', v: this._blend((f) => f.dy).toFixed(1) + '%', sub: 'ttm', c: '#cdd6e8', tooltip: 'Dividend yield.' },
       ]
     } else {
       const f = F[fk]
@@ -2052,12 +2052,12 @@ export default class App extends React.Component {
       v.heroChartEl = this._chart('hero' + fk + per, lines, 184)
       v.heroLegend = [{ mark: '●', label: f.name, color: f.color }, { mark: '┄', label: f.benchShort, color: '#5d6a85' }]
       v.heroStats = [
-        { l: 'Alpha', v: this._sign(f.alpha, 1) + '%', sub: 'vs ' + f.benchShort, c: '#21d07a' },
-        { l: 'Beta', v: (f.beta || 0).toFixed(2), sub: '3Y daily', c: '#cdd6e8' },
-        { l: 'Sharpe', v: (f.sharpe || 0).toFixed(2), sub: 'risk-adj', c: '#cdd6e8' },
-        { l: 'Volatility', v: (f.vol || 0).toFixed(1) + '%', sub: 'ann σ', c: '#cdd6e8' },
-        { l: 'Fwd P/E', v: (f.pe || 0).toFixed(1), sub: 'wtd avg', c: '#cdd6e8' },
-        { l: 'Div Yield', v: (f.dy || 0).toFixed(1) + '%', sub: 'ttm', c: '#cdd6e8' },
+        { l: 'Alpha', v: this._sign(f.alpha, 1) + '%', sub: 'vs ' + f.benchShort, c: '#21d07a', tooltip: 'Active return compared to the benchmark.' },
+        { l: 'Beta', v: (f.beta || 0).toFixed(2), sub: '3Y daily', c: '#cdd6e8', tooltip: 'Measure of volatility relative to the market.' },
+        { l: 'Sharpe', v: (f.sharpe || 0).toFixed(2), sub: 'risk-adj', c: '#cdd6e8', tooltip: 'Risk-adjusted return.' },
+        { l: 'Volatility', v: (f.vol || 0).toFixed(1) + '%', sub: 'ann σ', c: '#cdd6e8', tooltip: 'Annualized standard deviation of returns.' },
+        { l: 'Fwd P/E', v: (f.pe || 0).toFixed(1), sub: 'wtd avg', c: '#cdd6e8', tooltip: 'Forward Price-to-Earnings ratio.' },
+        { l: 'Div Yield', v: (f.dy || 0).toFixed(1) + '%', sub: 'ttm', c: '#cdd6e8', tooltip: 'Dividend yield.' },
       ]
     }
 
@@ -2154,13 +2154,13 @@ export default class App extends React.Component {
         v.stkChartEl = React.createElement(PriceChart, { key: 'stk' + h.t + per, dates: stkDates, values: stkVals, color: accent, height: 230 })
         v.stkChartLegend = [{ mark: '●', color: accent, label: h.t }]
         v.stkSnapshot = [
-          { l: 'Market Cap', v: mcStr, size: '17px' },
-          { l: 'Fwd P/E', v: h.pe ? h.pe.toFixed(1) : '—', size: '17px' },
-          { l: 'Price / Book', v: h.pb ? h.pb.toFixed(1) : '—', size: '17px' },
-          { l: 'EV / EBITDA', v: h.evEbitda != null ? h.evEbitda.toFixed(1) + 'x' : '—', size: '17px' },
-          { l: 'Div Yield', v: h.dy != null ? h.dy.toFixed(2) + '%' : '—', size: '17px' },
-          { l: 'Beta (3Y)', v: h.beta != null ? h.beta.toFixed(2) : '—', size: '17px' },
-          { l: '52W Range', v: (h.lo != null ? '$' + h.lo + '–' + h.hi : '—'), size: '14px' },
+          { l: 'Market Cap', v: mcStr, size: '17px', tooltip: "Total market value of a company's outstanding shares." },
+          { l: 'Fwd P/E', v: h.pe ? h.pe.toFixed(1) : '—', size: '17px', tooltip: 'Forward Price-to-Earnings ratio.' },
+          { l: 'Price / Book', v: h.pb ? h.pb.toFixed(1) : '—', size: '17px', tooltip: 'Price-to-Book ratio.' },
+          { l: 'EV / EBITDA', v: h.evEbitda != null ? h.evEbitda.toFixed(1) + 'x' : '—', size: '17px', tooltip: 'Enterprise Value to Earnings Before Interest, Taxes, Depreciation, and Amortization.' },
+          { l: 'Div Yield', v: h.dy != null ? h.dy.toFixed(2) + '%' : '—', size: '17px', tooltip: 'Dividend yield.' },
+          { l: 'Beta (3Y)', v: h.beta != null ? h.beta.toFixed(2) : '—', size: '17px', tooltip: '3-year daily beta.' },
+          { l: '52W Range', v: (h.lo != null ? '$' + h.lo + '–' + h.hi : '—'), size: '14px', tooltip: '52-week low and high prices.' },
         ]
         v.stkFacts = held ? [
           { l: 'Sector', v: h.s || '—', color: '#cdd6e8' },
