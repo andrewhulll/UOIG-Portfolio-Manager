@@ -50,8 +50,10 @@ def refresh(cfg: dict, history_years: float | None = None,
             db.q(conn, "SELECT MAX(date) FROM prices WHERE ticker = ? AND source != 'xlsx_snapshot'"),
             (t,),
         ).fetchone()[0]
-        start = default_start if (full or not last) else (
-            dt.date.fromisoformat(last) + dt.timedelta(days=1)).isoformat()
+        start = default_start if (full or not last) else max(
+            default_start,
+            (dt.date.fromisoformat(last) - dt.timedelta(days=400)).isoformat()
+        )
 
         ph = provider.get_price_history([t], start=start)
         if ph.empty:
