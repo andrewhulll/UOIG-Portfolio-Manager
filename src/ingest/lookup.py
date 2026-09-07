@@ -18,7 +18,7 @@ import time
 import pandas as pd
 import yfinance as yf
 
-from src.ingest.providers import to_yf
+from src.ingest.providers import yf_ticker, yf_retry
 from src.model import cache
 
 _SEARCH_CACHE: dict[str, tuple[float, list]] = {}
@@ -52,13 +52,15 @@ def search_symbols(query: str, limit: int = 8) -> list[dict]:
         return hit[1]
     cached = cache.get("search", key)
     if cached is not cache.MISS:
-        _SEARCH_CACHE[key] = (now, cached)
-        return cached
+        value, age = cached
+        _SEARCH_CACHE[key] = (now - age, value)
+        return value
 
     out: list[dict] = []
     try:
-        res = yf.Search(q, max_results=max(limit * 3, 12), news_count=0)
-        for r in (res.quotes or []):
+        res = yf_retry(lambda: yf.Search(q, max_results=max(limit * 3, 12), news_count=0),
+                       retry_empty=False)
+        for r in ((res.quotes if res else None) or []):
             if r.get("quoteType") != "EQUITY":
                 continue
             sym = r.get("symbol")
@@ -89,14 +91,12 @@ def quote_overview(ticker: str) -> dict | None:
         return hit[1]
     cached = cache.get("quote", t)
     if cached is not cache.MISS:
-        _QUOTE_CACHE[t] = (now, cached)
-        return cached
+        value, age = cached
+        _QUOTE_CACHE[t] = (now - age, value)
+        return value
 
-    tk = yf.Ticker(to_yf(t))
-    try:
-        info = tk.info or {}
-    except Exception:  # noqa: BLE001
-        info = {}
+    tk = yf_ticker(t)
+    info = yf_retry(lambda: tk.info) or {}
 
     qtype = info.get("quoteType")
     px = _num(info.get("currentPrice")) or _num(info.get("regularMarketPrice"))
@@ -109,6 +109,7 @@ def quote_overview(ticker: str) -> dict | None:
     if not info or qtype not in (None, "EQUITY") or px is None:
         if qtype is not None and qtype != "EQUITY":
             _QUOTE_CACHE[t] = (now, None)
+            cache.set("quote", t, None, _TTL)   # confirmed non-equity: cache the None hit
             return None
     if px is None:
         _QUOTE_CACHE[t] = (now, None)
@@ -173,13 +174,12 @@ def institutional_holders(ticker: str, limit: int = 5) -> list[dict]:
         return hit[1]
     cached = cache.get("holders", key)
     if cached is not cache.MISS:
-        _HOLDERS_CACHE[key] = (now, cached)
-        return cached
+        value, age = cached
+        _HOLDERS_CACHE[key] = (now - age, value)
+        return value
 
-    try:
-        df = yf.Ticker(to_yf(t)).institutional_holders
-    except Exception:  # noqa: BLE001 — best-effort
-        df = None
+    tk = yf_ticker(t)
+    df = yf_retry(lambda: tk.institutional_holders)
 
     out: list[dict] = []
     if df is not None and not df.empty:
@@ -214,7 +214,8 @@ def institutional_holders(ticker: str, limit: int = 5) -> list[dict]:
             })
 
     _HOLDERS_CACHE[key] = (now, out)
-    cache.set("holders", key, out, _TTL)
+    if df is not None:   # only persist a real fetch, not a transient failure's []
+        cache.set("holders", key, out, _TTL)
     return out
 
 
@@ -230,12 +231,13 @@ def live_series(ticker: str, period: str = "YTD", points: int = 64) -> dict:
         return hit[1]
     cached = cache.get("series", key)
     if cached is not cache.MISS:
-        _SERIES_CACHE[key] = (now, cached)
-        return cached
+        value, age = cached
+        _SERIES_CACHE[key] = (now - age, value)
+        return value
 
-    try:
-        h = yf.Ticker(to_yf(t)).history(period=_YF_PERIOD[per], interval="1d", auto_adjust=False)
-    except Exception:  # noqa: BLE001
+    tk = yf_ticker(t)
+    h = yf_retry(lambda: tk.history(period=_YF_PERIOD[per], interval="1d", auto_adjust=False))
+    if h is None:
         h = pd.DataFrame()
 
     if h is None or h.empty or "Close" not in h:

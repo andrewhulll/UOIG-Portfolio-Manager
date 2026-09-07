@@ -166,8 +166,9 @@ def stock_predictions(ticker: str) -> dict:
         return hit[1]
     cached = cache.get("predictions", ticker)
     if cached is not cache.MISS:
-        _CACHE[ticker] = (now, cached)
-        return cached
+        value, age = cached
+        _CACHE[ticker] = (now - age, value)
+        return value
 
     entries = load_market_map().get(ticker, [])
     cards = []
