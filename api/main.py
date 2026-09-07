@@ -26,7 +26,7 @@ warnings.filterwarnings("ignore", message="pandas only supports SQLAlchemy")
 
 import secrets as _secrets  # noqa: E402
 
-from fastapi import FastAPI, HTTPException, Request  # noqa: E402
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
@@ -953,8 +953,17 @@ def _agent_portfolio_json(data: dict) -> str:
 _AGENT_JOBS: dict[str, dict] = {}
 
 
+def _run_agent_task(job_id: str, aid: str, task: str, context: str, attachments: list, agent):
+    try:
+        reply = agent.run_agent(aid, task, context, attachments=attachments)
+        _AGENT_JOBS[job_id] = {"status": "done", "reply": reply, "error": None}
+    except Exception as exc:  # noqa: BLE001
+        log.exception("agent run failed")
+        _AGENT_JOBS[job_id] = {"status": "error", "reply": None, "error": str(exc)}
+
+
 @app.post("/api/agent/run")
-def agent_run(request: Request, payload: dict):
+def agent_run(request: Request, payload: dict, background_tasks: BackgroundTasks):
     _enforce_rate_limit(request, "agent", limit=5, window=3600)
     """Start a Managed Agent (market analysis) run in the background and return a
     job id immediately. Poll GET /api/agent/run/{job_id} for the result. Agent id is
