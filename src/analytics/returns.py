@@ -1,13 +1,14 @@
 """Holding-period returns and benchmark-relative performance.
 
-Computed entirely from current holdings + Capital IQ daily price history — no
-NAV series required. For each name we measure its return over its own holding
-window (entry date -> latest), the matching
+Computed entirely from current holdings + daily price history — no NAV series
+required. For each name we measure total return (dividend-reinvested, via
+adjusted close) over its own holding window (entry date -> latest), the matching
 benchmark return over the same window, and the excess. Roll-ups weight by the
 class (active-sleeve) weight.
 
-Stock and benchmark returns use the same cached close convention, keeping the
-comparison apples-to-apples.
+Returns here use adjusted close for both the stock and its benchmark so the
+excess is apples-to-apples; this can differ marginally from the holdings table's
+simple "total return since entry" (entry price + dividends collected).
 """
 from __future__ import annotations
 
@@ -28,9 +29,10 @@ def _wavg(values: pd.Series, weights: pd.Series) -> float:
 
 def enrich_returns(positions: pd.DataFrame, conn: sqlite3.Connection) -> pd.DataFrame:
     """Add days_held, hp_tr, bench_tr, excess_tr, ann_tr, contribution per position."""
-    prices = pd.read_sql("SELECT ticker, date, close FROM daily_prices", conn)
+    prices = pd.read_sql(
+        "SELECT ticker, date, adj_close FROM prices WHERE source = 'yfinance'", conn)
     prices["date"] = pd.to_datetime(prices["date"])
-    by = {t: g.set_index("date")["close"].sort_index()
+    by = {t: g.set_index("date")["adj_close"].sort_index()
           for t, g in prices.groupby("ticker")}
     last_date = prices["date"].max() if not prices.empty else pd.NaT
 

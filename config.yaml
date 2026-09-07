@@ -13,8 +13,7 @@ funds:
     benchmark: "IWM"          # iShares Russell 2000 ETF (small/mid-cap)
 
 market_data:
-  provider: "capital_iq"
-  history_years: 5
+  provider: "yfinance"        # swappable adapter (Phase 1): yfinance | tiingo | fmp
 
 # Anthropic Managed Agent triggered by the "Run market analysis" button in the
 # Ask Claude dock. Created once in the Anthropic console; we reference it by id and

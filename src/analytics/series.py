@@ -23,7 +23,8 @@ def period_start(last: dt.date, period: str) -> dt.date:
 
 
 def price_frame(conn: sqlite3.Connection) -> pd.DataFrame:
-    p = pd.read_sql("SELECT ticker, date, close FROM daily_prices", conn)
+    p = pd.read_sql("SELECT ticker, date, close, adj_close FROM prices "
+                    "WHERE source = 'yfinance'", conn)
     p["date"] = pd.to_datetime(p["date"])
     return p.sort_values(["ticker", "date"])
 
@@ -48,7 +49,7 @@ def ticker_series(pf: pd.DataFrame, ticker: str, period: str, points: int = 64) 
             "close": [round(float(x), 2) for x in w["close"]]}
 
 
-def period_return(pf: pd.DataFrame, ticker: str, period: str, col: str = "close"):
+def period_return(pf: pd.DataFrame, ticker: str, period: str, col: str = "adj_close"):
     w = _window(pf, ticker, period)
     if len(w) < 2 or w[col].iloc[0] == 0:
         return None
@@ -76,14 +77,14 @@ def mtd_return(pf: pd.DataFrame, ticker: str):
     last = s["date"].max()
     mstart = pd.Timestamp(dt.date(last.year, last.month, 1))
     prior = s[s["date"] < mstart]
-    base = prior["close"].iloc[-1] if len(prior) else s["close"].iloc[0]
-    return float(s["close"].iloc[-1] / base - 1) if base else None
+    base = prior["adj_close"].iloc[-1] if len(prior) else s["adj_close"].iloc[0]
+    return float(s["adj_close"].iloc[-1] / base - 1) if base else None
 
 
 def div_yield_ttm(conn: sqlite3.Connection, ticker: str, price: float):
     if not price:
         return None
-    last = conn.execute(_db.q(conn, "SELECT MAX(date) FROM daily_prices WHERE ticker=?"),
+    last = conn.execute(_db.q(conn, "SELECT MAX(date) FROM prices WHERE ticker=? AND source='yfinance'"),
                         (ticker,)).fetchone()[0]
     if not last:
         return None

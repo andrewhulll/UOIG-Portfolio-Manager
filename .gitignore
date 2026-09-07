@@ -27,9 +27,3 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
-
-# Licensed Capital IQ SDK/docs are local deployment inputs, not source files.
-ciq_python_sdk_user_guide.pdf
-ciq/*.tar.gz
-ciq/*.zip
-ciq/*.whl
