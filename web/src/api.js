@@ -50,6 +50,7 @@ export const getOptimizeWhatif = (fund) => get(`/api/optimize/whatif/${encodeURI
 export const postOptimizeSolve = (fund, body) => post(`/api/optimize/solve/${encodeURIComponent(fund)}`, body)
 export const getPredictions = (ticker) => get(`/api/predictions/${encodeURIComponent(ticker)}`)
 export const getThesis = (ticker) => get(`/api/thesis/${encodeURIComponent(ticker)}`)
+export const getMyCoverage = () => get('/api/coverage/me')
 export const postChat = (messages, context) => post('/api/chat', { messages, context })
 export const runAgent = (task) => post('/api/agent/run', { task })
 export const getAgentRun = (jobId) => get(`/api/agent/run/${jobId}`)

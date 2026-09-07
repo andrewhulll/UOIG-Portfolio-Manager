@@ -96,6 +96,12 @@ Until the three secrets are set, the app stays locked: the sign-in page shows an
 data route returns `401`. For local UI work without WorkOS, set `UOIG_AUTH_DISABLED=1`.
 
 ## Run it (development — hot reload)
+
+**Weekly sector updates:** analysts flag news and submit digests from My Coverage.
+Sector leads receive them in the app's Inbox and acknowledge them; admins can review
+the submission status board for all sectors. See [SUBMISSIONS.md](SUBMISSIONS.md)
+for the workflow and API. No email service is required.
+
 Two processes; the Vite dev server proxies `/api` to the backend.
 ```bash
 python -m pip install -r requirements.txt
