@@ -184,12 +184,18 @@ def _migrate(conn) -> None:
     cur = conn.cursor()
     try:
         for table, col, typ in _ADDED_COLUMNS:
+            qt = _db.quote_ident(table)
+            qc = _db.quote_ident(col)
             if pg:
-                cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {typ}")
+                cur.execute(f"ALTER TABLE {qt} ADD COLUMN IF NOT EXISTS {qc} {typ}")
             else:
-                have = {r[1] for r in cur.execute(f"PRAGMA table_info({table})")}
+                # PRAGMA table_info's argument can be passed as a parameterized value on SQLite
+                # but `cur.execute("PRAGMA table_info(?)", (table,))` does not work in some versions,
+                # so we can quote it properly or use pragma_table_info function:
+                # `cur.execute("SELECT name FROM pragma_table_info(?)", (table,))`
+                have = {r[0] for r in cur.execute("SELECT name FROM pragma_table_info(?)", (table,))}
                 if col not in have:
-                    cur.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+                    cur.execute(f"ALTER TABLE {qt} ADD COLUMN {qc} {typ}")
     finally:
         cur.close()
     conn.commit()
@@ -201,7 +207,7 @@ def truncate_all(conn) -> None:
     cur = conn.cursor()
     try:
         for table in _TABLES:
-            cur.execute(f"DELETE FROM {table}")
+            cur.execute(f"DELETE FROM {_db.quote_ident(table)}")
     finally:
         cur.close()
     conn.commit()

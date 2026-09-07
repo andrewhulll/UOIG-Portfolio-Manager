@@ -84,6 +84,11 @@ def q(conn, sql: str) -> str:
     return sql.replace("?", "%s") if is_pg(conn) else sql
 
 
+def quote_ident(name: str) -> str:
+    """Safely quote an SQL identifier (table, column) to prevent injection."""
+    return '"' + name.replace('"', '""') + '"'
+
+
 def executemany(conn, sql: str, seq) -> None:
     """Uniform executemany — psycopg exposes it only on the cursor."""
     cur = conn.cursor()
@@ -96,12 +101,16 @@ def executemany(conn, sql: str, seq) -> None:
 def upsert_sql(conn, table: str, cols: list[str], conflict: list[str]) -> str:
     """An upsert-by-primary-key statement in the right dialect.
     SQLite: ``INSERT OR REPLACE``. Postgres: ``INSERT ... ON CONFLICT DO UPDATE``."""
-    collist = ", ".join(cols)
+    qt = quote_ident(table)
+    qcols = [quote_ident(c) for c in cols]
+    qconflict = [quote_ident(c) for c in conflict]
+
+    collist = ", ".join(qcols)
     if is_pg(conn):
         marks = ", ".join(["%s"] * len(cols))
-        updates = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols if c not in conflict)
-        tail = (f" ON CONFLICT ({', '.join(conflict)}) DO UPDATE SET {updates}"
-                if updates else f" ON CONFLICT ({', '.join(conflict)}) DO NOTHING")
-        return f"INSERT INTO {table} ({collist}) VALUES ({marks}){tail}"
+        updates = ", ".join(f"{qc}=EXCLUDED.{qc}" for c, qc in zip(cols, qcols) if c not in conflict)
+        tail = (f" ON CONFLICT ({', '.join(qconflict)}) DO UPDATE SET {updates}"
+                if updates else f" ON CONFLICT ({', '.join(qconflict)}) DO NOTHING")
+        return f"INSERT INTO {qt} ({collist}) VALUES ({marks}){tail}"
     marks = ", ".join(["?"] * len(cols))
-    return f"INSERT OR REPLACE INTO {table} ({collist}) VALUES ({marks})"
+    return f"INSERT OR REPLACE INTO {qt} ({collist}) VALUES ({marks})"
