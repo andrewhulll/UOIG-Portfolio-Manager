@@ -42,6 +42,9 @@ def test_refresh(monkeypatch):
                 })
             return pd.DataFrame()
 
+        def get_splits(self, tickers, start):
+                return pd.DataFrame(columns=["ticker", "ex_date", "split_ratio"])
+
     def mock_get_provider(cfg):
         return MockProvider()
 
