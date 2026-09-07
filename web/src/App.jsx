@@ -749,6 +749,7 @@ export default class App extends React.Component {
     if (name === 'stocks') return mk([React.createElement('polyline', { key: 1, points: '1,11 5.5,6.5 9,9 15,2.5' })], false)
     if (name === 'sectors') return mk([React.createElement('circle', { key: 1, cx: 8, cy: 8, r: 6, style: { fill: 'none', stroke: 'currentColor', strokeWidth: 1.8 } }), React.createElement('path', { key: 2, d: 'M8 2 A6 6 0 0 1 13.2 8 L8 8 Z', style: { fill: 'currentColor', stroke: 'none' } })], false)
     if (name === 'optimize') return mk([React.createElement('line', { key: 1, x1: 3, y1: 2, x2: 3, y2: 14 }), React.createElement('line', { key: 2, x1: 8, y1: 2, x2: 8, y2: 14 }), React.createElement('line', { key: 3, x1: 13, y1: 2, x2: 13, y2: 14 }), React.createElement('circle', { key: 4, cx: 3, cy: 5, r: 1.6, style: { fill: 'currentColor' } }), React.createElement('circle', { key: 5, cx: 8, cy: 10, r: 1.6, style: { fill: 'currentColor' } }), React.createElement('circle', { key: 6, cx: 13, cy: 6, r: 1.6, style: { fill: 'currentColor' } })], false)
+    if (name === 'assistant') return mk([React.createElement('path', { key: 1, d: 'M8 1.4 L9.5 6.2 L14.6 8 L9.5 9.8 L8 14.6 L6.5 9.8 L1.4 8 L6.5 6.2 Z' })], true)
     return null
   }
 
@@ -896,6 +897,7 @@ export default class App extends React.Component {
             {v.isStock && (v.stk ? this._renderStock(v) : this._renderStockMsg(v))}
             {v.isSector && v.sec && this._renderSector(v)}
             {v.isOptimize && this._renderOptimize(v)}
+            {v.isAssistant && this._renderAssistant(v)}
             {this.state.view === 'profile' && <ProfilePage auth={this.state.auth} onNavigate={(view) => this._go(view)} onUserUpdated={(user) => this.setState((st) => ({ auth: { ...st.auth, user }, avatarImgFailed: false }))} />}
             {this.state.view === 'preferences' && <PreferencesPage fundOptions={[{ value: 'all', label: 'All Funds' }, ...this.fundKeys.map(k => ({ value: k, label: this.funds[k].name }))]} currentFund={this.state.fund} currentPeriod={this.state.period} onNavigate={(view) => this._go(view)} onApply={(preferences) => this.setState({ preferences, fund: preferences.defaultFund, period: preferences.defaultPeriod })} />}
             {this.state.view === 'organization' && <OrganizationPage auth={this.state.auth} onNavigate={(view) => this._go(view)} onOpenStock={(ticker) => this._openStock(ticker, 'organization')} />}
@@ -904,7 +906,7 @@ export default class App extends React.Component {
         </div>
 
         {/* ASK-CLAUDE POPUP */}
-        {this.state.chatOpen && !['profile', 'preferences', 'organization'].includes(this.state.view) && (
+        {this.state.chatOpen && !['profile', 'preferences', 'organization', 'assistant'].includes(this.state.view) && (
           <div style={s('position:fixed;right:22px;bottom:88px;width:374px;height:560px;max-height:calc(100vh - 120px);background:#0b0d1d;border:1px solid #241f3e;border-radius:16px;box-shadow:0 26px 64px rgba(0,0,0,.55);display:flex;flex-direction:column;overflow:hidden;z-index:60;')}>
             <div style={s('display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-bottom:1px solid #241f3e;background:linear-gradient(180deg,#140f2c,#0b0d1d);flex:0 0 auto;')}>
               <div style={s("display:flex;align-items:center;gap:8px;font:600 11px 'IBM Plex Sans';letter-spacing:.08em;text-transform:uppercase;color:#c3b9ff;")}><span style={s('font-size:15px;')}>✦</span>Ask Claude</div>
@@ -940,7 +942,7 @@ export default class App extends React.Component {
         )}
 
         {/* ASK-CLAUDE FAB */}
-        {!['profile', 'preferences', 'organization'].includes(this.state.view) && <div onClick={() => this.setState((st) => ({ chatOpen: !st.chatOpen }))} title="Ask Claude" style={{ ...s('position:fixed;right:22px;bottom:22px;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;font-size:23px;z-index:61;box-shadow:0 12px 30px rgba(90,79,214,.5);'), background: this.state.chatOpen ? '#2c2550' : 'linear-gradient(135deg,#5a4fd6,#3a31a8)' }}>{this.state.chatOpen ? '✕' : '✦'}</div>}
+        {!['profile', 'preferences', 'organization', 'assistant'].includes(this.state.view) && <div onClick={() => this.setState((st) => ({ chatOpen: !st.chatOpen }))} title="Ask Claude" style={{ ...s('position:fixed;right:22px;bottom:22px;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;font-size:23px;z-index:61;box-shadow:0 12px 30px rgba(90,79,214,.5);'), background: this.state.chatOpen ? '#2c2550' : 'linear-gradient(135deg,#5a4fd6,#3a31a8)' }}>{this.state.chatOpen ? '✕' : '✦'}</div>}
         <Analytics />
       </div>
     )
@@ -1991,6 +1993,52 @@ export default class App extends React.Component {
     )
   }
 
+  // Dedicated full-page Assistant tab — same chat state/backend as the Ask-Claude
+  // popup (this.state.chat, _send, _runAgent), just laid out to fill the main pane
+  // instead of a floating widget, for longer research sessions.
+  _renderAssistant(v) {
+    return (
+      <div style={s('height:100%;display:flex;flex-direction:column;')}>
+        <div style={s('display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #1d2840;flex:0 0 auto;')}>
+          <div style={s('display:flex;align-items:center;gap:10px;')}>
+            <span style={s('font-size:18px;color:#5a4fd6;')}>✦</span>
+            <div>
+              <div style={s("font:600 14px 'IBM Plex Sans';color:#e8edf7;")}>Assistant</div>
+              <div style={s("font-size:10.5px;color:#6b7794;margin-top:1px;")}>Your research co-pilot — knows the live portfolio</div>
+            </div>
+          </div>
+          <div style={s('display:flex;align-items:center;gap:9px;')}>
+            <span style={s('font-size:9px;color:#7a6fb5;text-transform:uppercase;letter-spacing:.06em;')}>Context</span>
+            <span style={s('font-size:10.5px;color:#c3b9ff;background:#15112c;border:1px solid #2c2550;border-radius:6px;padding:4px 10px;')}>{v.ctxLabel}</span>
+            <span onClick={() => this.setState({ chat: [] })} className="dc-hover" style={s('font-size:10px;color:#7a6fb5;border:1px solid #2c2550;border-radius:6px;padding:5px 10px;cursor:pointer;')}>Clear</span>
+          </div>
+        </div>
+        <div ref={this.chatRef} style={s('flex:1;min-height:0;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:13px;max-width:760px;width:100%;margin:0 auto;')}>
+          {v.chatEmpty && (
+            <div style={s('display:flex;flex-direction:column;align-items:center;text-align:center;gap:9px;margin:auto 0;color:#6b7794;padding:0 6px;')}>
+              <span style={s('font-size:30px;color:#5a4fd6;')}>✦</span>
+              <div style={s("font:600 14px 'IBM Plex Sans';color:#b8aef0;")}>Your research co-pilot</div>
+              <div style={s('font-size:12px;line-height:1.6;max-width:420px;')}>Ask anything about a fund, holding, or sector — it knows the live portfolio and can read the terminal's own code.</div>
+            </div>
+          )}
+          {v.chatMsgs.map((m) => (
+            <div key={m.key} style={{ ...s('padding:10px 13px;font-size:12.5px;line-height:1.6;white-space:pre-wrap;'), alignSelf: m.align, maxWidth: m.maxw, background: m.bg, border: '1px solid ' + m.border, borderRadius: m.radius, color: m.color }}>{m.body}</div>
+          ))}
+          {v.loading && (
+            <div style={s('align-self:flex-start;display:flex;align-items:center;gap:7px;color:#7a6fb5;font-size:11px;')}><span style={s('display:flex;gap:3px;')}><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite;')}></span><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite .2s;')}></span><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite .4s;')}></span></span>Claude is analyzing…</div>
+          )}
+        </div>
+        <div style={s('padding:14px 20px 20px;flex:0 0 auto;max-width:760px;width:100%;margin:0 auto;box-sizing:border-box;')}>
+          <div onClick={() => this._runAgent()} style={{ ...s("display:flex;align-items:center;justify-content:center;gap:7px;margin-bottom:11px;padding:9px;border-radius:8px;font:600 11px 'IBM Plex Sans';letter-spacing:.03em;cursor:pointer;"), background: this.state.agentBusy ? '#1a1533' : 'linear-gradient(135deg,#5a4fd6,#3a31a8)', color: this.state.agentBusy ? '#7a6fb5' : '#fff', cursor: this.state.agentBusy ? 'default' : 'pointer' }}><span style={s('font-size:11px;')}>▶</span>{this.state.agentBusy ? 'Running market analysis…' : 'Run market analysis'}</div>
+          <div style={s('display:flex;align-items:flex-end;gap:9px;background:#0e1422;border:1px solid #2c2550;border-radius:10px;padding:10px 12px;')}>
+            <input value={v.input} onChange={(e) => this.setState({ input: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this._send() } }} placeholder={'Ask about ' + v.ctxShort + '…'} style={s("flex:1;background:transparent;border:none;outline:none;color:#e8edf7;font:400 12.5px 'IBM Plex Sans';")} />
+            <span onClick={() => this._send()} style={{ ...s('width:29px;height:29px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;cursor:pointer;flex:0 0 auto;'), background: v.sendBg }}>↑</span>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // ---------- view-model ----------
   renderVals() {
     const st = this.state, F = this.funds, keys = this.fundKeys
@@ -2001,11 +2049,11 @@ export default class App extends React.Component {
     v.asOf = 'AS OF ' + mkt.date
     v.isDashboard = st.view === 'dashboard'; v.isStocks = st.view === 'stocks'
     v.isSectors = st.view === 'sectors'; v.isStock = st.view === 'stock'; v.isSector = st.view === 'sector'
-    v.isOptimize = st.view === 'optimize'
+    v.isOptimize = st.view === 'optimize'; v.isAssistant = st.view === 'assistant'
     v.fundAName = F[fundA].name; v.fundBName = F[fundB].name
 
-    const navDef = [['funds', 'Funds', 'dashboard'], ['stocks', 'Stocks', 'stocks'], ['sectors', 'Sectors', 'sectors'], ['optimize', 'Optimize', 'optimize']]
-    const activeMap = { dashboard: ['funds'], stocks: ['stocks'], sectors: ['sectors'], stock: ['stocks'], sector: ['sectors'], optimize: ['optimize'] }
+    const navDef = [['funds', 'Funds', 'dashboard'], ['stocks', 'Stocks', 'stocks'], ['sectors', 'Sectors', 'sectors'], ['optimize', 'Optimize', 'optimize'], ['assistant', 'Assistant', 'assistant']]
+    const activeMap = { dashboard: ['funds'], stocks: ['stocks'], sectors: ['sectors'], stock: ['stocks'], sector: ['sectors'], optimize: ['optimize'], assistant: ['assistant'] }
     v.nav = navDef.map(([id, label, go]) => {
       const active = (activeMap[st.view] || []).indexOf(id) >= 0
       return { key: id, label, icon: this._icon(id, active), bg: active ? '#13203a' : 'transparent', color: active ? '#5a93f9' : '#5d6a85', on: () => this._go(go) }
@@ -2183,6 +2231,7 @@ export default class App extends React.Component {
         v.predDetail = st.predictions[st.ticker]
         v.thesisDetail = st.theses[st.ticker]
         v.stkTabs = [['overview', 'Overview'], ['thesis', 'Thesis'], ['financials', 'Financials'], ['earnings', 'Earnings'], ['news', 'News'], ['research', 'Research'], ['predictions', 'Predictions']]
+          .filter(([k]) => held || (k !== 'thesis' && k !== 'predictions'))
           .map(([k, label]) => ({
             key: k, label, on: () => this.setState({ stkTab: k }),
             weight: k === tabKey ? 600 : 500, color: k === tabKey ? '#e8edf7' : '#6b7794',
