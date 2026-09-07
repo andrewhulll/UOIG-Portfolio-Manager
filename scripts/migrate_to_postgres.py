@@ -24,6 +24,11 @@ _ORDER = ["securities", "holdings", "transactions", "prices", "dividends",
 _SKIP_COLS = {"holdings": {"id"}, "transactions": {"id"}}
 
 
+def _quote_ident(name: str) -> str:
+    """Safely quote an SQL identifier (table or column name)."""
+    return '"' + name.replace('"', '""') + '"'
+
+
 def main() -> int:
     cfg = load_config()
     url = db.database_url()
@@ -40,15 +45,20 @@ def main() -> int:
         cur = pg.cursor()
         total = 0
         for table in _ORDER:
-            all_cols = [r[1] for r in src.execute(f"PRAGMA table_info({table})")]
+            q_table = _quote_ident(table)
+            # PRAGMA table_info expects string literals or unquoted identifiers, but double quotes are fine.
+            all_cols = [r[1] for r in src.execute(f"PRAGMA table_info({q_table})")]
             cols = [c for c in all_cols if c not in _SKIP_COLS.get(table, set())]
-            rows = src.execute(f"SELECT {', '.join(cols)} FROM {table}").fetchall()
+            q_cols = [_quote_ident(c) for c in cols]
+            q_cols_str = ", ".join(q_cols)
+
+            rows = src.execute(f"SELECT {q_cols_str} FROM {q_table}").fetchall()
             if not rows:
                 print(f"  {table}: 0 rows")
                 continue
             marks = ", ".join(["%s"] * len(cols))
             cur.executemany(
-                f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({marks})",
+                f"INSERT INTO {q_table} ({q_cols_str}) VALUES ({marks})",
                 [tuple(r) for r in rows],
             )
             total += len(rows)
