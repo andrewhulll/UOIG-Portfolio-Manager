@@ -94,6 +94,7 @@ def yf_retry(fn, *, tries: int = 3, base: float = 0.6, retry_empty: bool = True)
 class MarketDataProvider(Protocol):
     def get_price_history(self, tickers, start, end=None) -> pd.DataFrame: ...
     def get_dividends(self, tickers, start, end=None) -> pd.DataFrame: ...
+    def get_splits(self, tickers, start, end=None) -> pd.DataFrame: ...
     def get_latest_prices(self, tickers) -> dict[str, float]: ...
 
 
@@ -155,6 +156,22 @@ class YFinanceProvider:
                 "amount": d["Dividends"].to_numpy(),
             }))
         return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=DIV_COLS)
+
+    def get_splits(self, tickers, start, end=None) -> pd.DataFrame:
+        frames = []
+        for t in tickers:
+            h = self._history(t, start, end)
+            if h.empty or "Stock Splits" not in h:
+                continue
+            s = h[h["Stock Splits"] > 0]
+            if s.empty:
+                continue
+            frames.append(pd.DataFrame({
+                "ticker": t,
+                "date": [x.date().isoformat() for x in s.index],
+                "ratio": s["Stock Splits"].to_numpy(),
+            }))
+        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=["ticker", "date", "ratio"])
 
     def get_latest_prices(self, tickers) -> dict[str, float]:
         ph = self.get_price_history(tickers, start=_days_ago(7))
