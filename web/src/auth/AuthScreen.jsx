@@ -9,10 +9,12 @@ import { loginUrl, passwordLogin, requestPasswordReset, confirmPasswordReset,
 // hands the session up via props.onAuthenticated(me). All network calls reuse
 // web/src/api.js unchanged.
 //
-// Layout: a two-column split (branded left panel + form card) that collapses to
-// a single centered card below 880px. One `signMode` state machine drives the
-// body: signin | accept | forgot | reset | verify, plus a fatal full-screen
-// error for unknown OAuth failures.
+// Layout: a two-column split (branded left panel + form card). Below 720px the
+// terminal is desktop-only, so signin/forgot show a "use a larger screen" notice
+// — but the link-driven onboarding modes (accept / reset / verify), which arrive
+// from one-time emails usually opened on a phone, still render a usable
+// single-column card. One `signMode` state machine drives the body:
+// signin | accept | forgot | reset | verify, plus a fatal full-screen error.
 
 const MIN_PW = 10  // keep in step with the WorkOS password policy (min 10)
 
@@ -392,11 +394,26 @@ export default class AuthScreen extends React.Component {
       </div>
     )
 
-    // Desktop-only product: on phones / very narrow windows, show a notice rather
-    // than a cramped sign-in form (the terminal itself needs the screen real estate).
+    // Below 720px the terminal is desktop-only, so signin/forgot show a notice.
+    // But the link-driven onboarding flows (accept / reset / verify) arrive from
+    // one-time emails usually opened on a phone, so they render a usable
+    // single-column card — an invitee is never stranded.
     if (this.state.narrow) {
+      const ground = "min-height:100vh;width:100%;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;background:radial-gradient(600px 400px at 50% -8%, #0f1a2e, #070a12 62%);color:#e8edf7;font-family:'IBM Plex Sans',sans-serif;padding:28px 18px;overflow-x:hidden;"
+      const onboarding = ['accept', 'reset', 'verify'].includes(this.state.mode)
+      if (onboarding) {
+        return (
+          <div style={s(ground)}>
+            <div style={s('display:flex;flex-direction:column;align-items:center;gap:11px;')}>
+              <img src="/uoig-logo.png" alt="UOIG" style={s('width:50px;height:50px;object-fit:contain;background:#fff;border-radius:12px;padding:6px;')} />
+              <div style={s("font:500 9.5px 'IBM Plex Mono';color:#8a97b4;letter-spacing:.2em;text-transform:uppercase;")}>Investment Terminal</div>
+            </div>
+            <div style={s('width:100%;max-width:380px;box-sizing:border-box;background:#0e1422;border:1px solid #1d2840;border-radius:14px;padding:20px;box-shadow:0 20px 50px rgba(0,0,0,.5);')}>{card}</div>
+          </div>
+        )
+      }
       return (
-        <div style={s("min-height:100vh;width:100%;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;background:radial-gradient(600px 400px at 50% -8%, #0f1a2e, #070a12 62%);color:#e8edf7;font-family:'IBM Plex Sans',sans-serif;padding:32px 24px;text-align:center;")}>
+        <div style={{ ...s(ground), textAlign: 'center' }}>
           <img src="/uoig-logo.png" alt="UOIG" style={s('width:54px;height:54px;object-fit:contain;background:#fff;border-radius:12px;padding:6px;')} />
           <div style={s('display:flex;flex-direction:column;gap:9px;align-items:center;')}>
             <div style={s("font:600 17px 'IBM Plex Sans';color:#e8edf7;")}>Investment Terminal</div>

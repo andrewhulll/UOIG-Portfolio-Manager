@@ -18,7 +18,7 @@ import time
 import pandas as pd
 import yfinance as yf
 
-from src.ingest.providers import to_yf
+from src.ingest.providers import yf_ticker
 from src.model import cache
 
 _CACHE: dict[str, tuple[float, dict]] = {}
@@ -404,10 +404,11 @@ def stock_research(ticker: str) -> dict:
         return hit[1]
     cached = cache.get("research", ticker)
     if cached is not cache.MISS:
-        _CACHE[ticker] = (now, cached)
-        return cached
+        value, age = cached
+        _CACHE[ticker] = (now - age, value)
+        return value
 
-    tk = yf.Ticker(to_yf(ticker))
+    tk = yf_ticker(ticker)
     financials, rev_summary = _financials(tk)
     payload = {
         "ticker": ticker,

@@ -64,8 +64,10 @@ def _ensure(conn) -> None:
 
 
 def get(namespace: str, key: str):
-    """Return the cached value (possibly ``None``) when a fresh row exists, else
-    ``MISS``. Never raises — any failure is treated as a miss."""
+    """Return ``(value, age_seconds)`` when a fresh row exists (value may be
+    ``None``), else ``MISS``. The age lets callers seed their in-memory copy with
+    the true remaining freshness instead of granting it a full new TTL. Never
+    raises — any failure is treated as a miss."""
     try:
         conn = get_connection(_path())
     except Exception:  # noqa: BLE001 — cache never breaks the caller
@@ -84,7 +86,7 @@ def get(namespace: str, key: str):
                - dt.datetime.fromisoformat(fetched_at)).total_seconds()
         if age > float(ttl):
             return MISS
-        return json.loads(payload)
+        return json.loads(payload), age
     except Exception:  # noqa: BLE001
         return MISS
     finally:
@@ -115,6 +117,33 @@ def set(namespace: str, key: str, value, ttl: int) -> None:
         conn.commit()
     except Exception:  # noqa: BLE001
         pass
+    finally:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def purge_expired(horizon_seconds: int = 3600) -> int:
+    """Delete rows older than ``horizon_seconds`` (>= any TTL in use) to bound the
+    table's growth — expired rows are skipped on read anyway; this reclaims them.
+    Compares lexicographically on the ISO-8601 UTC ``fetched_at`` (every row shares
+    the +00:00 offset, so string order == chronological order), which is portable
+    across SQLite and Postgres. Returns rows deleted; never raises."""
+    try:
+        conn = get_connection(_path())
+    except Exception:  # noqa: BLE001
+        return 0
+    try:
+        _ensure(conn)
+        cutoff = (dt.datetime.now(dt.timezone.utc)
+                  - dt.timedelta(seconds=horizon_seconds)).isoformat()
+        cur = conn.execute(
+            _db.q(conn, "DELETE FROM api_cache WHERE fetched_at < ?"), (cutoff,))
+        conn.commit()
+        return cur.rowcount if (cur.rowcount and cur.rowcount > 0) else 0
+    except Exception:  # noqa: BLE001
+        return 0
     finally:
         try:
             conn.close()
