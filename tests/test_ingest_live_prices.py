@@ -28,7 +28,7 @@ def test_market_open():
     ts = pd.Timestamp("2023-11-04 12:00:00", tz="America/New_York")
     assert lp.market_open(ts) is False
 
-def test_fetch_one(monkeypatch):
+def test_poll_and_overrides(monkeypatch):
     class MockFastInfo:
         def __init__(self, last, prev):
             self.last_price = last
@@ -47,19 +47,6 @@ def test_fetch_one(monkeypatch):
                 self.fast_info = MockFastInfo(100.0, 99.0)
 
     monkeypatch.setattr("src.ingest.live_prices.yf.Ticker", MockTicker)
-
-    assert lp._fetch_one("AAPL") == (100.0, 99.0)
-    assert lp._fetch_one("ERR") is None
-    assert lp._fetch_one("BAD") is None
-    assert lp._fetch_one("ZERO") is None
-
-def test_poll_and_overrides(monkeypatch):
-    def mock_fetch_one(ticker):
-        if ticker == "AAPL":
-            return (100.0, 99.0)
-        return None
-
-    monkeypatch.setattr(lp, "_fetch_one", mock_fetch_one)
     lp._LIVE.clear()
 
     # Test empty poll
