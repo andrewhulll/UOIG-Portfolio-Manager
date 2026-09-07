@@ -1,4 +1,3 @@
-import React from 'react'
 import { s } from './ui.js'
 
 // Full-screen app-level states, shared by App.jsx (auth-loading, terminal-loading,
