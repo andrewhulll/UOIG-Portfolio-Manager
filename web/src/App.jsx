@@ -1262,13 +1262,13 @@ export default class App extends React.Component {
                   ))}
                 </div>
               </div>
-              <div>
+              <div style={s('display:flex;flex-direction:column;justify-content:center;height:100%;')}>
                 {range ? (
                   <div>
                     <div style={s("display:flex;justify-content:space-between;font-family:'IBM Plex Mono';font-size:9.5px;color:#6b7794;")}><span>Low ${c.low.toFixed(0)}</span><span style={{ color: lblColor }}>Mean ${c.mean.toFixed(0)}</span><span>High ${c.high.toFixed(0)}</span></div>
                     <div style={s('position:relative;height:8px;border-radius:5px;background:#13203a;margin-top:8px;')}><div style={{ ...s('position:absolute;left:0;height:100%;border-radius:5px;background:linear-gradient(90deg,#1d2840,#21d07a);'), width: range.meanPos }}></div><div style={{ ...s('position:absolute;top:-4px;width:3px;height:16px;border-radius:2px;background:#21d07a;'), left: range.meanPos }}></div><div style={{ ...s('position:absolute;top:-4px;width:2px;height:16px;background:#e8edf7;'), left: range.curPos }}></div></div>
                     <div style={s('position:relative;height:13px;margin-top:5px;')}><span style={{ ...s("position:absolute;transform:translateX(-50%);font-family:'IBM Plex Mono';font-size:9px;color:#cdd6e8;"), left: range.curPos }}>${c.current.toFixed(0)} now</span></div>
-                    <div style={{ ...s("font:500 11px 'IBM Plex Sans';margin-bottom:13px;"), color: range.upColor }}>Mean target ${c.mean.toFixed(0)} · implies {range.upside} upside</div>
+                    <div style={{ ...s("font:500 11px 'IBM Plex Sans';margin-top:13px;"), color: range.upColor }}>Mean target ${c.mean.toFixed(0)} · implies {range.upside} upside</div>
                   </div>
                 ) : null}
               </div>
@@ -1386,7 +1386,6 @@ export default class App extends React.Component {
         {/* header */}
         <div style={s('display:flex;justify-content:space-between;align-items:flex-start;')}>
           <div style={s('display:flex;align-items:center;gap:13px;')}>
-            <div style={s("width:46px;height:46px;border-radius:11px;background:linear-gradient(135deg,#1c2d50,#0e1830);border:1px solid #28406e;display:flex;align-items:center;justify-content:center;font:600 20px 'IBM Plex Sans';color:#5a93f9;flex:0 0 auto;")}>{stk.initial}</div>
             <div>
               <div style={s('display:flex;align-items:center;gap:9px;')}>
                 <span style={s("font-family:'IBM Plex Mono';font-size:26px;font-weight:600;color:#e8edf7;letter-spacing:-.01em;")}>{stk.t}</span>
@@ -2137,7 +2136,7 @@ export default class App extends React.Component {
         const prevClose = hasChg ? h.px / (1 + h.chg / 100) : h.px
         const dayAbs = h.px - prevClose
         v.stk = {
-          t: h.t, n: h.n, s: h.s || '—', initial: (h.t || '?')[0], industry: (held ? h.s : (h.industry || h.s)) || '—',
+          t: h.t, n: h.n, s: h.s || '—', industry: (held ? h.s : (h.industry || h.s)) || '—',
           held, fundLabel: held ? f.name : (h.exchange || 'Yahoo Finance'), fundColor: accent,
           benchShort: f ? f.benchShort : 'Live quote',
           pxStr: '$' + this._num(h.px),
@@ -2183,6 +2182,7 @@ export default class App extends React.Component {
         v.predDetail = st.predictions[st.ticker]
         v.thesisDetail = st.theses[st.ticker]
         v.stkTabs = [['overview', 'Overview'], ['thesis', 'Thesis'], ['financials', 'Financials'], ['earnings', 'Earnings'], ['news', 'News'], ['research', 'Research'], ['predictions', 'Predictions']]
+          .filter(([k]) => held || (k !== 'thesis' && k !== 'predictions'))
           .map(([k, label]) => ({
             key: k, label, on: () => this.setState({ stkTab: k }),
             weight: k === tabKey ? 600 : 500, color: k === tabKey ? '#e8edf7' : '#6b7794',
