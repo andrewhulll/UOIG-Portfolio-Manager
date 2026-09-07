@@ -9,11 +9,11 @@ against the workbook by scripts/reconcile.py.
 Cash sweeps (BGNXX/BNGXX) carry only a market value in the sheet, so we model
 them as a $1.00 NAV money fund: shares == market value, price == 1.0.
 """
+
 from __future__ import annotations
 
 import datetime as dt
 import sqlite3
-from pathlib import Path
 
 import openpyxl
 
@@ -22,9 +22,17 @@ from src.model import db, schema
 
 # 1-based column indices within each fund sheet
 COL = {
-    "sector": 1, "cap": 2, "name": 3, "ticker": 4, "shares": 5,
-    "price": 6, "mv": 7, "entry_price": 8, "entry_date": 9,
-    "passive": 10, "bench_price": 14,
+    "sector": 1,
+    "cap": 2,
+    "name": 3,
+    "ticker": 4,
+    "shares": 5,
+    "price": 6,
+    "mv": 7,
+    "entry_price": 8,
+    "entry_date": 9,
+    "passive": 10,
+    "bench_price": 14,
 }
 
 
@@ -77,21 +85,23 @@ def parse_fund(ws, fund_name: str, benchmark: str) -> list[dict]:
             bench_price = _num(ws.cell(r, COL["bench_price"]).value)
             bench = benchmark if sec_type == "stock" else None
 
-        positions.append({
-            "fund": fund_name,
-            "ticker": str(ticker).strip(),
-            "name": str(name).strip(),
-            "sector": (sector or "").strip(),
-            "cap_class": (cap or "").strip(),
-            "sec_type": sec_type,
-            "shares": shares,
-            "price": price,
-            "entry_price": entry_price,
-            "entry_date": entry_date,
-            "passive_weight": passive,
-            "bench_ticker": bench,
-            "bench_entry_price": bench_price,
-        })
+        positions.append(
+            {
+                "fund": fund_name,
+                "ticker": str(ticker).strip(),
+                "name": str(name).strip(),
+                "sector": (sector or "").strip(),
+                "cap_class": (cap or "").strip(),
+                "sec_type": sec_type,
+                "shares": shares,
+                "price": price,
+                "entry_price": entry_price,
+                "entry_date": entry_date,
+                "passive_weight": passive,
+                "bench_ticker": bench,
+                "bench_entry_price": bench_price,
+            }
+        )
     return positions
 
 
@@ -116,8 +126,11 @@ def import_workbook(cfg: dict, conn: sqlite3.Connection | None = None) -> dict:
             tk = p["ticker"]
             if tk not in seen:
                 cur.execute(
-                    db.q(conn, "INSERT INTO securities (ticker, name, sector, cap_class, sec_type)"
-                               " VALUES (?, ?, ?, ?, ?)"),
+                    db.q(
+                        conn,
+                        "INSERT INTO securities (ticker, name, sector, cap_class, sec_type)"
+                        " VALUES (?, ?, ?, ?, ?)",
+                    ),
                     (tk, p["name"], p["sector"], p["cap_class"], p["sec_type"]),
                 )
                 seen[tk] = p["sector"]
@@ -127,23 +140,44 @@ def import_workbook(cfg: dict, conn: sqlite3.Connection | None = None) -> dict:
                 )
 
             cur.execute(
-                db.q(conn, "INSERT INTO holdings (fund, ticker, shares, entry_price, entry_date,"
-                           " passive_weight, bench_ticker, bench_entry_price)"
-                           " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"),
-                (p["fund"], tk, p["shares"], p["entry_price"], p["entry_date"],
-                 p["passive_weight"], p["bench_ticker"], p["bench_entry_price"]),
+                db.q(
+                    conn,
+                    "INSERT INTO holdings (fund, ticker, shares, entry_price, entry_date,"
+                    " passive_weight, bench_ticker, bench_entry_price)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                ),
+                (
+                    p["fund"],
+                    tk,
+                    p["shares"],
+                    p["entry_price"],
+                    p["entry_date"],
+                    p["passive_weight"],
+                    p["bench_ticker"],
+                    p["bench_entry_price"],
+                ),
             )
 
             if p["price"] is not None:
                 cur.execute(
-                    db.upsert_sql(conn, "prices", ["ticker", "date", "close", "adj_close", "source"], ["ticker", "date"]),
+                    db.upsert_sql(
+                        conn,
+                        "prices",
+                        ["ticker", "date", "close", "adj_close", "source"],
+                        ["ticker", "date"],
+                    ),
                     (tk, import_date, p["price"], p["price"], "xlsx_snapshot"),
                 )
 
             # snapshot the index ETFs into the benchmarks table too
             if p["sec_type"] == "etf" and p["price"] is not None:
                 cur.execute(
-                    db.upsert_sql(conn, "benchmarks", ["index_ticker", "date", "close"], ["index_ticker", "date"]),
+                    db.upsert_sql(
+                        conn,
+                        "benchmarks",
+                        ["index_ticker", "date", "close"],
+                        ["index_ticker", "date"],
+                    ),
                     (tk, import_date, p["price"]),
                 )
 
@@ -154,7 +188,9 @@ def import_workbook(cfg: dict, conn: sqlite3.Connection | None = None) -> dict:
         "source_workbook": str(workbook_path(cfg).name),
         "n_securities": str(len(seen)),
     }.items():
-        cur.execute(db.upsert_sql(conn, "import_meta", ["key", "value"], ["key"]), (k, v))
+        cur.execute(
+            db.upsert_sql(conn, "import_meta", ["key", "value"], ["key"]), (k, v)
+        )
 
     conn.commit()
     if own_conn:
