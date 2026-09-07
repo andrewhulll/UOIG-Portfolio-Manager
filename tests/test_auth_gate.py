@@ -10,6 +10,7 @@ import sys
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -45,10 +46,6 @@ def _fake_client(data=None, raises=False):
     return SimpleNamespace(user_management=SimpleNamespace(list_users=list_users))
 
 
-def _no_api_call():
-    raise AssertionError("wc.client() should not be called on the fast path")
-
-
 def test_dev_bypass_wins():
     # UOIG_AUTH_DISABLED short-circuits even when no org is configured.
     with _patch(auth_disabled=lambda: True, org_id=lambda: None):
@@ -63,8 +60,11 @@ def test_org_unset_fails_closed():
 
 def test_matching_org_id_fast_path():
     # organization_id on the result matches the gate -> allowed, no API call.
+    def assert_no_call():
+        raise AssertionError("wc.client() not allowed on fast path")
+
     with _patch(auth_disabled=lambda: False, org_id=lambda: "org_123",
-                client=_no_api_call):
+                client=Mock(side_effect=assert_no_call)):
         assert sessions.is_member(_res(org="org_123")) is True
 
 
