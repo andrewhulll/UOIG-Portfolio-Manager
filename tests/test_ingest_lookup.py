@@ -99,13 +99,21 @@ def test_quote_overview(monkeypatch):
 
 def test_quote_overview_falls_back_to_fast_info_when_info_is_empty(monkeypatch):
     # Reproduces production: tk.info comes back empty (e.g. Yahoo throttling the
-    # heavier quoteSummary endpoint) while the lighter chart-backed fast_info still
-    # works. quote_overview must use attribute access (fast_info aliases
-    # last_price/previous_close from Yahoo's camelCase) rather than .get(), which
-    # does not apply that aliasing and always misses.
+    # heavier quoteSummary endpoint) while the lighter chart-backed fast_info and
+    # search endpoints still work. quote_overview must use attribute access
+    # (fast_info aliases last_price/previous_close from Yahoo's camelCase) rather
+    # than .get(), which does not apply that aliasing and always misses — and it
+    # should fill name/sector/industry/exchange from search_symbols() so the
+    # stock page isn't left blank just because .info failed.
     class MockFastInfo:
         last_price = 230.36
         previous_close = 225.0
+        market_cap = 5_500_000_000_000.0
+        year_low = 164.27
+        year_high = 236.54
+        exchange = "NMS"
+        currency = "USD"
+        quote_type = "EQUITY"
 
     class MockTicker:
         @property
@@ -120,6 +128,10 @@ def test_quote_overview_falls_back_to_fast_info_when_info_is_empty(monkeypatch):
 
     monkeypatch.setattr(lookup_mod, "yf_ticker", lambda t: MockTicker())
     monkeypatch.setattr(lookup_mod, "yf_retry", mock_retry)
+    monkeypatch.setattr(lookup_mod, "search_symbols", lambda q, limit=8: [
+        {"symbol": "NVDA", "name": "NVIDIA Corporation", "exchange": "NASDAQ",
+         "sector": "Technology", "industry": "Semiconductors"},
+    ])
     monkeypatch.setattr(cache, "get", lambda *args: cache.MISS)
     monkeypatch.setattr(cache, "set", lambda *args: None)
 
@@ -129,6 +141,12 @@ def test_quote_overview_falls_back_to_fast_info_when_info_is_empty(monkeypatch):
     assert quote is not None
     assert quote["t"] == "NVDA"
     assert quote["px"] == 230.36
+    assert quote["n"] == "NVIDIA Corporation"
+    assert quote["s"] == "Technology"
+    assert quote["industry"] == "Semiconductors"
+    assert quote["mc"] == 5500.0
+    assert quote["lo"] == 164.27
+    assert quote["hi"] == 236.54
 
 def test_institutional_holders(monkeypatch):
     class MockTicker:

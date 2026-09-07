@@ -76,7 +76,12 @@ def search_symbols(query: str, limit: int = 8) -> list[dict]:
                 continue
             name = r.get("longname") or r.get("shortname") or sym
             exch = r.get("exchDisp") or r.get("exchange") or ""
-            out.append({"symbol": sym, "name": name, "exchange": exch})
+            out.append({
+                "symbol": sym, "name": name, "exchange": exch,
+                # Yahoo's search endpoint carries sector/industry too — quote_overview
+                # uses these as a fallback when the heavier .info endpoint is empty.
+                "sector": r.get("sector"), "industry": r.get("industry"),
+            })
             if len(out) >= limit:
                 break
     except Exception:  # noqa: BLE001 — search is best-effort
@@ -106,29 +111,47 @@ def quote_overview(ticker: str) -> dict | None:
     tk = yf_ticker(t)
     info = yf_retry(lambda: tk.info) or {}
 
-    qtype = info.get("quoteType")
-    px = _num(info.get("currentPrice")) or _num(info.get("regularMarketPrice"))
-    if px is None:
+    # fast_info is chart-API-backed and stays reachable even when the heavier
+    # .info/quoteSummary endpoint comes back empty (e.g. throttled in prod).
+    # Attribute access applies its snake_case aliasing; .get() does not.
+    try:
+        fi = tk.fast_info
+    except Exception:  # noqa: BLE001
+        fi = None
+
+    def _fi(name):
         try:
-            # Attribute access applies fast_info's snake_case aliasing; .get() does
-            # not (its keys are camelCase: lastPrice/previousClose), so use attrs.
-            px = _num(tk.fast_info.last_price)
+            return getattr(fi, name) if fi is not None else None
         except Exception:  # noqa: BLE001
-            px = None
-    # Reject non-equities and dead symbols (no price / no type).
-    if not info or qtype not in (None, "EQUITY") or px is None:
-        if qtype is not None and qtype != "EQUITY":
-            _QUOTE_CACHE[t] = (now, None)
-            cache.set("quote", t, None, _TTL)   # confirmed non-equity: cache the None hit
             return None
+
+    # yf.Search stays reachable too, and carries name/sector/industry — use it
+    # to fill those in when .info is empty (an exact-symbol hit only).
+    search_hit: dict = {}
+    if not info:
+        search_hit = next(
+            (r for r in search_symbols(t, limit=5) if r.get("symbol", "").upper() == t),
+            {},
+        )
+
+    qtype = info.get("quoteType") or _fi("quote_type")
+    px = (_num(info.get("currentPrice")) or _num(info.get("regularMarketPrice"))
+          or _num(_fi("last_price")))
+
+    # Reject non-equities and dead symbols (no price / no type from any source).
+    if qtype is not None and qtype != "EQUITY":
+        _QUOTE_CACHE[t] = (now, None)
+        cache.set("quote", t, None, _TTL)   # confirmed non-equity: cache the None hit
+        return None
     if px is None:
         _QUOTE_CACHE[t] = (now, None)
         return None
 
-    prev = _num(info.get("regularMarketPreviousClose")) or _num(info.get("previousClose"))
+    prev = (_num(info.get("regularMarketPreviousClose")) or _num(info.get("previousClose"))
+            or _num(_fi("previous_close")) or _num(_fi("regular_market_previous_close")))
     chg = ((px - prev) / prev * 100) if (prev and px is not None) else _num(info.get("regularMarketChangePercent"))
 
-    mc = _num(info.get("marketCap"))
+    mc = _num(info.get("marketCap")) or _num(_fi("market_cap"))
     pe = _num(info.get("forwardPE")) or _num(info.get("trailingPE"))
     pb = _num(info.get("priceToBook"))
     ev_ebitda = _num(info.get("enterpriseToEbitda"))
@@ -143,15 +166,16 @@ def quote_overview(ticker: str) -> dict | None:
         raw = _num(info.get("dividendYield"))
         dy = (raw if (raw is not None and raw > 1) else (raw * 100 if raw is not None else None))
 
-    lo = _num(info.get("fiftyTwoWeekLow"))
-    hi = _num(info.get("fiftyTwoWeekHigh"))
+    lo = _num(info.get("fiftyTwoWeekLow")) or _num(_fi("year_low"))
+    hi = _num(info.get("fiftyTwoWeekHigh")) or _num(_fi("year_high"))
 
     payload = {
         "t": t,
-        "n": info.get("longName") or info.get("shortName") or t,
-        "s": info.get("sector"),
-        "industry": info.get("industry"),
-        "exchange": info.get("fullExchangeName") or info.get("exchange") or "",
+        "n": info.get("longName") or info.get("shortName") or search_hit.get("name") or t,
+        "s": info.get("sector") or search_hit.get("sector"),
+        "industry": info.get("industry") or search_hit.get("industry"),
+        "exchange": (info.get("fullExchangeName") or info.get("exchange")
+                     or _fi("exchange") or search_hit.get("exchange") or ""),
         "px": round(px, 2),
         "chg": round(chg, 2) if chg is not None else None,
         "mc": round(mc / 1e9, 2) if mc is not None else None,  # billions
@@ -163,7 +187,7 @@ def quote_overview(ticker: str) -> dict | None:
         "lo": round(lo, 2) if lo is not None else None,
         "hi": round(hi, 2) if hi is not None else None,
         "desc": info.get("longBusinessSummary"),
-        "currency": info.get("currency") or "USD",
+        "currency": info.get("currency") or _fi("currency") or "USD",
         "held": False,
     }
     _QUOTE_CACHE[t] = (now, payload)
