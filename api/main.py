@@ -1069,7 +1069,7 @@ if _CORS_ORIGINS:
     app.add_middleware(CORSMiddleware, allow_origins=_CORS_ORIGINS, allow_credentials=True,
                        allow_methods=["*"], allow_headers=["*"])
 else:
-    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+    app.add_middleware(CORSMiddleware, allow_origins=[], allow_methods=["*"], allow_headers=["*"])
 
 # Serve the built React terminal (single-container deploy). The /api routes above
 # are matched first; this catch-all mount serves the SPA for everything else.
