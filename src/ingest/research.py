@@ -16,7 +16,6 @@ import math
 import time
 
 import pandas as pd
-import yfinance as yf
 
 from src.ingest.providers import yf_ticker
 from src.model import cache
