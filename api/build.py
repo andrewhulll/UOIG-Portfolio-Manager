@@ -10,7 +10,6 @@ import datetime as dt
 import math
 import sqlite3
 
-import numpy as np
 import pandas as pd
 
 from src.analytics.pnl import load_positions
