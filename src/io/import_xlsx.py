@@ -120,18 +120,18 @@ def import_workbook(cfg: dict, conn: sqlite3.Connection | None = None) -> dict:
     seen: dict[str, str] = {}
     summary = {"funds": {}, "warnings": []}
 
+    securities_to_insert = []
+    holdings_to_insert = []
+    prices_to_insert = []
+    benchmarks_to_insert = []
+
     for fund in cfg["funds"]:
         positions = parse_fund(wb[fund["sheet"]], fund["name"], fund["benchmark"])
         for p in positions:
             tk = p["ticker"]
             if tk not in seen:
-                cur.execute(
-                    db.q(
-                        conn,
-                        "INSERT INTO securities (ticker, name, sector, cap_class, sec_type)"
-                        " VALUES (?, ?, ?, ?, ?)",
-                    ),
-                    (tk, p["name"], p["sector"], p["cap_class"], p["sec_type"]),
+                securities_to_insert.append(
+                    (tk, p["name"], p["sector"], p["cap_class"], p["sec_type"])
                 )
                 seen[tk] = p["sector"]
             elif seen[tk] != p["sector"]:
@@ -139,58 +139,62 @@ def import_workbook(cfg: dict, conn: sqlite3.Connection | None = None) -> dict:
                     f"{tk}: sector differs across funds ('{seen[tk]}' vs '{p['sector']}'); kept first"
                 )
 
-            cur.execute(
-                db.q(
-                    conn,
-                    "INSERT INTO holdings (fund, ticker, shares, entry_price, entry_date,"
-                    " passive_weight, bench_ticker, bench_entry_price)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                ),
-                (
-                    p["fund"],
-                    tk,
-                    p["shares"],
-                    p["entry_price"],
-                    p["entry_date"],
-                    p["passive_weight"],
-                    p["bench_ticker"],
-                    p["bench_entry_price"],
-                ),
+            holdings_to_insert.append(
+                (p["fund"], tk, p["shares"], p["entry_price"], p["entry_date"],
+                 p["passive_weight"], p["bench_ticker"], p["bench_entry_price"])
             )
 
             if p["price"] is not None:
-                cur.execute(
-                    db.upsert_sql(
-                        conn,
-                        "prices",
-                        ["ticker", "date", "close", "adj_close", "source"],
-                        ["ticker", "date"],
-                    ),
-                    (tk, import_date, p["price"], p["price"], "xlsx_snapshot"),
+                prices_to_insert.append(
+                    (tk, import_date, p["price"], p["price"], "xlsx_snapshot")
                 )
 
             # snapshot the index ETFs into the benchmarks table too
             if p["sec_type"] == "etf" and p["price"] is not None:
-                cur.execute(
-                    db.upsert_sql(
-                        conn,
-                        "benchmarks",
-                        ["index_ticker", "date", "close"],
-                        ["index_ticker", "date"],
-                    ),
-                    (tk, import_date, p["price"]),
+                benchmarks_to_insert.append(
+                    (tk, import_date, p["price"])
                 )
 
         summary["funds"][fund["name"]] = len(positions)
 
+    if securities_to_insert:
+        db.executemany(
+            conn,
+            db.q(conn, "INSERT INTO securities (ticker, name, sector, cap_class, sec_type) VALUES (?, ?, ?, ?, ?)"),
+            securities_to_insert,
+        )
+
+    if holdings_to_insert:
+        db.executemany(
+            conn,
+            db.q(conn, "INSERT INTO holdings (fund, ticker, shares, entry_price, entry_date, passive_weight, bench_ticker, bench_entry_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"),
+            holdings_to_insert,
+        )
+
+    if prices_to_insert:
+        db.executemany(
+            conn,
+            db.upsert_sql(conn, "prices", ["ticker", "date", "close", "adj_close", "source"], ["ticker", "date"]),
+            prices_to_insert,
+        )
+
+    if benchmarks_to_insert:
+        db.executemany(
+            conn,
+            db.upsert_sql(conn, "benchmarks", ["index_ticker", "date", "close"], ["index_ticker", "date"]),
+            benchmarks_to_insert,
+        )
+
+    meta_to_insert = []
     for k, v in {
         "import_date": import_date,
         "source_workbook": str(workbook_path(cfg).name),
         "n_securities": str(len(seen)),
     }.items():
-        cur.execute(
-            db.upsert_sql(conn, "import_meta", ["key", "value"], ["key"]), (k, v)
-        )
+        meta_to_insert.append((k, v))
+
+    if meta_to_insert:
+        db.executemany(conn, db.upsert_sql(conn, "import_meta", ["key", "value"], ["key"]), meta_to_insert)
 
     conn.commit()
     if own_conn:
