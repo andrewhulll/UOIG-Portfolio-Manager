@@ -100,7 +100,7 @@ def _current(request: Request):
 
 
 @app.middleware("http")
-async def _auth_gate(request: Request, call_next):
+async def auth_gate(request: Request, call_next):
     path = request.url.path
     gated = path.startswith("/api/") and not path.startswith(_AUTH_PUBLIC)
     if gated and not wc.auth_disabled():
