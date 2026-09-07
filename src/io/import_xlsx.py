@@ -9,11 +9,11 @@ against the workbook by scripts/reconcile.py.
 Cash sweeps (BGNXX/BNGXX) carry only a market value in the sheet, so we model
 them as a $1.00 NAV money fund: shares == market value, price == 1.0.
 """
+
 from __future__ import annotations
 
 import datetime as dt
 import sqlite3
-from pathlib import Path
 
 import openpyxl
 
@@ -22,9 +22,17 @@ from src.model import db, schema
 
 # 1-based column indices within each fund sheet
 COL = {
-    "sector": 1, "cap": 2, "name": 3, "ticker": 4, "shares": 5,
-    "price": 6, "mv": 7, "entry_price": 8, "entry_date": 9,
-    "passive": 10, "bench_price": 14,
+    "sector": 1,
+    "cap": 2,
+    "name": 3,
+    "ticker": 4,
+    "shares": 5,
+    "price": 6,
+    "mv": 7,
+    "entry_price": 8,
+    "entry_date": 9,
+    "passive": 10,
+    "bench_price": 14,
 }
 
 
@@ -77,21 +85,23 @@ def parse_fund(ws, fund_name: str, benchmark: str) -> list[dict]:
             bench_price = _num(ws.cell(r, COL["bench_price"]).value)
             bench = benchmark if sec_type == "stock" else None
 
-        positions.append({
-            "fund": fund_name,
-            "ticker": str(ticker).strip(),
-            "name": str(name).strip(),
-            "sector": (sector or "").strip(),
-            "cap_class": (cap or "").strip(),
-            "sec_type": sec_type,
-            "shares": shares,
-            "price": price,
-            "entry_price": entry_price,
-            "entry_date": entry_date,
-            "passive_weight": passive,
-            "bench_ticker": bench,
-            "bench_entry_price": bench_price,
-        })
+        positions.append(
+            {
+                "fund": fund_name,
+                "ticker": str(ticker).strip(),
+                "name": str(name).strip(),
+                "sector": (sector or "").strip(),
+                "cap_class": (cap or "").strip(),
+                "sec_type": sec_type,
+                "shares": shares,
+                "price": price,
+                "entry_price": entry_price,
+                "entry_date": entry_date,
+                "passive_weight": passive,
+                "bench_ticker": bench,
+                "bench_entry_price": bench_price,
+            }
+        )
     return positions
 
 

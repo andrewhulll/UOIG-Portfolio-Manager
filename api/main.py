@@ -13,6 +13,7 @@ import threading
 import time
 import uuid
 import warnings
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Dict, List
 
@@ -56,7 +57,21 @@ from src.config import db_path, load_config  # noqa: E402
 from src.model.schema import get_connection  # noqa: E402
 
 CFG = load_config()
-app = FastAPI(title="UOIG Investment Terminal API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Refresh held-ticker quotes on a background thread (market hours only), so
+    /api/data serves live spot prices while everything else stays nightly."""
+    from src.ingest.live_prices import start as _start_poller
+    interval = float((CFG.get("market_data") or {}).get("live_interval_seconds", 45))
+    try:
+        _start_poller(_held_tickers, interval=interval)
+        log.info("live-price poller started (interval=%ss)", interval)
+    except Exception:  # noqa: BLE001 — never block startup on the poller
+        log.exception("live-price poller failed to start")
+    yield
+
+app = FastAPI(title="UOIG Investment Terminal API", lifespan=lifespan)
 # Same-origin dev: wildcard CORS, no credentials. Split deploy (Vercel frontend +
 # separate backend): set CORS_ORIGINS to the exact frontend origin(s) so cookies
 # can ride cross-site (credentials require a non-wildcard origin). The middleware
@@ -498,19 +513,6 @@ def _held_tickers() -> list[str]:
             "SELECT ticker FROM securities WHERE sec_type != 'cash'")]
     finally:
         conn.close()
-
-
-@app.on_event("startup")
-def _start_live_prices() -> None:
-    """Refresh held-ticker quotes on a background thread (market hours only), so
-    /api/data serves live spot prices while everything else stays nightly."""
-    from src.ingest.live_prices import start as _start_poller
-    interval = float((CFG.get("market_data") or {}).get("live_interval_seconds", 45))
-    try:
-        _start_poller(_held_tickers, interval=interval)
-        log.info("live-price poller started (interval=%ss)", interval)
-    except Exception:  # noqa: BLE001 — never block startup on the poller
-        log.exception("live-price poller failed to start")
 
 
 def _fund_name(key: str):
