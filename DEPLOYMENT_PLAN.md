@@ -67,7 +67,7 @@ From **API Keys** and **Configuration**:
 |---|---|---|
 | `WORKOS_API_KEY` | API Keys (`sk_...`) | secret |
 | `WORKOS_CLIENT_ID` | API Keys (`client_...`) | secret |
-| `WORKOS_COOKIE_PASSWORD` | **you generate** | 32+ char random string; seals the session cookie. `python -c "import secrets;print(secrets.token_urlsafe(32))"` |
+| `WORKOS_COOKIE_PASSWORD` | **you generate** | 32 random bytes encoded as URL-safe base64; seals the session cookie. `python -c "import secrets;print(secrets.token_urlsafe(32))"` |
 | `WORKOS_ORG_ID` | the org from 1.4 (`org_...`) | the invite-only gate |
 | `WORKOS_REDIRECT_URI` | your backend callback URL | e.g. `https://<backend>/api/auth/callback` |
 | `UOIG_COOKIE_SECURE` | set to `1` in prod | required for HTTPS cookies (`src/auth/workos_client.py:73`) |
@@ -173,7 +173,7 @@ Hosts the React app in `web/`. The client already supports a remote backend via
 ```
 WORKOS_API_KEY=sk_...
 WORKOS_CLIENT_ID=client_...
-WORKOS_COOKIE_PASSWORD=<32+ char random>
+WORKOS_COOKIE_PASSWORD=<43-char token_urlsafe(32) value>
 WORKOS_ORG_ID=org_...
 WORKOS_REDIRECT_URI=https://<backend-host>/api/auth/callback
 ANTHROPIC_API_KEY=sk-ant-...

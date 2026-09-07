@@ -3,10 +3,10 @@
 Exposes list_files / read_file / search_repo to the model so it can answer
 questions about how the terminal is built. Access is deliberately narrow:
 
-  * only text/code/doc extensions are readable,
+  * only an allowlist of code/document extensions and filenames is readable,
   * any path under a sensitive directory (data/, node_modules, .git, .venv,
     dist, build, .claude, …) is denied,
-  * secret-looking files (*.key*, *.pem, *.env, *secret*, the DB) are denied,
+  * credential-like names and general-purpose secret text files are denied,
   * every path is resolved and confined to the repo root (no traversal),
   * file reads and listings are size/count-capped to bound token cost.
 
@@ -22,11 +22,16 @@ REPO = Path(__file__).resolve().parents[1]
 
 ALLOWED_EXT = {
     ".md", ".py", ".js", ".jsx", ".ts", ".tsx", ".json", ".yaml", ".yml",
-    ".txt", ".html", ".css", ".toml", ".cfg", ".ini", ".sh",
+    ".html", ".css", ".toml", ".cfg", ".ini", ".sh",
 }
+ALLOWED_FILENAMES = {"requirements.txt"}
 DENY_DIRS = {"node_modules", "__pycache__", ".git", ".venv", "venv", "dist",
              "build", ".claude", "data", "scratchpad", ".streamlit"}
-DENY_NAME = re.compile(r"(\.key($|\.)|\.pem$|\.env|secret|\.db$|\.sqlite)", re.I)
+DENY_NAME = re.compile(
+    r"(^workos\.|^supabase\.|\.key($|\.)|\.pem$|\.env|secret|credential|"
+    r"password|passwd|token|api[._-]?key|\.db$|\.sqlite)",
+    re.I,
+)
 MAX_BYTES = 60_000
 MAX_LIST = 400
 MAX_HITS = 40
@@ -37,9 +42,9 @@ def _safe(rel: Path) -> bool:
     if any(part in DENY_DIRS or part.startswith(".") and part not in (".gitignore",)
            for part in rel.parts[:-1]):
         return False
-    if rel.name in {"anthropic.key.txt", "andrew.key.txt"} or DENY_NAME.search(rel.name):
+    if DENY_NAME.search(rel.name):
         return False
-    return rel.suffix.lower() in ALLOWED_EXT
+    return rel.name.lower() in ALLOWED_FILENAMES or rel.suffix.lower() in ALLOWED_EXT
 
 
 def _resolve(path: str) -> Path | None:
@@ -56,7 +61,10 @@ def _walk(base: Path):
         dirs[:] = [d for d in dirs if d not in DENY_DIRS and not d.startswith(".")]
         for f in files:
             rel = Path(root, f).relative_to(REPO)
-            if _safe(rel):
+            # Resolve every candidate through the same confinement check used by
+            # read_file. This also prevents an allowed-looking symlink from
+            # exposing a secret or a file outside the repository.
+            if _resolve(str(rel)) is not None:
                 yield str(rel).replace("\\", "/")
 
 
@@ -88,8 +96,11 @@ def search_repo(query: str, max_results: int = MAX_HITS) -> str:
         rx = re.compile(re.escape(query), re.I)
     hits = []
     for rel in _walk(REPO):
+        p = _resolve(rel)
+        if p is None:
+            continue
         try:
-            text = (REPO / rel).read_text(encoding="utf-8", errors="ignore")
+            text = p.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
         for i, line in enumerate(text.splitlines(), 1):
