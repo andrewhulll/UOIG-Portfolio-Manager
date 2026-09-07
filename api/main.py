@@ -26,7 +26,7 @@ warnings.filterwarnings("ignore", message="pandas only supports SQLAlchemy")
 
 import secrets as _secrets  # noqa: E402
 
-from fastapi import FastAPI, HTTPException, Request  # noqa: E402
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
@@ -844,25 +844,68 @@ def _chat_system(conn, context: str) -> str:
     return "\n".join(lines)
 
 
+
+_USER_CHAT_RUNS: dict[str, list[float]] = {}
+_USER_AGENT_RUNS: dict[str, list[float]] = {}
+_CHAT_LOCK = threading.Lock()
+_ACTIVE_CHATS = 0
+_AGENT_LOCK = threading.Lock()
+
+def _enforce_rate_limit(user_id: str, history: dict[str, list[float]], lock: threading.Lock, limit: int, window: float) -> bool:
+    with lock:
+        now = time.time()
+        user_history = history.get(user_id, [])
+        user_history = [t for t in user_history if now - t < window]
+        history[user_id] = user_history
+        if len(user_history) >= limit:
+            return False
+        user_history.append(now)
+        return True
+
+def _get_user_id(request: Request) -> str:
+    if wc.auth_disabled():
+        return "dev"
+    res = getattr(request.state, "user", None)
+    if res:
+        u = getattr(res, "user", None) or {}
+        if not isinstance(u, dict):
+            u = u.to_dict()
+        return u.get("id") or "dev"
+    return "dev"
+
 @app.post("/api/chat")
 def chat(request: Request, payload: dict):
     _enforce_rate_limit(request, "chat", limit=50, window=3600)
     """Live Ask-Claude turn via the Anthropic API (claude-haiku-4-5)."""
-    messages = payload.get("messages") or []
-    context = str(payload.get("context") or "")
-    if not llm_key():
-        return {"reply": "⚠ Ask Claude isn't configured yet. Set the **ANTHROPIC_API_KEY** "
-                         "environment variable (or drop the key in `anthropic.key.txt` at the "
-                         "repo root) and restart the backend."}
-    conn = _conn()
+    user_id = _get_user_id(request)
+    if not _enforce_rate_limit(user_id, _USER_CHAT_RUNS, lock=_CHAT_LOCK, limit=15, window=60):
+        raise HTTPException(429, "Too many chat requests. Please wait a minute.")
+
+    global _ACTIVE_CHATS
+    with _CHAT_LOCK:
+        if _ACTIVE_CHATS >= 5:
+            raise HTTPException(503, "Chat service is busy. Please try again in a moment.")
+        _ACTIVE_CHATS += 1
+
     try:
-        system = _chat_system(conn, context)
+        messages = payload.get("messages") or []
+        context = str(payload.get("context") or "")
+        if not llm_key():
+            return {"reply": "⚠ Ask Claude isn't configured yet. Set the **ANTHROPIC_API_KEY** "
+                             "environment variable (or drop the key in `anthropic.key.txt` at the "
+                             "repo root) and restart the backend."}
+        conn = _conn()
+        try:
+            system = _chat_system(conn, context)
+        finally:
+            conn.close()
+        try:
+            return {"reply": llm_answer(messages, system)}
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(502, f"chat failed: {exc}")
     finally:
-        conn.close()
-    try:
-        return {"reply": llm_answer(messages, system)}
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(502, f"chat failed: {exc}")
+        with _CHAT_LOCK:
+            _ACTIVE_CHATS -= 1
 
 
 def _agent_context(data: dict) -> str:
@@ -910,15 +953,50 @@ def _agent_portfolio_json(data: dict) -> str:
 _AGENT_JOBS: dict[str, dict] = {}
 
 
+def _run_agent_task(job_id: str, aid: str, task: str, context: str, attachments: list, agent):
+    try:
+        reply = agent.run_agent(aid, task, context, attachments=attachments)
+        _AGENT_JOBS[job_id] = {"status": "done", "reply": reply, "error": None}
+    except Exception as exc:  # noqa: BLE001
+        log.exception("agent run failed")
+        _AGENT_JOBS[job_id] = {"status": "error", "reply": None, "error": str(exc)}
+
+
 @app.post("/api/agent/run")
-def agent_run(request: Request, payload: dict):
+def agent_run(request: Request, payload: dict, background_tasks: BackgroundTasks):
     _enforce_rate_limit(request, "agent", limit=5, window=3600)
     """Start a Managed Agent (market analysis) run in the background and return a
     job id immediately. Poll GET /api/agent/run/{job_id} for the result. Agent id is
     `agent_id` in config.yaml (an ANTHROPIC_AGENT_ID env var overrides it)."""
+    user_id = _get_user_id(request)
+    if not _enforce_rate_limit(user_id, _USER_AGENT_RUNS, lock=_AGENT_LOCK, limit=5, window=600):
+        raise HTTPException(429, "Too many agent runs. Please try again later.")
+
+    now = time.time()
+    job_id = uuid.uuid4().hex
+
+    with _AGENT_LOCK:
+        # evict stale
+        stale_keys = []
+        for k, v in _AGENT_JOBS.items():
+            age = now - v.get("started_at", now)
+            if v["status"] in ("done", "error") and age > 300:
+                stale_keys.append(k)
+            elif v["status"] == "running" and age > 1800:
+                stale_keys.append(k)
+        for k in stale_keys:
+            _AGENT_JOBS.pop(k, None)
+
+        active_jobs = sum(1 for v in _AGENT_JOBS.values() if v["status"] == "running")
+        if active_jobs >= 3:
+            raise HTTPException(503, "Agent service is busy. Please wait a moment.")
+
+        _AGENT_JOBS[job_id] = {"status": "running", "reply": None, "error": None, "started_at": now}
+
     from src import agent_run as agent
     aid = (os.environ.get("ANTHROPIC_AGENT_ID") or CFG.get("agent_id") or "").strip()
     if not aid:
+        _AGENT_JOBS.pop(job_id, None)
         raise HTTPException(503, "agent_not_configured")
     conn = _conn()
     try:
@@ -955,10 +1033,14 @@ def agent_run(request: Request, payload: dict):
     def _worker():
         try:
             reply = agent.run_agent(aid, task, context, attachments=attachments)
-            _AGENT_JOBS[job_id] = {"status": "done", "reply": reply, "error": None}
+            with _AGENT_LOCK:
+                if job_id in _AGENT_JOBS:
+                    _AGENT_JOBS[job_id].update({"status": "done", "reply": reply, "error": None})
         except Exception as exc:  # noqa: BLE001
             log.exception("agent run failed")
-            _AGENT_JOBS[job_id] = {"status": "error", "reply": None, "error": str(exc)}
+            with _AGENT_LOCK:
+                if job_id in _AGENT_JOBS:
+                    _AGENT_JOBS[job_id].update({"status": "error", "reply": None, "error": str(exc)})
 
     threading.Thread(target=_worker, daemon=True).start()
     return {"job_id": job_id, "status": "running"}
@@ -968,12 +1050,13 @@ def agent_run(request: Request, payload: dict):
 def agent_run_status(job_id: str):
     """Poll an agent run. While running, returns {status: 'running'}; on completion
     returns {status: 'done', reply} or {status: 'error', error} and drops the job."""
-    job = _AGENT_JOBS.get(job_id)
-    if job is None:
-        raise HTTPException(404, "unknown or expired job")
-    if job["status"] != "running":
-        _AGENT_JOBS.pop(job_id, None)  # one-shot: free the slot once delivered
-    return job
+    with _AGENT_LOCK:
+        job = _AGENT_JOBS.get(job_id)
+        if job is None:
+            raise HTTPException(404, "unknown or expired job")
+        if job["status"] != "running":
+            _AGENT_JOBS.pop(job_id, None)  # one-shot: free the slot once delivered
+        return dict(job)
 
 
 # CORS is added LAST so it's the outermost middleware: it answers OPTIONS
