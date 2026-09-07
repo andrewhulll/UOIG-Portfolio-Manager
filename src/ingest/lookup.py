@@ -110,7 +110,9 @@ def quote_overview(ticker: str) -> dict | None:
     px = _num(info.get("currentPrice")) or _num(info.get("regularMarketPrice"))
     if px is None:
         try:
-            px = _num(tk.fast_info.get("last_price"))
+            # Attribute access applies fast_info's snake_case aliasing; .get() does
+            # not (its keys are camelCase: lastPrice/previousClose), so use attrs.
+            px = _num(tk.fast_info.last_price)
         except Exception:  # noqa: BLE001
             px = None
     # Reject non-equities and dead symbols (no price / no type).
