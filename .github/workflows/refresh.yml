@@ -1,9 +1,10 @@
 name: nightly-refresh
 
-# Pulls Capital IQ daily OHLCV into the shared Postgres cache, then refreshes
-# company fundamentals (scripts.fundamentals). Every price attempt is recorded
-# in price_refresh_runs so failures are visible beyond the GitHub log.
-# This job is the dashboard's nightly historical backbone.
+# Pulls the nightly market data into the shared Postgres store: daily price
+# history + dividends (scripts.refresh) and company fundamentals
+# (scripts.fundamentals). Intraday spot prices are handled separately by the
+# backend's live-price poller (src/ingest/live_prices.py) — this job is only the
+# nightly historical backbone.
 #
 # Requires a DATABASE_URL repo secret pointing at the SAME Postgres (Supabase)
 # the deployed backend reads; without it the scripts would write to an ephemeral
@@ -45,21 +46,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install licensed Capital IQ SDK
-        env:
-          CIQ_SDK_URL: ${{ secrets.CIQ_SDK_URL }}
-        run: |
-          if [ -z "$CIQ_SDK_URL" ]; then
-            echo "::error::CIQ_SDK_URL must point to the licensed spgmi_api_sdk tarball."
-            exit 1
-          fi
-          pip install "$CIQ_SDK_URL"
-
-      - name: Check database and Capital IQ credentials
+      - name: Check DATABASE_URL is configured
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          SDK_USERNAME: ${{ secrets.SDK_USERNAME }}
-          SDK_PASSWORD: ${{ secrets.SDK_PASSWORD }}
         run: |
           if [ -z "$DATABASE_URL" ]; then
             echo "::error::DATABASE_URL secret is not set — refusing to run so we don't"
@@ -67,19 +56,13 @@ jobs:
             echo "::error::Settings → Secrets and variables → Actions → New repository secret."
             exit 1
           fi
-          if [ -z "$SDK_USERNAME" ] || [ -z "$SDK_PASSWORD" ]; then
-            echo "::error::SDK_USERNAME and SDK_PASSWORD repository secrets are required."
-            exit 1
-          fi
 
-      - name: Refresh Capital IQ prices
+      - name: Refresh prices + dividends
         # ALPHAVANTAGE_API_KEY also drives the benchmark-constituent pull inside
         # scripts.refresh (optimization page's active-weight metrics); the script
         # skips that step quietly if the secret isn't configured.
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          SDK_USERNAME: ${{ secrets.SDK_USERNAME }}
-          SDK_PASSWORD: ${{ secrets.SDK_PASSWORD }}
           ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
         run: |
           python -m scripts.refresh ${{ inputs.full && '--full' || '' }}

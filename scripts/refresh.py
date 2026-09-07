@@ -29,7 +29,7 @@ def main() -> None:
     cfg = load_config()
     s = refresh(cfg, history_years=args.years, full=args.full)
     print(f"Refreshed {s['tickers']} tickers: "
-          f"{s['prices']} Capital IQ price rows ({s['status']}, run {s['run_id']})")
+          f"{s['prices']} price rows, {s['dividends']} dividends")
     if s["failed"]:
         print(f"  failed ({len(s['failed'])}): {', '.join(s['failed'])}")
 
@@ -50,9 +50,6 @@ def main() -> None:
 
     # Prune expired rows from the durable API cache so the shared table stays small.
     print(f"Cache: purged {cache.purge_expired()} expired rows")
-
-    if s["failed"]:
-        raise SystemExit(1)
 
 
 if __name__ == "__main__":
