@@ -76,7 +76,7 @@ only the invite action is role-gated (Admin) so far.
 |---|---|---|
 | `WORKOS_API_KEY` | `workos.key.txt` | secret |
 | `WORKOS_CLIENT_ID` | `workos.client.txt` | |
-| `WORKOS_COOKIE_PASSWORD` | `workos.cookie.txt` | 32+ chars; seals the session cookie |
+| `WORKOS_COOKIE_PASSWORD` | `workos.cookie.txt` | 32 random bytes encoded as URL-safe base64 (43 or 44 chars); seals the session cookie |
 | `WORKOS_ORG_ID` | `workos.org.txt` | the invite-only org |
 | `WORKOS_REDIRECT_URI` | — | defaults to `http://localhost:5173/api/auth/callback` |
 | `WORKOS_ADMIN_ROLE` | — | role slug allowed to invite teammates (default `admin`) |

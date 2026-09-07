@@ -64,7 +64,10 @@ def connect_pg(url: str | None = None):
     Supabase's poolers (PgBouncer/Supavisor), which don't support prepared
     statements that outlive a transaction."""
     import psycopg  # lazy import so SQLite-only environments don't need it
-    return psycopg.connect(**_parse_url(url or database_url()), prepare_threshold=None)
+    # connect_timeout so a stalled Supabase/pooler fails fast (10s) instead of
+    # hanging a request — matters most for the per-op cache connections.
+    return psycopg.connect(**_parse_url(url or database_url()),
+                           prepare_threshold=None, connect_timeout=10)
 
 
 def is_pg(conn) -> bool:

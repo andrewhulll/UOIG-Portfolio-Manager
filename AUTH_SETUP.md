@@ -69,7 +69,7 @@ Set as environment variables, or as git-ignored `*.txt` files at the repo root
 |---|---|---|
 | `WORKOS_API_KEY` | `workos.key.txt` | Secret API key (`sk_…`) |
 | `WORKOS_CLIENT_ID` | `workos.client.txt` | Client id (`client_…`) |
-| `WORKOS_COOKIE_PASSWORD` | `workos.cookie.txt` | 32+ char secret; seals the session cookie |
+| `WORKOS_COOKIE_PASSWORD` | `workos.cookie.txt` | 32 random bytes encoded as URL-safe base64 (43 or 44 chars); seals the session cookie |
 | `WORKOS_ORG_ID` | `workos.org.txt` | The invite-gate org id (`org_…`) |
 | `WORKOS_REDIRECT_URI` | — | Defaults to `http://localhost:5173/api/auth/callback`; set to the prod callback in Production |
 | `WORKOS_PM_ROLE` | — | Role slug allowed to invite (default `pm`) |

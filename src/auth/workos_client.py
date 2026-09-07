@@ -7,6 +7,7 @@ and the cookie-secure flag are plain config (env, with sane dev defaults).
 """
 from __future__ import annotations
 
+import base64
 import os
 import re
 from functools import lru_cache
@@ -59,22 +60,26 @@ def client_id() -> str | None:
 
 
 def cookie_password() -> str | None:
-    """The session-seal key. WorkOS's seal uses this directly as a Fernet key,
-    which must be exactly 32 url-safe-base64 bytes (44 chars). To accept any
-    secret the user sets (e.g. a 43-char token_urlsafe(32)), normalize it to a
-    valid Fernet key deterministically — same input always yields the same key,
-    so sealed sessions stay valid across restarts."""
+    """Return a valid 32-byte, URL-safe base64 session-seal key.
+
+    A 43-character unpadded key (for example ``secrets.token_urlsafe(32)``) is
+    accepted by restoring its base64 padding. Arbitrary passwords are rejected;
+    hashing weak input here would make it syntactically valid without adding any
+    entropy and would give operators a false sense of security.
+    """
     raw = _secret("WORKOS_COOKIE_PASSWORD", "workos.cookie.txt")
     if not raw:
         return None
-    import base64
-    import hashlib
+    if not re.fullmatch(r"[A-Za-z0-9_-]{43}=?", raw):
+        return None
     try:
-        if len(base64.urlsafe_b64decode(raw)) == 32:
-            return raw  # already a valid Fernet key
-    except Exception:  # noqa: BLE001 — not valid base64 / wrong length
-        pass
-    return base64.urlsafe_b64encode(hashlib.sha256(raw.encode()).digest()).decode()
+        decoded = base64.b64decode(raw + ("=" if len(raw) == 43 else ""),
+                                   altchars=b"-_", validate=True)
+    except (ValueError, TypeError):
+        return None
+    if len(decoded) != 32:
+        return None
+    return base64.urlsafe_b64encode(decoded).decode("ascii")
 
 
 def org_id() -> str | None:

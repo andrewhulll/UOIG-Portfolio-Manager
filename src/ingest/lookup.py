@@ -13,7 +13,7 @@ import time
 import yfinance as yf
 
 from src.ingest.capital_iq import CapitalIQProvider, validate_ticker
-from src.ingest.providers import to_yf
+from src.ingest.providers import yf_ticker, yf_retry
 from src.model import cache
 
 _SEARCH_CACHE: dict[str, tuple[float, list]] = {}
@@ -58,8 +58,9 @@ def search_symbols(query: str, limit: int = 8, conn=None) -> list[dict]:
         return hit[1]
     cached = cache.get("search", key)
     if cached is not cache.MISS:
-        _SEARCH_CACHE[key] = (now, cached)
-        return cached
+        value, age = cached
+        _SEARCH_CACHE[key] = (now - age, value)
+        return value
 
     out: list[dict] = []
     if conn is not None:
@@ -142,8 +143,9 @@ def quote_overview(ticker: str, conn=None) -> dict | None:
         return hit[1]
     cached = cache.get("quote", key)
     if cached is not cache.MISS:
-        _QUOTE_CACHE[key] = (now, cached)
-        return cached
+        value, age = cached
+        _QUOTE_CACHE[key] = (now - age, value)
+        return value
 
     frame = _ciq_provider().get_price_history(
         [name], start=(dt.date.today() - dt.timedelta(days=14)).isoformat())
@@ -181,8 +183,9 @@ def live_series(ticker: str, period: str = "YTD", points: int = 64) -> dict:
         return hit[1]
     cached = cache.get("series", key)
     if cached is not cache.MISS:
-        _SERIES_CACHE[key] = (now, cached)
-        return cached
+        value, age = cached
+        _SERIES_CACHE[key] = (now - age, value)
+        return value
     today = dt.date.today()
     start = (dt.date(today.year, 1, 1) if period == "YTD"
              else today - dt.timedelta(days=_CIQ_DAYS[period]))
@@ -213,10 +216,12 @@ def institutional_holders(ticker: str, limit: int = 5) -> list[dict]:
         return hit[1]
     cached = cache.get("holders", key)
     if cached is not cache.MISS:
-        _HOLDERS_CACHE[key] = (now, cached)
-        return cached
+        value, age = cached
+        _HOLDERS_CACHE[key] = (now - age, value)
+        return value
     try:
-        frame = yf.Ticker(to_yf(ticker)).institutional_holders
+        tk = yf_ticker(ticker)
+        frame = yf_retry(lambda: tk.institutional_holders)
     except Exception:  # best-effort auxiliary research data
         frame = None
 
@@ -246,5 +251,6 @@ def institutional_holders(ticker: str, limit: int = 5) -> list[dict]:
                 "value": round(value / 1e6, 1) if value is not None else None,
             })
     _HOLDERS_CACHE[key] = (now, out)
-    cache.set("holders", key, out, _TTL)
+    if frame is not None:  # Do not persist transient fetch failures.
+        cache.set("holders", key, out, _TTL)
     return out

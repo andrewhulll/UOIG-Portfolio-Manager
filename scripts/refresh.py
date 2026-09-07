@@ -17,6 +17,7 @@ from src.config import load_config  # noqa: E402
 from src.ingest.refresh import refresh  # noqa: E402
 from src.ingest.benchmark_holdings import api_key as av_key  # noqa: E402
 from src.ingest.benchmark_holdings import pull_benchmark_holdings  # noqa: E402
+from src.model import cache  # noqa: E402
 
 
 def main() -> None:
@@ -46,6 +47,9 @@ def main() -> None:
             print(f"Benchmark holdings pull failed: {exc}")
     else:
         print("Benchmark holdings skipped (no Alpha Vantage key)")
+
+    # Prune expired rows from the durable API cache so the shared table stays small.
+    print(f"Cache: purged {cache.purge_expired()} expired rows")
 
     if s["failed"]:
         raise SystemExit(1)
