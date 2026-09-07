@@ -5,6 +5,7 @@ import AuthScreen from './auth/AuthScreen.jsx'
 import { LoadingScreen, ErrorScreen } from './StatusScreens.jsx'
 import { ProfilePage, PreferencesPage, OrganizationPage } from './profile/SettingsPages.jsx'
 import { MyCoverage } from './coverage/MyCoverage.jsx'
+import { InboxPage, NewsList, WeeklySubmission } from './submissions/Submissions.jsx'
 import { s } from './ui.js'
 
 // UOIG sector taxonomy: the five groups the club uses, each rolling up one or
@@ -910,7 +911,8 @@ export default class App extends React.Component {
             {this.state.view === 'profile' && <ProfilePage auth={this.state.auth} onNavigate={(view) => this._go(view)} onUserUpdated={(user) => this.setState((st) => ({ auth: { ...st.auth, user }, avatarImgFailed: false }))} />}
             {this.state.view === 'preferences' && <PreferencesPage fundOptions={[{ value: 'all', label: 'All Funds' }, ...this.fundKeys.map(k => ({ value: k, label: this.funds[k].name }))]} currentFund={this.state.fund} currentPeriod={this.state.period} onNavigate={(view) => this._go(view)} onApply={(preferences) => this.setState({ preferences, fund: preferences.defaultFund, period: preferences.defaultPeriod })} />}
             {this.state.view === 'organization' && <OrganizationPage auth={this.state.auth} onNavigate={(view) => this._go(view)} onOpenStock={(ticker) => this._openStock(ticker, 'organization')} />}
-            {this.state.view === 'coverage' && <MyCoverage onOpenStock={(ticker) => this._openStock(ticker, 'coverage')} />}
+            {this.state.view === 'coverage' && <><MyCoverage onOpenStock={(ticker) => this._openStock(ticker, 'coverage')} /><WeeklySubmission auth={this.state.auth} /></>}
+            {this.state.view === 'inbox' && <InboxPage auth={this.state.auth} />}
           </div>
 
         </div>
@@ -1234,14 +1236,7 @@ export default class App extends React.Component {
 
   _renderNews(news) {
     return this._card('Recent News', 'ticker.news', (
-      <div style={s('display:flex;flex-direction:column;')}>
-        {news.map((n, i) => (
-          <a key={i} href={n.link} target="_blank" rel="noreferrer" style={s('display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid #131c2f;cursor:pointer;text-decoration:none;')}>
-            <span style={s('width:6px;height:6px;border-radius:50%;background:#5a93f9;flex:0 0 auto;margin-top:6px;')}></span>
-            <div style={s('flex:1;')}><div style={s("font:500 13px/1.4 'IBM Plex Sans';color:#cdd6e8;")}>{n.title}</div><div style={s("font-family:'IBM Plex Mono';font-size:10px;color:#6b7794;margin-top:4px;")}>{n.publisher} · {n.ago}</div></div>
-          </a>
-        ))}
-      </div>
+      <NewsList auth={this.state.auth} news={news} ticker={this.state.ticker} />
     ))
   }
 
@@ -2062,15 +2057,16 @@ export default class App extends React.Component {
     v.isCoverage = st.view === 'coverage'
     v.fundAName = F[fundA].name; v.fundBName = F[fundB].name
 
-    const isAnalyst = st.auth && st.auth.role === 'member'
+    const isAnalyst = st.auth && ['member', 'analyst'].includes(st.auth.role)
     const navDef = [
       ...(isAnalyst ? [['coverage', 'My Coverage', 'coverage']] : []),
+      ['inbox', 'Inbox', 'inbox'],
       ['funds', 'Funds', 'dashboard'], ['stocks', 'Stocks', 'stocks'], ['sectors', 'Sectors', 'sectors'], ['optimize', 'Optimize', 'optimize'], ['assistant', 'Assistant', 'assistant'],
     ]
     const activeMap = { dashboard: ['funds'], stocks: ['stocks'], sectors: ['sectors'], stock: ['stocks'], sector: ['sectors'], optimize: ['optimize'], assistant: ['assistant'], coverage: ['coverage'] }
     v.nav = navDef.map(([id, label, go]) => {
-      const active = (activeMap[st.view] || []).indexOf(id) >= 0
-      return { key: id, label, icon: this._icon(id, active), bg: active ? '#13203a' : 'transparent', color: active ? '#5a93f9' : '#5d6a85', on: () => this._go(go) }
+      const active = id === 'inbox' ? st.view === 'inbox' : (activeMap[st.view] || []).indexOf(id) >= 0
+      return { key: id, label, icon: id === 'inbox' ? '✉' : this._icon(id, active), bg: active ? '#13203a' : 'transparent', color: active ? '#5a93f9' : '#5d6a85', on: () => this._go(go) }
     })
     v.periods = ['1M', '3M', '6M', 'YTD', '1Y', '5Y'].map((p) => ({ k: p, bg: p === st.period ? '#13203a' : 'transparent', color: p === st.period ? '#cdd6e8' : '#6b7794', weight: p === st.period ? 600 : 500, on: () => this.setState({ period: p }) }))
 

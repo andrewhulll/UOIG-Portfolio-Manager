@@ -19,6 +19,7 @@ import sqlite3
 from pathlib import Path
 
 from src.model import db as _db
+from src.model.submissions import SCHEMA as SUBMISSIONS_SCHEMA
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS securities (
@@ -132,6 +133,9 @@ CREATE TABLE IF NOT EXISTS api_cache (
 );
 """
 
+SCHEMA += SUBMISSIONS_SCHEMA
+
+# Weekly analyst work survives market-data reseeding.
 _TABLES = [
     "api_cache",
     "import_meta", "fundamentals", "benchmark_holdings", "benchmark_sectors",

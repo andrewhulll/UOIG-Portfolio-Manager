@@ -15,3 +15,4 @@ uvicorn[standard]>=0.29
 anthropic>=0.112       # Ask-Claude research co-pilot (model claude-opus-4-8)
 workos==10.2.0         # User Management / AuthKit; pin because major SDKs change password types
 psycopg[binary]>=3.1   # Postgres driver (Supabase); SQLite stays the default when DATABASE_URL is unset
+tzdata>=2024.1        # IANA Pacific time / DST data, including Windows installs

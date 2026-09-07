@@ -1,0 +1,40 @@
+.submissions { color:#cdd6e8; font:13px/1.5 'IBM Plex Sans',sans-serif; }
+.weekly-submission { margin:0 32px 32px; max-width:1036px; padding:22px; background:#111a2e; border:1px solid #263653; border-radius:10px; }
+.inbox-page { padding:28px 32px; max-width:1100px; }
+.submissions h1,.submissions h2,.submissions h3 { color:#e8edf7; margin:0 0 8px; font-weight:600; }
+.submissions h1 { font-size:24px; } .submissions h2 { font-size:18px; } .submissions h3 { font-size:15px; }
+.submission-eyebrow { font-size:10px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:#5a93f9; margin-bottom:4px; }
+.submission-heading,.submission-toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
+.submission-actions,.submission-week,.submission-tabs { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.submission-actions { margin-top:12px; } .submission-tabs { margin-bottom:24px; }
+.submissions button,.submissions select { color:#b7c9e8; background:#13203a; border:1px solid #30486f; border-radius:6px; padding:7px 12px; font:inherit; cursor:pointer; }
+.submissions button:hover { background:#1e3153; } .submissions button.primary,.submission-tabs button[aria-pressed=true] { color:#fff; background:#285ea8; border-color:#407dd0; }
+.submissions button:disabled { opacity:.45; cursor:default; }
+.submissions :focus-visible { outline:2px solid #75aaff; outline-offset:3px; }
+.submission-chip { display:inline-block; border:1px solid #344867; border-radius:20px; padding:3px 10px; color:#adc6eb; font-size:11px; white-space:nowrap; }
+.submission-chip.acked { color:#54dba1; border-color:#245d4e; background:#102b25; }
+.submission-chip.pending,.submission-chip.draft { color:#e9bb75; border-color:#665133; background:#302617; }
+.submission-deadline,.submission-muted { color:#8b9dbb; font-size:12px; }
+.submission-error { color:#ffadb7; background:#351c2a; border:1px solid #713644; padding:10px 12px; border-radius:6px; }
+.submission-items { list-style:none; padding:0; margin:0; }
+.submission-item { padding:14px 0; border-bottom:1px solid #23314b; }
+.submission-item-title { display:flex; align-items:baseline; gap:10px; }
+.submission-item-title b { color:#87b1f4; font-family:'IBM Plex Mono',monospace; }
+.submissions a { color:#c4d9fa; text-decoration:none; overflow-wrap:anywhere; } .submissions a:hover { text-decoration:underline; }
+.submission-note { white-space:pre-wrap; overflow-wrap:anywhere; margin:8px 0 0; color:#a9b9d2; }
+.submission-form { display:flex; flex-direction:column; gap:12px; margin:16px 0; padding:16px; border:1px solid #30405d; border-radius:8px; background:#0b1425; }
+.submission-form label { display:flex; flex-direction:column; gap:5px; color:#a8b8d0; font-size:12px; }
+.submission-form input,.submission-form textarea { box-sizing:border-box; width:100%; background:#080f1d; border:1px solid #344664; color:#e8edf7; border-radius:5px; padding:9px 10px; font:13px/1.5 'IBM Plex Sans',sans-serif; }
+.submission-form textarea { resize:vertical; }
+.submission-form-row { display:grid; grid-template-columns:minmax(100px,1fr) minmax(180px,3fr); gap:12px; }
+.submission-news { padding:14px 0; border-bottom:1px solid #23314b; } .submission-news p { margin:4px 0 10px; }
+.submission-flag > button { font-size:11px; padding:5px 9px; }
+.submission-digest { background:#101a2d; border:1px solid #273754; border-radius:9px; padding:20px; margin:12px 0 20px; }
+.submission-unread { border-left:3px solid #5a93f9; padding-left:15px; }
+.submission-message-label { color:#99b9e8; font-size:12px; margin:0; }
+.submission-message-group { margin:24px 0; } .submission-empty { padding:40px 20px; border:1px dashed #30405d; border-radius:9px; color:#8b9dbb; text-align:center; }
+.submission-table-wrap { overflow-x:auto; margin:16px 0 24px; }
+.submissions table { width:100%; border-collapse:collapse; text-align:left; }
+.submissions th { color:#8b9dbb; font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+.submissions td,.submissions th { padding:10px; border-bottom:1px solid #273754; }
+@media(max-width:650px) { .weekly-submission { margin:0 12px 20px; padding:16px; } .inbox-page { padding:20px 16px; } .submission-form-row { grid-template-columns:1fr; } }
