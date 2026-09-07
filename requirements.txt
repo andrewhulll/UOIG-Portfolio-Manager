@@ -3,7 +3,9 @@ openpyxl>=3.1          # read the source workbook (seed only)
 pandas>=2.0
 numpy>=1.26
 pyyaml>=6.0
-yfinance>=0.2.40       # market data: prices, dividends, fundamentals
+yfinance==1.7.0        # market data: prices, dividends, fundamentals. Pinned (not
+                        # floating) so deploys are reproducible; bump deliberately
+                        # after testing a new release, don't let it drift silently.
 curl_cffi>=0.7         # browser-impersonating Yahoo session to reduce HTTP 429s
 requests>=2.31         # Alpha Vantage ETF_PROFILE (benchmark constituents)
 
