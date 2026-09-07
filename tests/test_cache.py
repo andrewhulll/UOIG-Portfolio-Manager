@@ -106,6 +106,14 @@ def test_nonserializable_write_is_skipped():
     assert cache.get("quote", "BAD") is cache.MISS      # skipped, no exception
 
 
+def test_circular_reference_write_is_skipped():
+    _fresh_db()
+    a = []
+    a.append(a)
+    cache.set("quote", "BAD_CIRC", a, ttl=60)  # circular reference, raises ValueError
+    assert cache.get("quote", "BAD_CIRC") is cache.MISS # skipped, no exception
+
+
 def test_fail_soft_on_unusable_db():
     # Parent is a file, so the SQLite path can't be created -> every op fails
     # soft: set is a no-op, get returns MISS, purge returns 0, nothing raises.
@@ -128,5 +136,6 @@ if __name__ == "__main__":
     test_namespaces_are_isolated()
     test_purge_expired_removes_rows()
     test_nonserializable_write_is_skipped()
+    test_circular_reference_write_is_skipped()
     test_fail_soft_on_unusable_db()
     print("OK")
