@@ -45,6 +45,10 @@ def test_refresh(monkeypatch):
                 })
             return pd.DataFrame()
 
+        def get_splits(self, tickers, start):
+            return pd.DataFrame()
+
+
     def mock_get_provider(cfg):
         return MockProvider()
 
