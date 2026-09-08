@@ -48,7 +48,7 @@ from src.ingest.lookup import (search_symbols, quote_overview,  # noqa: E402
                                live_series, institutional_holders)
 from src.ingest.predictions import stock_predictions  # noqa: E402
 from src.ingest.thesis import stock_thesis  # noqa: E402
-from src.assistant import answer as llm_answer, api_key as llm_key  # noqa: E402
+from src.assistant import answer as llm_answer, api_key as llm_key, cost_usd as llm_cost  # noqa: E402
 from src.analytics.risk import daily_returns_matrix  # noqa: E402
 from src.analytics.optimize import (fund_diagnostics, solve_optimizer,  # noqa: E402
                                     whatif_payload)
@@ -1029,13 +1029,14 @@ def _chat_system(conn, context: str) -> str:
         "You are the research co-pilot embedded in the University of Oregon Investment "
         "Group (UOIG) investment terminal. You help the portfolio manager reason about the "
         "Tall Firs and Alumni Fund portfolios.",
-        "Be concise and specific; ground every claim in the data below. Default to a short "
-        "answer — a few sentences, or a tight bulleted list of 3-5 points; skip preamble and "
-        "restating the question. Only go longer (e.g. a full bull/bear breakdown) when the "
-        "user explicitly asks for depth, a full analysis, or a thesis review. Use plain text "
-        "with **bold** for key figures. If something isn't in the data, say so rather than "
-        "guessing. This is for an internal student investment club — not personalized "
-        "financial advice.",
+        "Be concise and specific; ground every claim in the data below. Default to under "
+        "150 words — a few sentences, or a tight bulleted list of 3-5 points; skip preamble "
+        "and restating the question, and end on a complete thought rather than trailing off. "
+        "Only go longer than that when the user explicitly asks for depth, a full analysis, "
+        "a bull/bear breakdown, or a thesis review — then use as much space as the request "
+        "actually needs. Use plain text with **bold** for key figures. If something isn't in "
+        "the data, say so rather than guessing. This is for an internal student investment "
+        "club — not personalized financial advice.",
         "You can read this project's source repository with the list_files, read_file, and "
         "search_repo tools — use them for how the terminal works, how a number is computed, or "
         "the analytics/data pipeline. Secrets, the database, and ignored files are not "
@@ -1096,6 +1097,17 @@ def _get_user_id(request: Request) -> str:
         return u.get("id") or "dev"
     return "dev"
 
+def _usage_payload(usage: dict) -> dict:
+    """Shape a raw Anthropic usage tally for the frontend's session cost meter."""
+    return {
+        "inputTokens": usage.get("input_tokens", 0),
+        "outputTokens": usage.get("output_tokens", 0),
+        "cacheWriteTokens": usage.get("cache_creation_input_tokens", 0),
+        "cacheReadTokens": usage.get("cache_read_input_tokens", 0),
+        "costUsd": round(llm_cost(usage), 6),
+    }
+
+
 @app.post("/api/chat")
 def chat(request: Request, payload: dict):
     _enforce_ip_rate_limit(request, "chat", limit=50, window=3600)
@@ -1116,14 +1128,15 @@ def chat(request: Request, payload: dict):
         if not llm_key():
             return {"reply": "⚠ Ask Claude isn't configured yet. Set the **ANTHROPIC_API_KEY** "
                              "environment variable (or drop the key in `anthropic.key.txt` at the "
-                             "repo root) and restart the backend."}
+                             "repo root) and restart the backend.", "usage": _usage_payload({})}
         conn = _conn()
         try:
             system = _chat_system(conn, context)
         finally:
             conn.close()
         try:
-            return {"reply": llm_answer(messages, system)}
+            reply, usage = llm_answer(messages, system)
+            return {"reply": reply, "usage": _usage_payload(usage)}
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(502, f"chat failed: {exc}")
     finally:

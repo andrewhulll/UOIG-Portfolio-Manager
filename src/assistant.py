@@ -81,8 +81,37 @@ def _with_trailing_cache(content):
     return blocks
 
 
-def answer(messages: list[dict], system: str, max_tokens: int = 500) -> str:
-    """Run one chat turn. `messages` is the [{role, content}] history."""
+# Claude Haiku 4.5 published rates, USD per million tokens. Cache write/read are
+# the standard Anthropic multipliers on the base input rate (1.25x / 0.1x).
+PRICE_PER_MTOK = {"input": 1.00, "output": 5.00, "cache_write": 1.25, "cache_read": 0.10}
+
+
+def _empty_usage() -> dict:
+    return {"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+
+
+def cost_usd(usage: dict) -> float:
+    """Estimated USD cost of a usage tally, for a session running cost display."""
+    return (
+        usage.get("input_tokens", 0) * PRICE_PER_MTOK["input"]
+        + usage.get("output_tokens", 0) * PRICE_PER_MTOK["output"]
+        + usage.get("cache_creation_input_tokens", 0) * PRICE_PER_MTOK["cache_write"]
+        + usage.get("cache_read_input_tokens", 0) * PRICE_PER_MTOK["cache_read"]
+    ) / 1_000_000
+
+
+def _add_usage(usage: dict, resp) -> None:
+    u = getattr(resp, "usage", None)
+    if not u:
+        return
+    for key in usage:
+        usage[key] += getattr(u, key, 0) or 0
+
+
+def answer(messages: list[dict], system: str, max_tokens: int = 1000) -> tuple[str, dict]:
+    """Run one chat turn. `messages` is the [{role, content}] history. Returns
+    (reply_text, usage) — usage is summed across every API call this turn made
+    (the tool loop can call the model more than once), for a session cost meter."""
     key = api_key()
     if not key:
         raise RuntimeError("no_key")
@@ -99,8 +128,9 @@ def answer(messages: list[dict], system: str, max_tokens: int = 500) -> str:
     # The Messages API requires the first turn to be a user message.
     while msgs and msgs[0]["role"] != "user":
         msgs.pop(0)
+    usage = _empty_usage()
     if not msgs:
-        return "Ask me anything about the portfolio."
+        return "Ask me anything about the portfolio.", usage
 
     from src import repo_tools, data_tools
     tools = _cached_tools(repo_tools.TOOLS + data_tools.TOOLS + [WEB_SEARCH_TOOL])
@@ -118,6 +148,7 @@ def answer(messages: list[dict], system: str, max_tokens: int = 500) -> str:
         resp = client.messages.create(
             model=MODEL, max_tokens=max_tokens, system=cached_system, messages=call_msgs, tools=tools,
         )
+        _add_usage(usage, resp)
         tool_uses = [b for b in resp.content if b.type == "tool_use"]
         if not tool_uses:
             # Server tools (web search) run inline; a long search can yield
@@ -125,7 +156,7 @@ def answer(messages: list[dict], system: str, max_tokens: int = 500) -> str:
             if getattr(resp, "stop_reason", None) == "pause_turn":
                 msgs.append({"role": "assistant", "content": resp.content})
                 continue
-            return _text(resp)
+            return _text(resp), usage
         msgs.append({"role": "assistant", "content": resp.content})
         results = []
         for b in tool_uses:
@@ -134,4 +165,4 @@ def answer(messages: list[dict], system: str, max_tokens: int = 500) -> str:
                             "content": content, "is_error": is_error})
         msgs.append({"role": "user", "content": results})
 
-    return _text(resp) or "(stopped after reading the repository — try a narrower question.)"
+    return _text(resp) or "(stopped after reading the repository — try a narrower question.)", usage

@@ -22,6 +22,10 @@ SECTOR_GROUPS.forEach((g) => g.members.forEach((m) => (SECTOR_OF[m] = g)))
 const GROUP_COLOR = {}
 SECTOR_GROUPS.forEach((g) => (GROUP_COLOR[g.name] = g.color))
 
+// Running Ask-Claude token/cost tally for this browser session only — held in
+// React state (not persisted), so it resets on Clear or a page reload.
+const ZERO_CHAT_USAGE = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, costUsd: 0 }
+
 // s() (CSS-string -> React style object) and the C palette live in ./ui.js.
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -253,7 +257,7 @@ export default class App extends React.Component {
       ticker: null, sector: null, prevView: 'dashboard',
       stkTab: 'overview', chatOpen: false,
       sortKey: 'w', sortDir: 'desc', query: '',
-      chat: [], input: '', loading: false, agentBusy: false,
+      chat: [], input: '', loading: false, agentBusy: false, chatUsage: ZERO_CHAT_USAGE,
       series: {},  // cache: key -> {dates, values/close, ...}
       sectorSeries: {},  // cache: `${group}:${period}` -> {sector, benchmarks, movers} | 'loading' | 'error'
       sectorPeriod: '1M',  // sector comparison chart window (independent of the global period)
@@ -794,7 +798,15 @@ export default class App extends React.Component {
     this.setState({ chat, input: '', loading: true, chatOpen: true })
     try {
       const res = await postChat(chat, ctx)
-      this.setState((st) => ({ chat: st.chat.concat([{ role: 'assistant', content: res.reply || '(no response)' }]), loading: false }))
+      const u = res.usage || {}
+      this.setState((st) => ({ chat: st.chat.concat([{ role: 'assistant', content: res.reply || '(no response)' }]), loading: false,
+        chatUsage: {
+          inputTokens: st.chatUsage.inputTokens + (u.inputTokens || 0),
+          outputTokens: st.chatUsage.outputTokens + (u.outputTokens || 0),
+          cacheWriteTokens: st.chatUsage.cacheWriteTokens + (u.cacheWriteTokens || 0),
+          cacheReadTokens: st.chatUsage.cacheReadTokens + (u.cacheReadTokens || 0),
+          costUsd: st.chatUsage.costUsd + (u.costUsd || 0),
+        } }))
     } catch (e) {
       this.setState((st) => ({ chat: st.chat.concat([{ role: 'assistant', content: '⚠ Could not reach the assistant.' }]), loading: false }))
     }
@@ -929,11 +941,11 @@ export default class App extends React.Component {
             <div style={s('display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-bottom:1px solid #241f3e;background:linear-gradient(180deg,#140f2c,#0b0d1d);flex:0 0 auto;')}>
               <div style={s("display:flex;align-items:center;gap:8px;font:600 11px 'IBM Plex Sans';letter-spacing:.08em;text-transform:uppercase;color:#c3b9ff;")}><span style={s('font-size:15px;')}>✦</span>Ask Claude</div>
               <div style={s('display:flex;align-items:center;gap:7px;')}>
-                <span onClick={() => this.setState({ chat: [] })} style={s('font-size:9px;color:#7a6fb5;border:1px solid #2c2550;border-radius:5px;padding:3px 8px;cursor:pointer;')}>CLEAR</span>
+                <span onClick={() => this.setState({ chat: [], chatUsage: ZERO_CHAT_USAGE })} style={s('font-size:9px;color:#7a6fb5;border:1px solid #2c2550;border-radius:5px;padding:3px 8px;cursor:pointer;')}>CLEAR</span>
                 <span onClick={() => this.setState({ chatOpen: false })} style={s('width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:13px;color:#7a6fb5;border:1px solid #2c2550;border-radius:5px;cursor:pointer;')}>✕</span>
               </div>
             </div>
-            <div style={s('padding:9px 13px;border-bottom:1px solid #1a1730;display:flex;align-items:center;gap:7px;flex:0 0 auto;')}><span style={s('font-size:8.5px;color:#7a6fb5;text-transform:uppercase;letter-spacing:.06em;')}>Context</span><span style={s('font-size:9.5px;color:#c3b9ff;background:#15112c;border:1px solid #2c2550;border-radius:5px;padding:3px 9px;')}>{v.ctxLabel}</span></div>
+            <div style={s('padding:9px 13px;border-bottom:1px solid #1a1730;display:flex;align-items:center;gap:7px;flex:0 0 auto;')}><span style={s('font-size:8.5px;color:#7a6fb5;text-transform:uppercase;letter-spacing:.06em;')}>Context</span><span style={s('font-size:9.5px;color:#c3b9ff;background:#15112c;border:1px solid #2c2550;border-radius:5px;padding:3px 9px;')}>{v.ctxLabel}</span>{v.usageLabel && <span title={v.usageTitle} style={s("margin-left:auto;font-size:9px;font-family:'IBM Plex Mono';color:#6b6591;white-space:nowrap;")}>{v.usageLabel}</span>}</div>
             <div ref={this.chatRef} style={s('flex:1;padding:14px 13px;display:flex;flex-direction:column;gap:11px;overflow-y:auto;min-height:0;')}>
               {v.chatEmpty && (
                 <div style={s('display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;margin:auto 0;color:#6b7794;padding:0 6px;')}>
@@ -2018,9 +2030,10 @@ export default class App extends React.Component {
             </div>
           </div>
           <div style={s('display:flex;align-items:center;gap:9px;')}>
+            {v.usageLabel && <span title={v.usageTitle} style={s("font-size:10px;font-family:'IBM Plex Mono';color:#6b6591;white-space:nowrap;")}>{v.usageLabel}</span>}
             <span style={s('font-size:9px;color:#7a6fb5;text-transform:uppercase;letter-spacing:.06em;')}>Context</span>
             <span style={s('font-size:10.5px;color:#c3b9ff;background:#15112c;border:1px solid #2c2550;border-radius:6px;padding:4px 10px;')}>{v.ctxLabel}</span>
-            <span onClick={() => this.setState({ chat: [] })} className="dc-hover" style={s('font-size:10px;color:#7a6fb5;border:1px solid #2c2550;border-radius:6px;padding:5px 10px;cursor:pointer;')}>Clear</span>
+            <span onClick={() => this.setState({ chat: [], chatUsage: ZERO_CHAT_USAGE })} className="dc-hover" style={s('font-size:10px;color:#7a6fb5;border:1px solid #2c2550;border-radius:6px;padding:5px 10px;cursor:pointer;')}>Clear</span>
           </div>
         </div>
         <div ref={this.chatRef} style={s('flex:1;min-height:0;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:13px;max-width:760px;width:100%;margin:0 auto;')}>
@@ -2311,6 +2324,15 @@ export default class App extends React.Component {
     v.ctxLabel = ctxLabel; v.ctxShort = ctxShort
     v.chatEmpty = st.chat.length === 0 && !st.loading
     v.chatMsgs = st.chat.map((m, i) => { const user = m.role === 'user'; return { body: user ? m.content : this._fmt(m.content), align: user ? 'flex-end' : 'flex-start', maxw: user ? '86%' : '95%', bg: user ? '#13203a' : '#15112c', border: user ? '#13203a' : '#2a2350', radius: user ? '11px 11px 3px 11px' : '11px 11px 11px 3px', color: user ? '#cdd6e8' : '#d7d2f0', key: i } })
+    const cu = st.chatUsage
+    const totalTok = cu.inputTokens + cu.outputTokens + cu.cacheWriteTokens + cu.cacheReadTokens
+    const fmtTok = (n) => n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n)
+    v.usageLabel = totalTok > 0 ? fmtTok(totalTok) + ' tok · $' + cu.costUsd.toFixed(3) : null
+    v.usageTitle = totalTok > 0
+      ? `This session (Ask Claude chat only):\n${cu.inputTokens.toLocaleString()} input · ${cu.outputTokens.toLocaleString()} output`
+        + `\n${cu.cacheWriteTokens.toLocaleString()} cache write · ${cu.cacheReadTokens.toLocaleString()} cache read`
+        + `\n~$${cu.costUsd.toFixed(4)} estimated · resets on Clear or reload`
+      : 'No chat requests yet this session'
     v.loading = st.loading; v.input = st.input || ''
     v.sendBg = (st.input && st.input.trim() && !st.loading) ? '#5a4fd6' : '#2c2550'
     return v
