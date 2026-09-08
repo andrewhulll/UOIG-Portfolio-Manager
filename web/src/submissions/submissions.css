@@ -1,6 +1,6 @@
 .submissions { color:#cdd6e8; font:13px/1.5 'IBM Plex Sans',sans-serif; }
 .weekly-submission { margin:0 32px 32px; max-width:1036px; padding:22px; background:#111a2e; border:1px solid #263653; border-radius:10px; }
-.inbox-page { padding:28px 32px; max-width:1100px; }
+.inbox-page { padding:28px 32px; }
 .submissions h1,.submissions h2,.submissions h3 { color:#e8edf7; margin:0 0 8px; font-weight:600; }
 .submissions h1 { font-size:24px; } .submissions h2 { font-size:18px; } .submissions h3 { font-size:15px; }
 .submission-eyebrow { font-size:10px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:#5a93f9; margin-bottom:4px; }
@@ -37,4 +37,20 @@
 .submissions table { width:100%; border-collapse:collapse; text-align:left; }
 .submissions th { color:#8b9dbb; font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
 .submissions td,.submissions th { padding:10px; border-bottom:1px solid #273754; }
-@media(max-width:650px) { .weekly-submission { margin:0 12px 20px; padding:16px; } .inbox-page { padding:20px 16px; } .submission-form-row { grid-template-columns:1fr; } }
+.submission-ticker { margin-top:10px; padding:12px; background:#0b1425; border:1px solid #23314b; border-radius:7px; }
+.submission-ticker-stats { display:flex; flex-wrap:wrap; align-items:center; gap:10px; font-family:'IBM Plex Mono',monospace; font-size:12px; }
+.submission-ticker-price { color:#e8edf7; font-weight:600; }
+.submission-ticker-chg.up { color:#21d07a; } .submission-ticker-chg.down { color:#ff5666; }
+.submission-ticker-earnings { margin-left:auto; font-family:'IBM Plex Sans',sans-serif; color:#8b9dbb; font-size:11px; }
+.submission-ticker-earnings.soon { color:#f4a531; }
+.submission-ticker-chart { margin-top:8px; }
+.submission-lastweek { margin:8px 0 0; color:#8b9dbb; font-size:12px; font-style:italic; }
+.submission-lead-feedback { margin-bottom:16px; padding:12px 14px; background:#101d2c; border:1px solid #244066; border-radius:8px; }
+.submission-lead-feedback h4 { margin:0 0 6px; color:#87b1f4; font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
+.submission-comments { margin-top:14px; padding-top:14px; border-top:1px solid #23314b; }
+.submission-comment-list { list-style:none; margin:0 0 10px; padding:0; display:flex; flex-direction:column; gap:10px; }
+.submission-comment p { margin:3px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.submission-comment-meta { font-size:12px; color:#cdd6e8; }
+.submission-comment-form { display:flex; flex-direction:column; gap:8px; }
+.submission-comment-form textarea { box-sizing:border-box; width:100%; background:#080f1d; border:1px solid #344664; color:#e8edf7; border-radius:5px; padding:9px 10px; font:13px/1.5 'IBM Plex Sans',sans-serif; resize:vertical; }
+@media(max-width:650px) { .weekly-submission { margin:0 12px 20px; padding:16px; } .inbox-page { padding:20px 16px; } .submission-form-row { grid-template-columns:1fr; } .submission-ticker-earnings { margin-left:0; } }
