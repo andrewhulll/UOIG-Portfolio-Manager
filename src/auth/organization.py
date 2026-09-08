@@ -9,6 +9,7 @@ from urllib.request import Request, urlopen
 from src.auth import workos_client as wc
 
 ROLE_NAMES = {"admin": "Admin", "sector-leader": "Sector Leader", "member": "Analyst"}
+SECTORS = ("TMT", "Consumer", "Financials", "Healthcare", "IME")
 
 
 class OrganizationError(RuntimeError):
@@ -60,6 +61,22 @@ def _coverage(metadata: dict) -> list[dict]:
         return []
 
 
+def _lead_sectors(metadata: dict) -> list[str]:
+    """Sectors this member leads for inbox routing — independent of both their
+    base org role (an admin can also lead a sector) and their own ticker
+    coverage (a leader doesn't need to personally cover a stock to lead)."""
+    raw = metadata.get("lead_sectors")
+    if not raw:
+        return []
+    try:
+        value = json.loads(raw) if isinstance(raw, str) else raw
+        return list(dict.fromkeys(
+            str(sector)[:40] for sector in value if str(sector) in SECTORS
+        ))
+    except (TypeError, ValueError):
+        return []
+
+
 def list_members() -> dict:
     org_id = wc.org_id()
     if not org_id:
@@ -92,6 +109,7 @@ def list_members() -> dict:
             "isMock": metadata.get("mock") in (True, "true", "1"),
             "coverage": coverage,
             "sectors": list(dict.fromkeys(row["sector"] for row in coverage)),
+            "leadSectors": _lead_sectors(metadata),
         })
     members.sort(key=lambda row: (row["role"] != "admin", row["name"].lower()))
     return {"organization": {"id": org_id, "name": org.get("name") or "UOIG"}, "members": members}
@@ -104,6 +122,17 @@ def set_coverage(user_id: str, coverage: list[dict]) -> None:
     user = _api("GET", "/user_management/users/" + user_id)
     metadata = dict(user.get("metadata") or {})
     metadata["coverage"] = json.dumps(coverage)
+    _api("PUT", "/user_management/users/" + user_id, {"metadata": metadata})
+
+
+def set_lead_sectors(user_id: str, sectors: list[str]) -> None:
+    """Overwrite which sectors a member leads (receives weekly digests for).
+    Independent of their org role and their own ticker coverage — an admin can
+    lead a sector alongside a dedicated sector-leader, and a leader doesn't
+    need a ticker assignment to be routed submissions."""
+    user = _api("GET", "/user_management/users/" + user_id)
+    metadata = dict(user.get("metadata") or {})
+    metadata["lead_sectors"] = json.dumps(sectors)
     _api("PUT", "/user_management/users/" + user_id, {"metadata": metadata})
 
 

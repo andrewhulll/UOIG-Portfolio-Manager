@@ -1,5 +1,5 @@
 import React from 'react'
-import { getOrganizationMembers, sendInvite, updateProfile, updateMemberCoverage, updateMemberRole } from '../api.js'
+import { getOrganizationMembers, sendInvite, updateProfile, updateMemberCoverage, updateMemberLeadSectors, updateMemberRole } from '../api.js'
 import { s } from '../ui.js'
 import './settings.css'
 
@@ -50,15 +50,16 @@ function CoverageEditor({ member, holdings, onOpenStock, onChanged }) {
   const [sector, setSector] = React.useState(COVERAGE_SECTORS[0])
   const options = React.useMemo(() => {
     const seen = new Map()
-    holdings.forEach(h => { if (!seen.has(h.t)) seen.set(h.t, h) })
+    holdings.forEach(h => { if (h.sector === sector && !seen.has(h.t)) seen.set(h.t, h) })
     return Array.from(seen.values()).sort((a, b) => a.t.localeCompare(b.t))
-  }, [holdings])
+  }, [holdings, sector])
   const save = async (next) => {
     setBusy(true); setError('')
     try { await updateMemberCoverage(member.id, next); await onChanged() }
     catch (err) { setError(err.detail || 'Could not save coverage') }
     finally { setBusy(false) }
   }
+  const changeSector = (next) => { setSector(next); setTicker('') }
   const add = () => { if (ticker) { save([...member.coverage, { sector, ticker }]); setTicker('') } }
   const remove = (c) => save(member.coverage.filter(x => !(x.sector === c.sector && x.ticker === c.ticker)))
   return <>
@@ -71,13 +72,46 @@ function CoverageEditor({ member, holdings, onOpenStock, onChanged }) {
       )) : <small className="settings-muted">No coverage assigned</small>}
     </div>
     <div className="coverage-add-row">
-      <select value={sector} disabled={busy} onChange={e => setSector(e.target.value)}>{COVERAGE_SECTORS.map(x => <option key={x}>{x}</option>)}</select>
+      <select value={sector} disabled={busy} onChange={e => changeSector(e.target.value)}>{COVERAGE_SECTORS.map(x => <option key={x}>{x}</option>)}</select>
       <select value={ticker} disabled={busy} onChange={e => setTicker(e.target.value)}>
-        <option value="">Choose a holding…</option>
+        <option value="">{options.length ? 'Choose a holding…' : `No ${sector} holdings`}</option>
         {options.map(h => <option key={h.t} value={h.t}>{h.t} — {h.n}</option>)}
       </select>
       <button className="settings-primary" disabled={busy || !ticker} onClick={add}>Add</button>
     </div>
+    {error && <div className="settings-error">{error}</div>}
+  </>
+}
+
+// Which sectors a member LEADS (receives that sector's weekly digests) — independent of
+// their org role (an admin can also lead a sector) and of their own ticker coverage
+// (a leader doesn't need a personal stock assignment to be routed submissions).
+function LeadSectorEditor({ member, onChanged }) {
+  const [busy, setBusy] = React.useState(false)
+  const [error, setError] = React.useState('')
+  const [sector, setSector] = React.useState(COVERAGE_SECTORS.find(x => !member.leadSectors.includes(x)) || '')
+  const leadSectors = member.leadSectors || []
+  const save = async (next) => {
+    setBusy(true); setError('')
+    try { await updateMemberLeadSectors(member.id, next); await onChanged() }
+    catch (err) { setError(err.detail || 'Could not save sector leadership') }
+    finally { setBusy(false) }
+  }
+  const remaining = COVERAGE_SECTORS.filter(x => !leadSectors.includes(x))
+  const add = () => { if (sector) save([...leadSectors, sector]) }
+  const remove = (x) => save(leadSectors.filter(s => s !== x))
+  return <>
+    <div className="chip-wrap">
+      {leadSectors.length ? leadSectors.map(x => (
+        <span key={x} className="chip-removable" style={{ borderColor: (SECTOR_COLORS[x] || '#6b7794') + '55', color: SECTOR_COLORS[x] || '#9aa7c2' }}>
+          {x}<button disabled={busy} aria-label={`Remove ${x} leadership`} onClick={() => remove(x)}>×</button>
+        </span>
+      )) : <small className="settings-muted">Not leading any sector</small>}
+    </div>
+    {remaining.length > 0 && <div className="coverage-add-row lead-sector-add-row">
+      <select value={sector} disabled={busy} onChange={e => setSector(e.target.value)}>{remaining.map(x => <option key={x}>{x}</option>)}</select>
+      <button className="settings-primary" disabled={busy || !sector} onClick={add}>Add</button>
+    </div>}
     {error && <div className="settings-error">{error}</div>}
   </>
 }
@@ -187,7 +221,7 @@ export function OrganizationPage({ auth, holdings, onNavigate, onOpenStock }) {
   const members = data.members.filter(m => (sector === 'All sectors' || m.sectors.includes(sector)) && (!needle || [m.name, m.email, m.roleName, ...m.sectors, ...m.coverage.map(c => c.ticker)].join(' ').toLowerCase().includes(needle)))
   const detail = members.find(m => m.id === selected?.id) || members[0] || null
   return <SettingsShell active="organization" onNavigate={onNavigate} eyebrow={data.organization.name} title="Member directory" subtitle="Find teammates by sector, role, or company coverage.">
-    <div className="settings-stats"><div><strong>{data.members.length}</strong><span>Active members</span></div><div><strong>{data.members.filter(m => m.role === 'sector-leader').length}</strong><span>Sector leaders</span></div><div><strong>{new Set(data.members.flatMap(m => m.coverage.map(c => c.ticker))).size}</strong><span>Companies covered</span></div></div>
+    <div className="settings-stats"><div><strong>{data.members.length}</strong><span>Active members</span></div><div><strong>{data.members.filter(m => m.leadSectors.length).length}</strong><span>Sector leaders assigned</span></div><div><strong>{new Set(data.members.flatMap(m => m.coverage.map(c => c.ticker))).size}</strong><span>Companies covered</span></div></div>
     {auth.canInvite && <form className="settings-card invite-row" onSubmit={send}>
       <div><div className="settings-card-title">Invite a teammate</div><div className="settings-muted">Add an active UOIG member with the right access level.</div></div>
       <input type="email" required placeholder="name@uoregon.edu" value={invite.email} onChange={e => setInvite({ ...invite, email: e.target.value, status: 'idle', message: '' })} />
@@ -201,20 +235,24 @@ export function OrganizationPage({ auth, holdings, onNavigate, onOpenStock }) {
         <div className="member-list-head"><span>Member</span><span>Team & coverage</span><span>Role</span></div>
         {members.map(member => <button key={member.id} className={'member-row ' + (detail?.id === member.id ? 'selected' : '')} onClick={() => setSelected(member)}>
           <span className="member-identity"><Avatar member={member} /><span><b>{member.name}</b><small>{member.email}</small></span>{member.isMock && <em>Mock</em>}</span>
-          <span className="member-coverage"><span>{member.sectors.length ? member.sectors.join(' · ') : 'Leadership'}</span><small>{member.coverage.length ? member.coverage.map(c => c.ticker).join(', ') : 'No company assignments'}</small></span>
+          <span className="member-coverage"><span>{member.sectors.length ? member.sectors.join(' · ') : member.leadSectors.length ? 'Leads ' + member.leadSectors.join(', ') : 'Leadership'}</span><small>{member.coverage.length ? member.coverage.map(c => c.ticker).join(', ') : 'No company assignments'}</small></span>
           <RoleBadge role={member.role} label={member.roleName} />
         </button>)}
         {!members.length && <div className="settings-empty">No members match these filters.</div>}
       </div>
       <aside className="member-detail">
-        {detail && <><div className="member-detail-top"><Avatar member={detail} size={56} /><div><h2>{detail.name}</h2><p>{detail.email}</p></div></div>
-          {auth.canInvite ? <RoleEditor key={detail.id} member={detail} auth={auth} onChanged={load} /> : <RoleBadge role={detail.role} label={detail.roleName} />}
+        {detail && <React.Fragment key={detail.id}><div className="member-detail-top"><Avatar member={detail} size={56} /><div><h2>{detail.name}</h2><p>{detail.email}</p></div></div>
+          {auth.canInvite ? <RoleEditor member={detail} auth={auth} onChanged={load} /> : <RoleBadge role={detail.role} label={detail.roleName} />}
+          <div className="member-detail-label">Sector leadership</div>
+          {auth.canInvite
+            ? <LeadSectorEditor member={detail} onChanged={load} />
+            : <div className="chip-wrap">{detail.leadSectors.length ? detail.leadSectors.map(x => <span key={x} style={{ borderColor: (SECTOR_COLORS[x] || '#6b7794') + '55', color: SECTOR_COLORS[x] || '#9aa7c2' }}>{x}</span>) : <small className="settings-muted">Not leading any sector</small>}</div>}
           <div className="member-detail-label">Sector teams</div><div className="chip-wrap">{detail.sectors.length ? detail.sectors.map(x => <span key={x} style={{ borderColor: (SECTOR_COLORS[x] || '#6b7794') + '55', color: SECTOR_COLORS[x] || '#9aa7c2' }}>{x}</span>) : <small className="settings-muted">No sector assigned</small>}</div>
           <div className="member-detail-label">Company coverage</div>
           {auth.canInvite
-            ? <CoverageEditor key={detail.id} member={detail} holdings={holdings} onOpenStock={onOpenStock} onChanged={load} />
+            ? <CoverageEditor member={detail} holdings={holdings} onOpenStock={onOpenStock} onChanged={load} />
             : <div className="coverage-list">{detail.coverage.length ? detail.coverage.map(c => <button key={c.sector + c.ticker} onClick={() => onOpenStock(c.ticker)}><span>{c.ticker}</span><small>{c.sector}</small><b>↗</b></button>) : <small className="settings-muted">No company assignments</small>}</div>}
-        </>}
+        </React.Fragment>}
       </aside>
     </div>
   </SettingsShell>

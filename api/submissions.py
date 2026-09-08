@@ -76,11 +76,16 @@ def analyst_sector(user, members, sector, ticker=None):
 
 
 def lead_sectors(user, members, sector=None):
+    """Sectors this caller may review submissions for. Admins see every sector
+    regardless of assignment. Everyone else is scoped to `leadSectors` — an
+    explicit admin-assigned list independent of base role (so an admin can
+    also be assigned as a sector's leader) and of ticker coverage (a leader
+    doesn't need to personally cover a stock to be routed that sector's digests)."""
     if wc.is_admin(user['role']):
         return [sector] if sector else None
-    if user['role'] != 'sector-leader':
+    allowed = member_for(user, members).get('leadSectors') or []
+    if not allowed:
         raise HTTPException(403, 'Only sector leaders and admins can read submissions')
-    allowed = member_for(user, members).get('sectors') or []
     if sector and sector not in allowed:
         raise HTTPException(403, 'This sector is outside your assignments')
     return [sector] if sector else allowed
@@ -201,8 +206,7 @@ def submit(body: SubmitBody, user=Depends(identity)):
         flags = store.rows(conn, 'SELECT * FROM news_flags WHERE user_id=? AND sector=? AND week_of=? ORDER BY created_at, id', (user['id'], sector, week))
         if not flags:
             raise HTTPException(422, 'Add at least one news item or summary before submitting')
-        recipients = {m['id'] for m in members if m['role'] == 'sector-leader'
-                      and sector in m.get('sectors', [])}
+        recipients = {m['id'] for m in members if sector in m.get('leadSectors', [])}
         if not recipients:
             raise HTTPException(422, 'No sector leader is assigned to this sector. Ask an admin to assign one.')
         submitted_at = store.now().isoformat()
@@ -285,9 +289,9 @@ def inbox(user=Depends(identity)):
         messages = store.rows(conn, '''SELECT m.id AS message_id, m.kind, m.created_at,
             m.read_at, s.* FROM inbox_messages m JOIN submissions s ON s.id=m.submission_id
             WHERE m.recipient_id=? ORDER BY m.created_at DESC, m.id''', (user['id'],))
-        # Losing a sector assignment also revokes access to its received digests.
+        # Losing a lead-sector assignment also revokes access to its received digests.
         messages = [m for m in messages if m['user_id'] == user['id'] or wc.is_admin(user['role'])
-                    or (user['role'] == 'sector-leader' and m['sector'] in member.get('sectors', []))]
+                    or m['sector'] in member.get('leadSectors', [])]
         for message in messages:
             message['analyst'] = names.get(message['user_id'], 'Former member')
             message['ackedByName'] = names.get(message['acked_by'], 'Sector leader') if message['acked_by'] else None

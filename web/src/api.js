@@ -70,6 +70,7 @@ const put = (path, body) =>
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   }).then(j)
 export const updateMemberCoverage = (id, coverage) => put(`/api/organization/members/${encodeURIComponent(id)}/coverage`, { coverage })
+export const updateMemberLeadSectors = (id, sectors) => put(`/api/organization/members/${encodeURIComponent(id)}/lead-sectors`, { sectors })
 export const updateMemberRole = (id, role) => put(`/api/organization/members/${encodeURIComponent(id)}/role`, { role })
 export const updateProfile = (body) => patch('/api/profile', body)
 // Invitee accept flow: look up an invitation by token; set a password to accept.
