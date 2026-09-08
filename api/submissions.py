@@ -117,6 +117,11 @@ class SubmitBody(BaseModel):
     sector: str | None = Field(default=None, max_length=40)
 
 
+class CommentBody(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
+    text: str = Field(min_length=1, max_length=2000)
+
+
 def editable(draft):
     if draft['status'] != 'draft':
         raise HTTPException(409, 'This submission has been sent and is read-only')
@@ -127,9 +132,14 @@ def mine(week: str | None = None, user=Depends(identity)):
     ctx = week_context(week)
     members = directory()
     member = member_for(user, members)
+    names = {m['id']: m['name'] for m in members}
     with connection() as conn:
         flags = store.rows(conn, 'SELECT * FROM news_flags WHERE user_id=? AND week_of=? ORDER BY created_at, id', (user['id'], ctx['week']))
         submissions = store.rows(conn, 'SELECT * FROM submissions WHERE user_id=? AND week_of=? ORDER BY sector', (user['id'], ctx['week']))
+        for submission in submissions:
+            submission['comments'] = store.comments(conn, submission['id'])
+            for comment in submission['comments']:
+                comment['authorName'] = names.get(comment['author_id'], 'Sector leader')
     return {**ctx, 'flags': flags, 'submissions': submissions,
             'sectors': member.get('sectors') or [], 'coverage': member.get('coverage') or []}
 
@@ -238,6 +248,9 @@ def queue(sector: str | None = None, week: str | None = None, user=Depends(ident
         for submission in sent:
             submission['analyst'] = names.get(submission['user_id'], 'Former member')
             submission['items'] = store.items(conn, submission['id'])
+            submission['comments'] = store.comments(conn, submission['id'])
+            for comment in submission['comments']:
+                comment['authorName'] = names.get(comment['author_id'], 'Sector leader')
         by_owner = {(s['user_id'], s['sector']): s for s in sent}
         board = []
         for member in members:
@@ -280,6 +293,28 @@ def acknowledge(submission_id: str, user=Depends(identity)):
         return store.rows(conn, 'SELECT * FROM submissions WHERE id=?', (submission_id,))[0]
 
 
+@router.post('/submissions/{submission_id}/comments')
+def add_comment(submission_id: str, body: CommentBody, user=Depends(identity)):
+    members = directory()
+    allowed = lead_sectors(user, members)
+    with connection() as conn:
+        found = store.rows(conn, 'SELECT * FROM submissions WHERE id=?', (submission_id,))
+        if not found:
+            raise HTTPException(404, 'Submission not found')
+        submission = found[0]
+        if allowed is not None and submission['sector'] not in allowed:
+            raise HTTPException(403, 'This sector is outside your assignments')
+        if submission['status'] == 'draft':
+            raise HTTPException(409, 'This draft has not been submitted')
+        comment = {'id': uuid4().hex, 'submission_id': submission_id, 'author_id': user['id'],
+                   'body': body.text, 'created_at': store.now().isoformat()}
+        store.execute(conn, '''INSERT INTO submission_comments
+            (id,submission_id,author_id,body,created_at) VALUES (?,?,?,?,?)''', tuple(comment.values()))
+        conn.commit()
+        comment['authorName'] = next((m['name'] for m in members if m['id'] == user['id']), 'Sector leader')
+        return comment
+
+
 @router.get('/inbox')
 def inbox(user=Depends(identity)):
     members = directory()
@@ -296,6 +331,9 @@ def inbox(user=Depends(identity)):
             message['analyst'] = names.get(message['user_id'], 'Former member')
             message['ackedByName'] = names.get(message['acked_by'], 'Sector leader') if message['acked_by'] else None
             message['items'] = store.items(conn, message['id'])
+            message['comments'] = store.comments(conn, message['id'])
+            for comment in message['comments']:
+                comment['authorName'] = names.get(comment['author_id'], 'Sector leader')
     return {'messages': messages, 'unread': sum(m['read_at'] is None for m in messages)}
 
 

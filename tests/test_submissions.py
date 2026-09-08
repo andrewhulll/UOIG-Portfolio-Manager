@@ -108,6 +108,36 @@ def test_round_trip_delivers_to_all_leads_and_ack_to_analyst(api):
     assert api.call('GET', '/flags/mine').json()['submissions'][0]['acked_by'] == 'lead'
 
 
+def test_sector_lead_can_comment_on_a_submission(api):
+    flag(api)
+    sent = submit(api)
+    assert api.call('POST', f"/submissions/{sent['id']}/comments", 'a', {'text': 'Not allowed'}).status_code == 403
+    assert api.call('POST', f"/submissions/{sent['id']}/comments", 'health', {'text': 'Wrong sector'}).status_code == 403
+    flag(api, sector='Healthcare', ticker='LLY', url=None)
+    healthcare_draft = next(s for s in api.call('GET', '/flags/mine').json()['submissions'] if s['sector'] == 'Healthcare')
+    assert api.call('POST', f"/submissions/{healthcare_draft['id']}/comments", 'health', {'text': 'Too early'}).status_code == 409
+
+    posted = api.call('POST', f"/submissions/{sent['id']}/comments", 'lead', {'text': 'Great catch, dig into margins next week.'})
+    assert posted.status_code == 200
+    body = posted.json()
+    assert body['authorName'] == 'Taylor Lead'
+    assert body['body'] == 'Great catch, dig into margins next week.'
+
+    mine = next(s for s in api.call('GET', '/flags/mine').json()['submissions'] if s['sector'] == 'TMT')
+    assert [c['body'] for c in mine['comments']] == ['Great catch, dig into margins next week.']
+    assert mine['comments'][0]['authorName'] == 'Taylor Lead'
+
+    queue = api.call('GET', '/submissions', 'lead').json()['submissions'][0]
+    assert [c['authorName'] for c in queue['comments']] == ['Taylor Lead']
+
+    inbox_message = api.call('GET', '/inbox', 'lead').json()['messages'][0]
+    assert len(inbox_message['comments']) == 1
+
+    api.call('POST', f"/submissions/{sent['id']}/ack", 'lead')
+    ack_message = api.call('GET', '/inbox').json()['messages'][0]
+    assert [c['body'] for c in ack_message['comments']] == ['Great catch, dig into margins next week.']
+
+
 def test_duplicate_flag_and_submit_are_idempotent_and_submitted_items_immutable(api):
     article = flag(api)
     assert flag(api)['id'] == article['id']

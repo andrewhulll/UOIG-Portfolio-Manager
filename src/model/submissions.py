@@ -30,9 +30,14 @@ CREATE TABLE IF NOT EXISTS inbox_messages (
     created_at TEXT NOT NULL, read_at TEXT,
     UNIQUE (submission_id, recipient_id, kind)
 );
+CREATE TABLE IF NOT EXISTS submission_comments (
+    id TEXT PRIMARY KEY, submission_id TEXT NOT NULL REFERENCES submissions(id),
+    author_id TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS inbox_recipient ON inbox_messages(recipient_id, created_at);
 CREATE INDEX IF NOT EXISTS news_flags_owner_week ON news_flags(user_id, week_of);
 CREATE INDEX IF NOT EXISTS submissions_sector_week ON submissions(sector, week_of);
+CREATE INDEX IF NOT EXISTS submission_comments_submission ON submission_comments(submission_id, created_at);
 """
 
 
@@ -99,3 +104,8 @@ def items(conn, submission_id):
     return rows(conn, '''SELECT f.* FROM news_flags f JOIN submission_items i
         ON i.flag_id=f.id WHERE i.submission_id=? ORDER BY f.created_at, f.id''',
         (submission_id,))
+
+
+def comments(conn, submission_id):
+    return rows(conn, '''SELECT * FROM submission_comments
+        WHERE submission_id=? ORDER BY created_at, id''', (submission_id,))
