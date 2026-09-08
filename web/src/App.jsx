@@ -910,7 +910,7 @@ export default class App extends React.Component {
             {v.isAssistant && this._renderAssistant(v)}
             {this.state.view === 'profile' && <ProfilePage auth={this.state.auth} onNavigate={(view) => this._go(view)} onUserUpdated={(user) => this.setState((st) => ({ auth: { ...st.auth, user }, avatarImgFailed: false }))} />}
             {this.state.view === 'preferences' && <PreferencesPage fundOptions={[{ value: 'all', label: 'All Funds' }, ...this.fundKeys.map(k => ({ value: k, label: this.funds[k].name }))]} currentFund={this.state.fund} currentPeriod={this.state.period} onNavigate={(view) => this._go(view)} onApply={(preferences) => this.setState({ preferences, fund: preferences.defaultFund, period: preferences.defaultPeriod })} />}
-            {this.state.view === 'organization' && <OrganizationPage auth={this.state.auth} onNavigate={(view) => this._go(view)} onOpenStock={(ticker) => this._openStock(ticker, 'organization')} />}
+            {this.state.view === 'organization' && <OrganizationPage auth={this.state.auth} holdings={this.allH} onNavigate={(view) => this._go(view)} onOpenStock={(ticker) => this._openStock(ticker, 'organization')} />}
             {this.state.view === 'coverage' && <><MyCoverage onOpenStock={(ticker) => this._openStock(ticker, 'coverage')} /><WeeklySubmission auth={this.state.auth} /></>}
             {this.state.view === 'inbox' && <InboxPage auth={this.state.auth} />}
           </div>

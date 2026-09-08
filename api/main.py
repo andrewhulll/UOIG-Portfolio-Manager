@@ -492,6 +492,70 @@ def organization_members():
         raise HTTPException(502, str(exc)) from exc
 
 
+_COVERAGE_SECTORS = ("TMT", "Consumer", "Financials", "Healthcare", "IME")
+_ROLE_SLUGS = ("member", "sector-leader", "admin")
+
+
+def _require_admin(request: Request):
+    """Raise unless the caller is signed in as the admin role. Local dev with
+    the auth gate disabled is always allowed (there is no real session to check)."""
+    if wc.auth_disabled():
+        return
+    res, _ = _current(request)
+    if res is None:
+        raise HTTPException(401, "not authenticated")
+    if not wc.is_admin(getattr(res, "role", None)):
+        raise HTTPException(403, "admin only")
+    return res
+
+
+@app.put("/api/organization/members/{user_id}/coverage")
+def update_member_coverage(user_id: str, request: Request, payload: dict):
+    """Admin-only: set a member's company coverage (replaces the full list)."""
+    _require_admin(request)
+    if wc.auth_disabled():
+        raise HTTPException(400, "Coverage editing requires WorkOS — not available in local mock mode")
+    rows = payload.get("coverage")
+    if not isinstance(rows, list):
+        raise HTTPException(400, "coverage must be a list of {sector, ticker}")
+    cleaned, seen = [], set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        sector = str(row.get("sector") or "").strip()[:40]
+        ticker = str(row.get("ticker") or "").strip().upper()[:12]
+        if sector not in _COVERAGE_SECTORS or not ticker or (sector, ticker) in seen:
+            continue
+        seen.add((sector, ticker))
+        cleaned.append({"sector": sector, "ticker": ticker})
+    if len(cleaned) > 30:
+        raise HTTPException(400, "Too many coverage assignments (max 30)")
+    try:
+        auth_organization.set_coverage(user_id, cleaned)
+    except auth_organization.OrganizationError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"id": user_id, "coverage": cleaned}
+
+
+@app.put("/api/organization/members/{user_id}/role")
+def update_member_role(user_id: str, request: Request, payload: dict):
+    """Admin-only: change a member's org role (admin / sector-leader / member)."""
+    res = _require_admin(request)
+    if wc.auth_disabled():
+        raise HTTPException(400, "Role editing requires WorkOS — not available in local mock mode")
+    role_slug = str(payload.get("role") or "").strip()
+    if role_slug not in _ROLE_SLUGS:
+        raise HTTPException(400, f"role must be one of {', '.join(_ROLE_SLUGS)}")
+    me, _ = auth_sessions.user_payload(res)
+    if user_id == me.get("id") and role_slug != wc.admin_role():
+        raise HTTPException(400, "You can't remove your own admin role")
+    try:
+        auth_organization.set_role(user_id, role_slug)
+    except auth_organization.OrganizationError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"id": user_id, "role": role_slug}
+
+
 @app.patch("/api/profile")
 def update_profile(request: Request, payload: dict):
     first = str(payload.get("firstName") or "").strip()
