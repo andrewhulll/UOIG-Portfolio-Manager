@@ -65,12 +65,23 @@ def test_answer(monkeypatch):
         Anthropic = mock_anthropic
     sys.modules["anthropic"] = FakeAnthropicMod()
 
-    res = assistant.answer([{"role": "user", "content": "Hi"}], "System")
-    assert res == "Hello!"
+    text, usage = assistant.answer([{"role": "user", "content": "Hi"}], "System")
+    assert text == "Hello!"
+    assert usage == {"input_tokens": 0, "output_tokens": 0,
+                      "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
 
-    assert assistant.answer([], "System") == "Ask me anything about the portfolio."
+    empty_text, empty_usage = assistant.answer([], "System")
+    assert empty_text == "Ask me anything about the portfolio."
+    assert empty_usage == usage
 
 def test_answer_no_key(monkeypatch):
     monkeypatch.setattr(assistant, "api_key", lambda: None)
     with pytest.raises(RuntimeError, match="no_key"):
         assistant.answer([{"role": "user", "content": "Hi"}], "System")
+
+
+def test_cost_usd():
+    usage = {"input_tokens": 1_000_000, "output_tokens": 1_000_000,
+              "cache_creation_input_tokens": 1_000_000, "cache_read_input_tokens": 1_000_000}
+    assert assistant.cost_usd(usage) == pytest.approx(1.00 + 5.00 + 1.25 + 0.10)
+    assert assistant.cost_usd({}) == 0

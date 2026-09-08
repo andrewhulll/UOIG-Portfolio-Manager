@@ -18,10 +18,10 @@ MEMBERS = [
     {'id': 'a', 'name': 'Alex Analyst', 'role': 'member', 'sectors': ['TMT', 'Healthcare'],
      'coverage': [{'ticker': 'AAPL', 'sector': 'TMT'}, {'ticker': 'LLY', 'sector': 'Healthcare'}]},
     {'id': 'b', 'name': 'Blair Analyst', 'role': 'analyst', 'sectors': ['TMT'], 'coverage': []},
-    {'id': 'lead', 'name': 'Taylor Lead', 'role': 'sector-leader', 'sectors': ['TMT']},
-    {'id': 'colead', 'name': 'Casey Lead', 'role': 'sector-leader', 'sectors': ['TMT']},
-    {'id': 'health', 'name': 'Harper Lead', 'role': 'sector-leader', 'sectors': ['Healthcare']},
-    {'id': 'admin', 'name': 'Admin', 'role': 'admin', 'sectors': []},
+    {'id': 'lead', 'name': 'Taylor Lead', 'role': 'sector-leader', 'sectors': [], 'leadSectors': ['TMT']},
+    {'id': 'colead', 'name': 'Casey Lead', 'role': 'sector-leader', 'sectors': [], 'leadSectors': ['TMT']},
+    {'id': 'health', 'name': 'Harper Lead', 'role': 'sector-leader', 'sectors': [], 'leadSectors': ['Healthcare']},
+    {'id': 'admin', 'name': 'Admin', 'role': 'admin', 'sectors': [], 'leadSectors': []},
 ]
 
 
@@ -138,6 +138,44 @@ def test_sector_queue_board_and_cross_sector_denials(api):
     assert len(api.call('GET', '/inbox', 'health').json()['messages']) == 1
 
 
+def test_lead_sectors_independent_of_role_and_ticker_coverage(api):
+    """A sector-leader with no lead-sector assignment (e.g. one just invited,
+    before an admin assigns them) can't review any sector — leadership access
+    comes from the explicit assignment, not the role slug or ticker coverage."""
+    unassigned = next(m for m in api.members if m['id'] == 'health')
+    unassigned['leadSectors'] = []
+    assert api.call('GET', '/submissions', 'health').status_code == 403
+    assert api.call('GET', '/inbox', 'health').json()['messages'] == []
+
+
+def test_admin_can_also_be_assigned_a_sector_lead(api):
+    """An admin keeps full cross-sector access regardless of assignment, but can
+    additionally be assigned as a named sector's leader so their inbox also
+    receives that sector's digests, same as a dedicated sector-leader would."""
+    admin = next(m for m in api.members if m['id'] == 'admin')
+    admin['leadSectors'] = ['TMT']
+    flag(api)
+    submit(api)
+    inbox = api.call('GET', '/inbox', 'admin').json()
+    assert len(inbox['messages']) == 1
+    assert inbox['messages'][0]['analyst'] == 'Alex Analyst'
+    # Admin access to the review queue is unrestricted either way.
+    assert api.call('GET', '/submissions?sector=Healthcare', 'admin').status_code == 200
+
+
+def test_analyst_covers_two_tickers_across_two_sectors(api):
+    """An analyst can hold coverage (and submit drafts) in more than one sector
+    at once, each routed independently to that sector's own lead."""
+    tmt_flag = flag(api)
+    health_flag = flag(api, sector='Healthcare', ticker='LLY', url=None, title='Earnings beat')
+    submit(api, 'TMT')
+    submit(api, 'Healthcare')
+    tmt_inbox = api.call('GET', '/inbox', 'lead').json()['messages']
+    health_inbox = api.call('GET', '/inbox', 'health').json()['messages']
+    assert [i['id'] for i in tmt_inbox[0]['items']] == [tmt_flag['id']]
+    assert [i['id'] for i in health_inbox[0]['items']] == [health_flag['id']]
+
+
 def test_ownership_roles_and_session_gate(api):
     article = flag(api)
     assert api.call('DELETE', '/flags/' + article['id'], 'b').status_code == 404
@@ -153,7 +191,7 @@ def test_ownership_roles_and_session_gate(api):
     sent = submit(api)
     message = api.call('GET', '/inbox', 'lead').json()['messages'][0]
     assert api.call('POST', f"/inbox/{message['message_id']}/read", 'b').status_code == 404
-    api.members[2]['sectors'] = ['Healthcare']
+    api.members[2]['leadSectors'] = ['Healthcare']
     assert api.call('GET', '/inbox', 'lead').json()['messages'] == []
     assert api.call('POST', f"/submissions/{sent['id']}/ack", 'lead').status_code == 403
 

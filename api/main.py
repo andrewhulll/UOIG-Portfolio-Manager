@@ -48,7 +48,7 @@ from src.ingest.lookup import (search_symbols, quote_overview,  # noqa: E402
                                live_series, institutional_holders)
 from src.ingest.predictions import stock_predictions  # noqa: E402
 from src.ingest.thesis import stock_thesis  # noqa: E402
-from src.assistant import answer as llm_answer, api_key as llm_key  # noqa: E402
+from src.assistant import answer as llm_answer, api_key as llm_key, cost_usd as llm_cost  # noqa: E402
 from src.analytics.risk import daily_returns_matrix  # noqa: E402
 from src.analytics.optimize import (fund_diagnostics, solve_optimizer,  # noqa: E402
                                     whatif_payload)
@@ -477,10 +477,11 @@ def _dev_directory():
         "profilePictureUrl": None, "role": "member", "roleName": "Analyst", "isMock": True,
         "coverage": coverage,
         "sectors": list(dict.fromkeys(row["sector"] for row in coverage)),
+        "leadSectors": [],
     } for name, coverage in people.items()]
     members.insert(0, {"id": "dev", "name": "Dev User", "email": "dev@local",
                        "profilePictureUrl": None, "role": "admin", "roleName": "Admin",
-                       "isMock": False, "coverage": [], "sectors": []})
+                       "isMock": False, "coverage": [], "sectors": [], "leadSectors": []})
     return {"organization": {"id": "dev-uoig", "name": "UOIG"}, "members": members}
 
 
@@ -492,7 +493,7 @@ def organization_members():
         raise HTTPException(502, str(exc)) from exc
 
 
-_COVERAGE_SECTORS = ("TMT", "Consumer", "Financials", "Healthcare", "IME")
+_COVERAGE_SECTORS = auth_organization.SECTORS
 _ROLE_SLUGS = ("member", "sector-leader", "admin")
 
 
@@ -535,6 +536,28 @@ def update_member_coverage(user_id: str, request: Request, payload: dict):
     except auth_organization.OrganizationError as exc:
         raise HTTPException(502, str(exc)) from exc
     return {"id": user_id, "coverage": cleaned}
+
+
+@app.put("/api/organization/members/{user_id}/lead-sectors")
+def update_member_lead_sectors(user_id: str, request: Request, payload: dict):
+    """Admin-only: set which sectors a member leads (replaces the full list).
+    Independent of role — a sector leader or an admin can hold this — and of
+    ticker coverage, so a leader doesn't need a personal stock assignment to
+    receive that sector's weekly digests."""
+    _require_admin(request)
+    if wc.auth_disabled():
+        raise HTTPException(400, "Lead sector editing requires WorkOS — not available in local mock mode")
+    rows = payload.get("sectors")
+    if not isinstance(rows, list):
+        raise HTTPException(400, "sectors must be a list of sector names")
+    cleaned = list(dict.fromkeys(
+        str(sector).strip()[:40] for sector in rows if str(sector).strip() in _COVERAGE_SECTORS
+    ))
+    try:
+        auth_organization.set_lead_sectors(user_id, cleaned)
+    except auth_organization.OrganizationError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"id": user_id, "leadSectors": cleaned}
 
 
 @app.put("/api/organization/members/{user_id}/role")
@@ -974,7 +997,7 @@ def thesis(ticker: str):
 _RATE_LIMITS: Dict[str, Dict[str, List[float]]] = {}
 _RATE_LIMIT_LOCK = threading.Lock()
 
-def _enforce_rate_limit(request: Request, kind: str, limit: int, window: int = 3600):
+def _enforce_ip_rate_limit(request: Request, kind: str, limit: int, window: int = 3600):
     user_id = "anonymous"
     res = getattr(request.state, "user", None)
     if res:
@@ -1006,10 +1029,14 @@ def _chat_system(conn, context: str) -> str:
         "You are the research co-pilot embedded in the University of Oregon Investment "
         "Group (UOIG) investment terminal. You help the portfolio manager reason about the "
         "Tall Firs and Alumni Fund portfolios.",
-        "Be concise and specific; ground every claim in the data below. Use plain text "
-        "with **bold** for key figures. If something isn't in the data, say so rather than "
-        "guessing. This is for an internal student investment club — not personalized "
-        "financial advice.",
+        "Be concise and specific; ground every claim in the data below. Default to under "
+        "150 words — a few sentences, or a tight bulleted list of 3-5 points; skip preamble "
+        "and restating the question, and end on a complete thought rather than trailing off. "
+        "Only go longer than that when the user explicitly asks for depth, a full analysis, "
+        "a bull/bear breakdown, or a thesis review — then use as much space as the request "
+        "actually needs. Use plain text with **bold** for key figures. If something isn't in "
+        "the data, say so rather than guessing. This is for an internal student investment "
+        "club — not personalized financial advice.",
         "You can read this project's source repository with the list_files, read_file, and "
         "search_repo tools — use them for how the terminal works, how a number is computed, or "
         "the analytics/data pipeline. Secrets, the database, and ignored files are not "
@@ -1070,9 +1097,20 @@ def _get_user_id(request: Request) -> str:
         return u.get("id") or "dev"
     return "dev"
 
+def _usage_payload(usage: dict) -> dict:
+    """Shape a raw Anthropic usage tally for the frontend's session cost meter."""
+    return {
+        "inputTokens": usage.get("input_tokens", 0),
+        "outputTokens": usage.get("output_tokens", 0),
+        "cacheWriteTokens": usage.get("cache_creation_input_tokens", 0),
+        "cacheReadTokens": usage.get("cache_read_input_tokens", 0),
+        "costUsd": round(llm_cost(usage), 6),
+    }
+
+
 @app.post("/api/chat")
 def chat(request: Request, payload: dict):
-    _enforce_rate_limit(request, "chat", limit=50, window=3600)
+    _enforce_ip_rate_limit(request, "chat", limit=50, window=3600)
     """Live Ask-Claude turn via the Anthropic API (claude-haiku-4-5)."""
     user_id = _get_user_id(request)
     if not _enforce_rate_limit(user_id, _USER_CHAT_RUNS, lock=_CHAT_LOCK, limit=15, window=60):
@@ -1090,14 +1128,15 @@ def chat(request: Request, payload: dict):
         if not llm_key():
             return {"reply": "⚠ Ask Claude isn't configured yet. Set the **ANTHROPIC_API_KEY** "
                              "environment variable (or drop the key in `anthropic.key.txt` at the "
-                             "repo root) and restart the backend."}
+                             "repo root) and restart the backend.", "usage": _usage_payload({})}
         conn = _conn()
         try:
             system = _chat_system(conn, context)
         finally:
             conn.close()
         try:
-            return {"reply": llm_answer(messages, system)}
+            reply, usage = llm_answer(messages, system)
+            return {"reply": reply, "usage": _usage_payload(usage)}
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(502, f"chat failed: {exc}")
     finally:
@@ -1161,7 +1200,7 @@ def _run_agent_task(job_id: str, aid: str, task: str, context: str, attachments:
 
 @app.post("/api/agent/run")
 def agent_run(request: Request, payload: dict, background_tasks: BackgroundTasks):
-    _enforce_rate_limit(request, "agent", limit=5, window=3600)
+    _enforce_ip_rate_limit(request, "agent", limit=5, window=3600)
     """Start a Managed Agent (market analysis) run in the background and return a
     job id immediately. Poll GET /api/agent/run/{job_id} for the result. Agent id is
     `agent_id` in config.yaml (an ANTHROPIC_AGENT_ID env var overrides it)."""
