@@ -97,6 +97,31 @@ def list_members() -> dict:
     return {"organization": {"id": org_id, "name": org.get("name") or "UOIG"}, "members": members}
 
 
+def set_coverage(user_id: str, coverage: list[dict]) -> None:
+    """Overwrite a member's company coverage. Merges into existing metadata
+    (rather than replacing it outright) so mock-seed fields like `display_name`
+    survive an admin editing a mock user's coverage."""
+    user = _api("GET", "/user_management/users/" + user_id)
+    metadata = dict(user.get("metadata") or {})
+    metadata["coverage"] = json.dumps(coverage)
+    _api("PUT", "/user_management/users/" + user_id, {"metadata": metadata})
+
+
+def set_role(user_id: str, role_slug: str) -> None:
+    """Change a member's org role (admin / sector-leader / member)."""
+    org_id = wc.org_id()
+    if not org_id:
+        raise OrganizationError("UOIG organization is not configured")
+    memberships = _list(
+        "/user_management/organization_memberships",
+        organization_id=org_id, user_id=user_id, statuses="active",
+    )
+    if not memberships:
+        raise OrganizationError("No active membership found for this user")
+    _api("PUT", "/user_management/organization_memberships/" + memberships[0]["id"],
+         {"role_slug": role_slug})
+
+
 def update_user(user_id: str, first_name: str, last_name: str) -> dict:
     user = _api("PUT", "/user_management/users/" + user_id, {
         "first_name": first_name,

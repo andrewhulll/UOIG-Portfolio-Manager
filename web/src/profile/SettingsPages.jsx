@@ -1,10 +1,12 @@
 import React from 'react'
-import { getOrganizationMembers, sendInvite, updateProfile } from '../api.js'
+import { getOrganizationMembers, sendInvite, updateProfile, updateMemberCoverage, updateMemberRole } from '../api.js'
 import { s } from '../ui.js'
 import './settings.css'
 
 const ROLE_COLORS = { admin: '#f4a531', 'sector-leader': '#c06fd6', member: '#5a93f9' }
 const SECTOR_COLORS = { TMT: '#5a93f9', Consumer: '#e8674c', Financials: '#c06fd6', Financial: '#c06fd6', Healthcare: '#21d07a', IME: '#f4a531' }
+const COVERAGE_SECTORS = ['TMT', 'Consumer', 'Financials', 'Healthcare', 'IME']
+const ROLE_OPTIONS = [['member', 'Analyst'], ['sector-leader', 'Sector Leader'], ['admin', 'Admin']]
 
 function initials(name) {
   const parts = String(name || 'UO').trim().split(/\s+/)
@@ -19,6 +21,65 @@ function Avatar({ member, size = 44 }) {
 function RoleBadge({ role, label }) {
   const color = ROLE_COLORS[role] || '#9aa7c2'
   return <span className="settings-badge" style={{ color, borderColor: color + '55', background: color + '12' }}>{label || role}</span>
+}
+
+function RoleEditor({ member, auth, onChanged }) {
+  const [busy, setBusy] = React.useState(false)
+  const [error, setError] = React.useState('')
+  const isSelf = member.id === auth.user?.id
+  const change = async (e) => {
+    const role = e.target.value
+    setBusy(true); setError('')
+    try { await updateMemberRole(member.id, role); await onChanged() }
+    catch (err) { setError(err.detail || 'Could not update role') }
+    finally { setBusy(false) }
+  }
+  return <div>
+    <select className="role-select" value={member.role} disabled={busy || isSelf} onChange={change}>
+      {ROLE_OPTIONS.map(([slug, label]) => <option key={slug} value={slug}>{label}</option>)}
+    </select>
+    {isSelf && <div className="settings-muted">You can't change your own role</div>}
+    {error && <div className="settings-error">{error}</div>}
+  </div>
+}
+
+function CoverageEditor({ member, holdings, onOpenStock, onChanged }) {
+  const [busy, setBusy] = React.useState(false)
+  const [error, setError] = React.useState('')
+  const [ticker, setTicker] = React.useState('')
+  const [sector, setSector] = React.useState(COVERAGE_SECTORS[0])
+  const options = React.useMemo(() => {
+    const seen = new Map()
+    holdings.forEach(h => { if (!seen.has(h.t)) seen.set(h.t, h) })
+    return Array.from(seen.values()).sort((a, b) => a.t.localeCompare(b.t))
+  }, [holdings])
+  const save = async (next) => {
+    setBusy(true); setError('')
+    try { await updateMemberCoverage(member.id, next); await onChanged() }
+    catch (err) { setError(err.detail || 'Could not save coverage') }
+    finally { setBusy(false) }
+  }
+  const add = () => { if (ticker) { save([...member.coverage, { sector, ticker }]); setTicker('') } }
+  const remove = (c) => save(member.coverage.filter(x => !(x.sector === c.sector && x.ticker === c.ticker)))
+  return <>
+    <div className="coverage-list">
+      {member.coverage.length ? member.coverage.map(c => (
+        <div className="coverage-edit-row" key={c.sector + c.ticker}>
+          <button onClick={() => onOpenStock(c.ticker)}><span>{c.ticker}</span><small>{c.sector}</small><b>↗</b></button>
+          <button className="coverage-remove" disabled={busy} aria-label={`Remove ${c.ticker}`} onClick={() => remove(c)}>×</button>
+        </div>
+      )) : <small className="settings-muted">No coverage assigned</small>}
+    </div>
+    <div className="coverage-add-row">
+      <select value={sector} disabled={busy} onChange={e => setSector(e.target.value)}>{COVERAGE_SECTORS.map(x => <option key={x}>{x}</option>)}</select>
+      <select value={ticker} disabled={busy} onChange={e => setTicker(e.target.value)}>
+        <option value="">Choose a holding…</option>
+        {options.map(h => <option key={h.t} value={h.t}>{h.t} — {h.n}</option>)}
+      </select>
+      <button className="settings-primary" disabled={busy || !ticker} onClick={add}>Add</button>
+    </div>
+    {error && <div className="settings-error">{error}</div>}
+  </>
 }
 
 function SettingsShell({ active, onNavigate, eyebrow, title, subtitle, children }) {
@@ -104,7 +165,7 @@ export function PreferencesPage({ fundOptions, currentFund, currentPeriod, onNav
   </SettingsShell>
 }
 
-export function OrganizationPage({ auth, onNavigate, onOpenStock }) {
+export function OrganizationPage({ auth, holdings, onNavigate, onOpenStock }) {
   const [data, setData] = React.useState(null)
   const [error, setError] = React.useState('')
   const [query, setQuery] = React.useState('')
@@ -146,9 +207,13 @@ export function OrganizationPage({ auth, onNavigate, onOpenStock }) {
         {!members.length && <div className="settings-empty">No members match these filters.</div>}
       </div>
       <aside className="member-detail">
-        {detail && <><div className="member-detail-top"><Avatar member={detail} size={56} /><div><h2>{detail.name}</h2><p>{detail.email}</p></div></div><RoleBadge role={detail.role} label={detail.roleName} />
+        {detail && <><div className="member-detail-top"><Avatar member={detail} size={56} /><div><h2>{detail.name}</h2><p>{detail.email}</p></div></div>
+          {auth.canInvite ? <RoleEditor key={detail.id} member={detail} auth={auth} onChanged={load} /> : <RoleBadge role={detail.role} label={detail.roleName} />}
           <div className="member-detail-label">Sector teams</div><div className="chip-wrap">{detail.sectors.length ? detail.sectors.map(x => <span key={x} style={{ borderColor: (SECTOR_COLORS[x] || '#6b7794') + '55', color: SECTOR_COLORS[x] || '#9aa7c2' }}>{x}</span>) : <small className="settings-muted">No sector assigned</small>}</div>
-          <div className="member-detail-label">Company coverage</div><div className="coverage-list">{detail.coverage.length ? detail.coverage.map(c => <button key={c.sector + c.ticker} onClick={() => onOpenStock(c.ticker)}><span>{c.ticker}</span><small>{c.sector}</small><b>↗</b></button>) : <small className="settings-muted">No company assignments</small>}</div>
+          <div className="member-detail-label">Company coverage</div>
+          {auth.canInvite
+            ? <CoverageEditor key={detail.id} member={detail} holdings={holdings} onOpenStock={onOpenStock} onChanged={load} />
+            : <div className="coverage-list">{detail.coverage.length ? detail.coverage.map(c => <button key={c.sector + c.ticker} onClick={() => onOpenStock(c.ticker)}><span>{c.ticker}</span><small>{c.sector}</small><b>↗</b></button>) : <small className="settings-muted">No company assignments</small>}</div>}
         </>}
       </aside>
     </div>

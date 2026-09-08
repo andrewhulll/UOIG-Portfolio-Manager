@@ -64,6 +64,13 @@ export const loginUrl = (invitationToken) =>
   `${BASE}/api/auth/login${invitationToken ? `?invitation_token=${encodeURIComponent(invitationToken)}` : ''}`
 export const sendInvite = (email, roleSlug) => post('/api/auth/invite', { email, role_slug: roleSlug })
 export const getOrganizationMembers = () => get('/api/organization/members')
+const put = (path, body) =>
+  fetch(`${BASE}${path}`, {
+    method: 'PUT', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }).then(j)
+export const updateMemberCoverage = (id, coverage) => put(`/api/organization/members/${encodeURIComponent(id)}/coverage`, { coverage })
+export const updateMemberRole = (id, role) => put(`/api/organization/members/${encodeURIComponent(id)}/role`, { role })
 export const updateProfile = (body) => patch('/api/profile', body)
 // Invitee accept flow: look up an invitation by token; set a password to accept.
 export const getInvitation = (token) => get(`/api/auth/invitation?token=${encodeURIComponent(token)}`)
