@@ -49,8 +49,39 @@ MAX_TOOL_TURNS = 6
 # caps searches per question to bound cost.
 WEB_SEARCH_TOOL = {"type": "web_search_20250305", "name": "web_search", "max_uses": 4}
 
+# Anthropic prompt caching: the system prompt and tool schemas are identical on
+# every turn of the tool loop below (and often across a user's next question,
+# within the ~5min cache TTL) but were being re-billed as full input tokens on
+# every single API call. Marking a cache_control breakpoint writes/reads a cache
+# entry for everything up to that point, so a 6-round tool loop pays full system+
+# tools cost once instead of up to 6x. `_CACHE` is reused at each breakpoint.
+_CACHE = {"type": "ephemeral"}
 
-def answer(messages: list[dict], system: str, max_tokens: int = 800) -> str:
+
+def _cached_system(system: str) -> list[dict]:
+    return [{"type": "text", "text": system, "cache_control": _CACHE}]
+
+
+def _cached_tools(tools: list[dict]) -> list[dict]:
+    """Cache the (static) tool schemas by marking the last one — a cache
+    breakpoint covers everything before it, so this alone caches all of them."""
+    if not tools:
+        return tools
+    return [*tools[:-1], {**tools[-1], "cache_control": _CACHE}]
+
+
+def _with_trailing_cache(content):
+    """Copy of a message's content with a cache breakpoint on its last block, so
+    each tool-loop round caches the conversation-so-far for the next round."""
+    if isinstance(content, str):
+        return [{"type": "text", "text": content, "cache_control": _CACHE}]
+    blocks = [b.model_dump() if hasattr(b, "model_dump") else dict(b) for b in content]
+    if blocks:
+        blocks[-1] = {**blocks[-1], "cache_control": _CACHE}
+    return blocks
+
+
+def answer(messages: list[dict], system: str, max_tokens: int = 500) -> str:
     """Run one chat turn. `messages` is the [{role, content}] history."""
     key = api_key()
     if not key:
@@ -72,7 +103,8 @@ def answer(messages: list[dict], system: str, max_tokens: int = 800) -> str:
         return "Ask me anything about the portfolio."
 
     from src import repo_tools, data_tools
-    tools = repo_tools.TOOLS + data_tools.TOOLS + [WEB_SEARCH_TOOL]
+    tools = _cached_tools(repo_tools.TOOLS + data_tools.TOOLS + [WEB_SEARCH_TOOL])
+    cached_system = _cached_system(system)
 
     def _run(name, inp):
         return repo_tools.run_tool(name, inp) or data_tools.run_tool(name, inp) or (f"Unknown tool: {name}", True)
@@ -82,8 +114,9 @@ def answer(messages: list[dict], system: str, max_tokens: int = 800) -> str:
         return "".join(b.text for b in resp.content if b.type == "text").strip()
 
     for _ in range(MAX_TOOL_TURNS):
+        call_msgs = [*msgs[:-1], {**msgs[-1], "content": _with_trailing_cache(msgs[-1]["content"])}]
         resp = client.messages.create(
-            model=MODEL, max_tokens=max_tokens, system=system, messages=msgs, tools=tools,
+            model=MODEL, max_tokens=max_tokens, system=cached_system, messages=call_msgs, tools=tools,
         )
         tool_uses = [b for b in resp.content if b.type == "tool_use"]
         if not tool_uses:
