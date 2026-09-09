@@ -16,3 +16,7 @@ export function s(css) {
   })
   return o
 }
+
+// Sector accent colors — shared by My Coverage, the Inbox and anywhere else a
+// sector needs a consistent chip color.
+export const SECTOR_COLORS = { TMT: '#5a93f9', Consumer: '#e8674c', Financials: '#c06fd6', Financial: '#c06fd6', Healthcare: '#21d07a', IME: '#f4a531' }

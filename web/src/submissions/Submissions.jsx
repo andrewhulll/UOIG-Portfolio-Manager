@@ -2,7 +2,18 @@ import React from 'react'
 import { acknowledge, addComment, getFlags, getInbox, getQueue, markRead, removeFlag, saveFlag, submitDraft } from './api.js'
 import { getMyCoverage, getQuote, getSeries } from '../api.js'
 import { PriceChart } from '../charts/PriceChart.jsx'
+import { SECTOR_COLORS } from '../ui.js'
 import './submissions.css'
+
+const initials = name => { const p = (name || '').trim().split(/\s+/); return ((p[0]?.[0] || '') + (p[1]?.[0] || '')).toUpperCase() || '?' }
+function Avatar({ name, color = '#5a93f9' }) {
+  return <span className="submission-avatar" style={{ color, borderColor: color + '55', background: color + '1c' }}>{initials(name)}</span>
+}
+function SectorChip({ sector }) {
+  if (!sector) return null
+  const color = SECTOR_COLORS[sector] || '#6b7794'
+  return <span className="submission-sector-chip" style={{ color, background: color + '18', borderColor: color + '40' }}>{sector}</span>
+}
 
 export const isAnalyst = auth => ['member', 'analyst'].includes(auth?.role)
 const canReview = auth => auth?.role === 'sector-leader' || auth?.canInvite || auth?.role === 'admin'
@@ -228,7 +239,10 @@ export function NewsList({ auth, news, ticker }) {
 }
 
 function DigestCard({ submission, auth, onAck, onComment, busy, children }) {
-  return <article className="submission-digest"><div className="submission-heading"><div><h3>{submission.analyst}</h3><p className="submission-muted">{submission.sector} · Week of {submission.week_of}</p></div><Status value={submission.status} /></div>
+  return <article className="submission-digest"><div className="submission-heading"><div className="submission-digest-who">
+      <Avatar name={submission.analyst} color={SECTOR_COLORS[submission.sector] || '#5a93f9'} />
+      <div><h3>{submission.analyst}</h3><p className="submission-muted"><SectorChip sector={submission.sector} /> · Week of {submission.week_of}</p></div>
+    </div><Status value={submission.status} /></div>
     <ul className="submission-items">{submission.items.map(item => <Item key={item.id} item={item} />)}</ul>
     {submission.status === 'acked' && <p className="submission-muted">Acknowledged {dateLabel(submission.acked_at)}</p>}
     <div className="submission-actions">{canReview(auth) && submission.status === 'submitted' && <button className="primary" disabled={busy} onClick={() => onAck(submission.id)}>Acknowledge</button>}{children}</div>
@@ -272,8 +286,13 @@ export function InboxPage({ auth }) {
     <div className="submission-heading"><div><div className="submission-eyebrow">Team updates</div><h1>Inbox {remote.data?.unread > 0 && <span className="submission-chip">{remote.data.unread} unread</span>}</h1><p className="submission-muted">Sector updates and acknowledgements, shared inside UOIG.</p></div><button disabled={busy} onClick={remote.reload}>Refresh</button></div>
     {canReview(auth) && <div className="submission-tabs"><button aria-pressed={tab === 'messages'} onClick={() => setTab('messages')}>My inbox</button><button aria-pressed={tab === 'queue'} onClick={() => setTab('queue')}>Sector submissions</button></div>}
     {tab === 'queue' ? <SectorQueue auth={auth} /> : <><ErrorNotice error={error || remote.error} />
-      {!remote.data ? <p role="status">{remote.error ? 'Could not load your inbox. Use Refresh to try again.' : 'Loading inbox…'}</p> : !messages.length ? <div className="submission-empty"><h2>Your inbox is clear</h2><p>{isAnalyst(auth) ? 'When a sector lead acknowledges your weekly submission, it will appear here.' : 'Submitted digests for your assigned sectors will appear here.'}</p></div> : Object.entries(groups).map(([uid, group]) => <div key={uid} className="submission-message-group"><h2>{group[0].analyst}</h2>{group.map(message => <div className={message.read_at ? '' : 'submission-unread'} key={message.message_id}>
-        <p className="submission-message-label">{!message.read_at && '● Unread · '}{message.kind === 'ack' ? `${message.ackedByName} acknowledged your submission` : 'New sector submission'} · {dateLabel(message.created_at)}</p>
+      {!remote.data ? <p role="status">{remote.error ? 'Could not load your inbox. Use Refresh to try again.' : 'Loading inbox…'}</p> : !messages.length ? <div className="submission-empty">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5" /><path d="M3.5 6.5 12 13l8.5-6.5" /><path d="m15 15.5 2 2 3.5-3.5" /></svg>
+          <h2>Your inbox is clear</h2><p>{isAnalyst(auth) ? 'When a sector lead acknowledges your weekly submission, it will appear here.' : 'Submitted digests for your assigned sectors will appear here.'}</p></div>
+        : Object.entries(groups).map(([uid, group]) => <div key={uid} className="submission-message-group">
+          <div className="submission-group-head"><Avatar name={group[0].analyst} color={SECTOR_COLORS[group[0].sector] || '#5a93f9'} /><h2>{group[0].analyst}</h2></div>
+          {group.map(message => <div className={message.read_at ? '' : 'submission-unread'} key={message.message_id}>
+        <p className="submission-message-label">{!message.read_at && <span className="submission-unread-dot" />}{message.kind === 'ack' ? `${message.ackedByName} acknowledged your submission` : 'New sector submission'} · {dateLabel(message.created_at)}</p>
         <DigestCard submission={message} auth={auth} busy={busy} onAck={id => act(() => acknowledge(id))} onComment={(id, text) => addComment(id, text).then(() => remote.reload())}>{!message.read_at && <button disabled={busy} onClick={() => act(() => markRead(message.message_id))}>Mark as read</button>}</DigestCard>
       </div>)}</div>)}
     </>}

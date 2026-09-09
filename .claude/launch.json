@@ -4,9 +4,10 @@
     {
       "name": "Terminal API + App",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"],
+      "runtimeArgs": ["-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"],
       "port": 8000,
-      "autoPort": false
+      "autoPort": false,
+      "env": { "UOIG_AUTH_DISABLED": "1" }
     },
     {
       "name": "Frontend dev (Vite)",
