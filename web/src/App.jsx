@@ -5,6 +5,7 @@ import AuthScreen from './auth/AuthScreen.jsx'
 import { LoadingScreen, ErrorScreen } from './StatusScreens.jsx'
 import { ProfilePage, PreferencesPage, OrganizationPage } from './profile/SettingsPages.jsx'
 import { MyCoverage } from './coverage/MyCoverage.jsx'
+import { Screener } from './screener/Screener.jsx'
 import { InboxPage, NewsList, WeeklySubmission } from './submissions/Submissions.jsx'
 import { PriceChart, fmtChartDate, smoothPath } from './charts/PriceChart.jsx'
 import { s } from './ui.js'
@@ -647,6 +648,7 @@ export default class App extends React.Component {
     if (name === 'stocks') return mk([React.createElement('polyline', { key: 1, points: '1,11 5.5,6.5 9,9 15,2.5' })], false)
     if (name === 'sectors') return mk([React.createElement('circle', { key: 1, cx: 8, cy: 8, r: 6, style: { fill: 'none', stroke: 'currentColor', strokeWidth: 1.8 } }), React.createElement('path', { key: 2, d: 'M8 2 A6 6 0 0 1 13.2 8 L8 8 Z', style: { fill: 'currentColor', stroke: 'none' } })], false)
     if (name === 'optimize') return mk([React.createElement('line', { key: 1, x1: 3, y1: 2, x2: 3, y2: 14 }), React.createElement('line', { key: 2, x1: 8, y1: 2, x2: 8, y2: 14 }), React.createElement('line', { key: 3, x1: 13, y1: 2, x2: 13, y2: 14 }), React.createElement('circle', { key: 4, cx: 3, cy: 5, r: 1.6, style: { fill: 'currentColor' } }), React.createElement('circle', { key: 5, cx: 8, cy: 10, r: 1.6, style: { fill: 'currentColor' } }), React.createElement('circle', { key: 6, cx: 13, cy: 6, r: 1.6, style: { fill: 'currentColor' } })], false)
+    if (name === 'screener') return mk([React.createElement('circle', { key: 1, cx: 6.6, cy: 6.6, r: 4.6 }), React.createElement('line', { key: 2, x1: 10, y1: 10, x2: 14.4, y2: 14.4 })], false)
     if (name === 'assistant') return mk([React.createElement('path', { key: 1, d: 'M8 1.4 L9.5 6.2 L14.6 8 L9.5 9.8 L8 14.6 L6.5 9.8 L1.4 8 L6.5 6.2 Z' })], true)
     if (name === 'coverage') return mk([React.createElement('circle', { key: 1, cx: 8, cy: 8, r: 6.4 }), React.createElement('circle', { key: 2, cx: 8, cy: 8, r: 1.6, style: { fill: 'currentColor', stroke: 'none' } })], false)
     return null
@@ -792,7 +794,7 @@ export default class App extends React.Component {
           {/* NAV RAIL */}
           <div style={s('width:54px;flex:0 0 54px;background:#0a0f1a;border-right:1px solid #1d2840;display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:5px;')}>
             {v.nav.map((item) => (
-              <div key={item.key} onClick={item.on} title={item.label} className="dc-hover" style={{ ...s('width:40px;height:38px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;'), background: item.bg, color: item.color }}>{item.icon}</div>
+              <div key={item.key} onClick={item.on} title={item.label} className={item.disabled ? '' : 'dc-hover'} style={{ ...s('width:40px;height:38px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;'), background: item.bg, color: item.color, cursor: item.disabled ? 'default' : 'pointer' }}>{item.icon}</div>
             ))}
           </div>
 
@@ -804,6 +806,7 @@ export default class App extends React.Component {
             {v.isStock && (v.stk ? this._renderStock(v) : this._renderStockMsg(v))}
             {v.isSector && v.sec && this._renderSector(v)}
             {v.isOptimize && this._renderOptimize(v)}
+            {v.isScreener && <Screener onOpenStock={(ticker) => this._openStock(ticker, 'screener')} />}
             {v.isAssistant && this._renderAssistant(v)}
             {this.state.view === 'profile' && <ProfilePage auth={this.state.auth} onNavigate={(view) => this._go(view)} onUserUpdated={(user) => this.setState((st) => ({ auth: { ...st.auth, user }, avatarImgFailed: false }))} />}
             {this.state.view === 'preferences' && <PreferencesPage fundOptions={[{ value: 'all', label: 'All Funds' }, ...this.fundKeys.map(k => ({ value: k, label: this.funds[k].name }))]} currentFund={this.state.fund} currentPeriod={this.state.period} onNavigate={(view) => this._go(view)} onApply={(preferences) => this.setState({ preferences, fund: preferences.defaultFund, period: preferences.defaultPeriod })} />}
@@ -1951,7 +1954,7 @@ export default class App extends React.Component {
     v.asOf = 'AS OF ' + mkt.date
     v.isDashboard = st.view === 'dashboard'; v.isStocks = st.view === 'stocks'
     v.isSectors = st.view === 'sectors'; v.isStock = st.view === 'stock'; v.isSector = st.view === 'sector'
-    v.isOptimize = st.view === 'optimize'; v.isAssistant = st.view === 'assistant'
+    v.isOptimize = st.view === 'optimize'; v.isScreener = st.view === 'screener'; v.isAssistant = st.view === 'assistant'
     v.isCoverage = st.view === 'coverage'
     v.fundAName = F[fundA].name; v.fundBName = F[fundB].name
 
@@ -1959,11 +1962,13 @@ export default class App extends React.Component {
     const navDef = [
       ...(isAnalyst ? [['coverage', 'My Coverage', 'coverage']] : []),
       ['inbox', 'Inbox', 'inbox'],
-      ['funds', 'Funds', 'dashboard'], ['stocks', 'Stocks', 'stocks'], ['sectors', 'Sectors', 'sectors'], ['optimize', 'Optimize', 'optimize'], ['assistant', 'Assistant', 'assistant'],
+      ['funds', 'Funds', 'dashboard'], ['stocks', 'Stocks', 'stocks'], ['sectors', 'Sectors', 'sectors'], ['optimize', 'Optimize', 'optimize'], ['screener', 'Screener', 'screener'], ['assistant', 'Assistant', 'assistant'],
     ]
-    const activeMap = { dashboard: ['funds'], stocks: ['stocks'], sectors: ['sectors'], stock: ['stocks'], sector: ['sectors'], optimize: ['optimize'], assistant: ['assistant'], coverage: ['coverage'] }
+    const activeMap = { dashboard: ['funds'], stocks: ['stocks'], sectors: ['sectors'], stock: ['stocks'], sector: ['sectors'], optimize: ['optimize'], screener: ['screener'], assistant: ['assistant'], coverage: ['coverage'] }
     v.nav = navDef.map(([id, label, go]) => {
       const active = id === 'inbox' ? st.view === 'inbox' : (activeMap[st.view] || []).indexOf(id) >= 0
+      const disabled = id === 'optimize'
+      if (disabled) return { key: id, label, icon: this._icon(id, false), bg: 'transparent', color: '#2a3143', disabled: true, on: () => {} }
       return { key: id, label, icon: id === 'inbox' ? '✉' : this._icon(id, active), bg: active ? '#13203a' : 'transparent', color: active ? '#5a93f9' : '#5d6a85', on: () => this._go(go) }
     })
     v.periods = ['1M', '3M', '6M', 'YTD', '1Y', '5Y'].map((p) => ({ k: p, bg: p === st.period ? '#13203a' : 'transparent', color: p === st.period ? '#cdd6e8' : '#6b7794', weight: p === st.period ? 600 : 500, on: () => this.setState({ period: p }) }))
@@ -2160,7 +2165,7 @@ export default class App extends React.Component {
           sharesStr: r.shares != null ? (r.shares >= 1e6 ? (r.shares / 1e6).toFixed(1) + 'M' : Math.round(r.shares).toLocaleString('en-US')) : '—',
           valueStr: r.value != null ? '$' + (r.value >= 1000 ? (r.value / 1000).toFixed(1) + 'B' : r.value.toFixed(0) + 'M') : '—',
         })) : []
-        v.stkBackLabel = st.prevView === 'stocks' ? 'All Holdings' : (st.prevView === 'sector' ? (st.sector || 'Sector') : (st.prevView === 'coverage' ? 'My Coverage' : 'Dashboard'))
+        v.stkBackLabel = st.prevView === 'stocks' ? 'All Holdings' : (st.prevView === 'sector' ? (st.sector || 'Sector') : (st.prevView === 'coverage' ? 'My Coverage' : (st.prevView === 'screener' ? 'Screener' : 'Dashboard')))
       }
     }
 
