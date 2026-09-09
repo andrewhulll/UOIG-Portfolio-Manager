@@ -731,8 +731,26 @@ export default class App extends React.Component {
       mtdStr: this._sign(h.mtd, 1) + '%', mtdColor: this._col(h.mtd),
       peStr: h.pe ? h.pe.toFixed(1) : '—',
       ctbStr: this._sign(ctb, 2), ctbColor: this._col(ctb),
+      spark: h.spark || [],
       open: () => this._openStock(h.t, from),
     }
+  }
+
+  // Tiny inline SVG price-trend sparkline (3M of closes from the backend).
+  _sparkline(pts) {
+    const w = 72, hgt = 22, pad = 2
+    if (!pts || pts.length < 2) return <span style={s("font-family:'IBM Plex Mono';font-size:10px;color:#3c465e;")}>—</span>
+    const mn = Math.min(...pts), mx = Math.max(...pts), rng = (mx - mn) || 1
+    const step = (w - pad * 2) / (pts.length - 1)
+    const d = pts.map((p, i) => (i ? 'L' : 'M') + (pad + i * step).toFixed(1) + ' ' + (pad + (1 - (p - mn) / rng) * (hgt - pad * 2)).toFixed(1)).join(' ')
+    const up = pts[pts.length - 1] >= pts[0]
+    const color = up ? '#21d07a' : '#ff5666'
+    return (
+      <svg width={w} height={hgt} viewBox={'0 0 ' + w + ' ' + hgt} style={{ display: 'block', overflow: 'visible' }}>
+        <path d={d} fill="none" stroke={color} strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" opacity="0.95" />
+        <circle cx={(pad + (pts.length - 1) * step).toFixed(1)} cy={(pad + (1 - (pts[pts.length - 1] - mn) / rng) * (hgt - pad * 2)).toFixed(1)} r="2" fill={color} />
+      </svg>
+    )
   }
 
 
@@ -890,15 +908,16 @@ export default class App extends React.Component {
         <div style={s('display:grid;grid-template-columns:1fr 360px;gap:13px;')}>
           <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;display:flex;flex-direction:column;overflow:hidden;')}>
             <div style={s('display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #1d2840;')}><span style={s("font:600 10.5px 'IBM Plex Sans';letter-spacing:.08em;text-transform:uppercase;color:#7e8aa6;")}>{v.dashTitle}</span><span style={s("font-family:'IBM Plex Mono';font-size:9.5px;color:#5d6a85;")}>{v.dashCount}</span></div>
-            <div style={s("display:grid;grid-template-columns:62px 1fr 50px 54px 70px 78px 60px 64px;gap:8px;padding:8px 14px;border-bottom:1px solid #1d2840;font:600 8.5px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;color:#6b7794;")}><span>Ticker</span><span>Name</span><span style={s('text-align:right;')}>Fund</span><span style={s('text-align:right;')}>Wt</span><span style={s('text-align:right;')}>Val</span><span style={s('text-align:right;')}>Price</span><span style={s('text-align:right;')}>Day</span><span style={s('text-align:right;')}>Contrib</span></div>
+            <div style={s("display:grid;grid-template-columns:62px 1fr 50px 54px 70px 78px 72px 60px 64px;gap:8px;padding:8px 14px;border-bottom:1px solid #1d2840;font:600 8.5px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;color:#6b7794;")}><span>Ticker</span><span>Name</span><span style={s('text-align:right;')}>Fund</span><span style={s('text-align:right;')}>Wt</span><span style={s('text-align:right;')}>Val</span><span style={s('text-align:right;')}>Price</span><span>Trend</span><span style={s('text-align:right;')}>Day</span><span style={s('text-align:right;')}>Contrib</span></div>
             {v.dashHoldings.map((r) => (
-              <div key={r.rk} onClick={r.open} className="dc-row" style={s('display:grid;grid-template-columns:62px 1fr 50px 54px 70px 78px 60px 64px;gap:8px;align-items:center;padding:7.5px 14px;border-bottom:1px solid #131c2f;font-size:11px;cursor:pointer;')}>
+              <div key={r.rk} onClick={r.open} className="dc-row" style={s('display:grid;grid-template-columns:62px 1fr 50px 54px 70px 78px 72px 60px 64px;gap:8px;align-items:center;padding:7.5px 14px;border-bottom:1px solid #131c2f;font-size:11px;cursor:pointer;')}>
                 <span style={s("font-family:'IBM Plex Mono';font-weight:600;color:#e8edf7;")}>{r.t}</span>
                 <span style={s('color:#9aa7c2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;')}>{r.n}</span>
                 <span style={{ ...s("text-align:right;font:500 9px 'IBM Plex Mono';"), color: r.fundColor }}>{r.fundTag}</span>
                 <span style={s("font-family:'IBM Plex Mono';text-align:right;color:#cdd6e8;")}>{r.wStr}</span>
                 <span style={s("font-family:'IBM Plex Mono';text-align:right;color:#e8edf7;")}>{r.mvStr}</span>
                 <span style={s("font-family:'IBM Plex Mono';text-align:right;color:#cdd6e8;")}>{r.pxStr}</span>
+                <span>{this._sparkline(r.spark)}</span>
                 <span style={{ ...s("font-family:'IBM Plex Mono';text-align:right;"), color: r.dayColor }}>{r.dayStr}</span>
                 <span style={{ ...s("font-family:'IBM Plex Mono';text-align:right;"), color: r.ctbColor }}>{r.ctbStr}</span>
               </div>
@@ -937,12 +956,13 @@ export default class App extends React.Component {
             <input value={v.query} onChange={(e) => this.setState({ query: e.target.value })} placeholder="Filter by ticker, name, sector…" style={s("flex:1;background:transparent;border:none;outline:none;color:#e8edf7;font:400 11.5px 'IBM Plex Sans';")} />
           </div>
         </div>
-        <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;overflow:hidden;')}>
-          <div style={s("display:grid;grid-template-columns:74px 1fr 150px 64px 70px 86px 92px 72px 72px 60px;gap:8px;padding:9px 14px;border-bottom:1px solid #1d2840;font:600 8.5px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;color:#6b7794;")}>
+        <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;overflow:clip;')}>
+          <div style={s("position:sticky;top:0;z-index:5;background:#0e1422;display:grid;grid-template-columns:74px 1fr 150px 64px 70px 86px 92px 72px 72px 72px 60px;gap:8px;padding:9px 14px;border-bottom:1px solid #1d2840;font:600 8.5px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;color:#6b7794;")}>
             {v.stocksHead.map((h, i) => (<span key={i} onClick={h.on} style={{ ...s('cursor:pointer;'), textAlign: h.align, color: h.color }}>{h.label}{h.caret}</span>))}
+            <span>Trend</span>
           </div>
           {v.stocksRows.map((r) => (
-            <div key={r.rk} onClick={r.open} className="dc-row" style={s('display:grid;grid-template-columns:74px 1fr 150px 64px 70px 86px 92px 72px 72px 60px;gap:8px;align-items:center;padding:7.5px 14px;border-bottom:1px solid #131c2f;font-size:11px;cursor:pointer;')}>
+            <div key={r.rk} onClick={r.open} className="dc-row" style={s('display:grid;grid-template-columns:74px 1fr 150px 64px 70px 86px 92px 72px 72px 72px 60px;gap:8px;align-items:center;padding:7.5px 14px;border-bottom:1px solid #131c2f;font-size:11px;cursor:pointer;')}>
               <span style={s("font-family:'IBM Plex Mono';font-weight:600;color:#e8edf7;")}>{r.t}</span>
               <span style={s('color:#9aa7c2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;')}>{r.n}</span>
               <span style={s('color:#6b7794;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;')}>{r.s}</span>
@@ -950,6 +970,7 @@ export default class App extends React.Component {
               <span style={s("font-family:'IBM Plex Mono';text-align:right;color:#cdd6e8;")}>{r.wStr}</span>
               <span style={s("font-family:'IBM Plex Mono';text-align:right;color:#e8edf7;")}>{r.mvStr}</span>
               <span style={s("font-family:'IBM Plex Mono';text-align:right;color:#cdd6e8;")}>{r.pxStr}</span>
+              <span>{this._sparkline(r.spark)}</span>
               <span style={{ ...s("font-family:'IBM Plex Mono';text-align:right;"), color: r.dayColor }}>{r.dayStr}</span>
               <span style={{ ...s("font-family:'IBM Plex Mono';text-align:right;"), color: r.mtdColor }}>{r.mtdStr}</span>
               <span style={s("font-family:'IBM Plex Mono';text-align:right;color:#7e8aa6;")}>{r.peStr}</span>
@@ -1109,12 +1130,15 @@ export default class App extends React.Component {
 
   _renderEarnings(e) {
     const beatPos = (e.beat || 0) >= 0
+    const nextVal = e.next && e.next !== '—' ? (e.nextEstimated ? '~' + e.next : e.next) : null
+    const cards = [['EPS actual / est', e.epsActual, e.epsEst], ['Revenue actual / est', e.revActual, e.revEst], ['Revenue YoY', e.revYoY, null]]
+    if (nextVal) cards.push(['Next report est', nextVal, null])
     return (
       <div style={s('display:flex;flex-direction:column;gap:14px;')}>
         <div style={s('background:linear-gradient(180deg,#0c1f18,#0e1422);border:1px solid #1d4536;border-radius:9px;padding:16px;')}>
           <div style={s('display:flex;align-items:center;gap:10px;margin-bottom:13px;flex-wrap:wrap;')}><span style={s("font:600 10px 'IBM Plex Sans';letter-spacing:.1em;text-transform:uppercase;color:#7e8aa6;")}>Most Recent Earnings</span><span style={s("font-family:'IBM Plex Mono';font-size:10px;color:#6b7794;")}>{e.qtrLabel} · {e.when}</span>{e.beat != null ? <span style={{ ...s("margin-left:auto;font:600 10px 'IBM Plex Sans';border-radius:5px;padding:4px 10px;"), color: beatPos ? '#21d07a' : '#ff5666', background: beatPos ? '#0c2a1e' : '#2a1115', border: '1px solid ' + (beatPos ? '#1d4536' : '#4a1f25') }}>EPS {beatPos ? 'beat' : 'miss'} {this._sign(e.beat, 1)}%</span> : null}</div>
-          <div style={s('display:grid;grid-template-columns:repeat(4,1fr);gap:13px;')}>
-            {[['EPS actual / est', e.epsActual, e.epsEst], ['Revenue actual / est', e.revActual, e.revEst], ['Revenue YoY', e.revYoY, null], ['Next report est', e.next, null]].map((c, i) => (
+          <div style={{ ...s('display:grid;gap:13px;'), gridTemplateColumns: 'repeat(' + cards.length + ',1fr)' }}>
+            {cards.map((c, i) => (
               <div key={i} style={s('background:#0a1410;border:1px solid #163a2c;border-radius:7px;padding:12px;')}><div style={s("font:600 8.5px 'IBM Plex Sans';letter-spacing:.05em;text-transform:uppercase;color:#6b7794;")}>{c[0]}</div><div style={{ ...s("font-family:'IBM Plex Mono';font-size:16px;margin-top:6px;"), color: i === 2 ? this._yc(c[1]) : '#e8edf7' }}>{c[1]}{c[2] ? <span style={s('color:#5d6a85;font-size:12px;')}> / {c[2]}</span> : null}</div></div>
             ))}
           </div>

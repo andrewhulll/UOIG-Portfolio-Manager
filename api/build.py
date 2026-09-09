@@ -16,7 +16,7 @@ from src.analytics.pnl import load_positions
 from src.analytics.returns import enrich_returns
 from src.analytics.risk import _beta, add_betas, daily_returns_matrix, fund_risk_table
 from src.analytics.series import (PERIODS, div_yield_ttm, mtd_return, period_return,
-                                  price_frame)
+                                  price_frame, ticker_series)
 
 # fund key + display styling
 FUND_META = {
@@ -98,6 +98,8 @@ def build_terminal_data(cfg: dict, conn: sqlite3.Connection) -> dict:
             "lo": _clean(fd[5]) if fd else None,
             "hi": _clean(fd[6]) if fd else None,
             "desc": (fd[7] if fd else "") or "",
+            # 3M of downsampled closes for the holdings-table sparkline column
+            "spark": ticker_series(pf, r.ticker, "3M", points=30)["close"],
         })
 
     # ---- funds ----
