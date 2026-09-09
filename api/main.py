@@ -46,6 +46,7 @@ from src.analytics.pnl import load_positions  # noqa: E402
 from src.ingest.research import stock_research  # noqa: E402
 from src.ingest.lookup import (search_symbols, quote_overview,  # noqa: E402
                                live_series, institutional_holders)
+from src.ingest.screener import screener_fields, run_screen  # noqa: E402
 from src.ingest.predictions import stock_predictions  # noqa: E402
 from src.ingest.thesis import stock_thesis  # noqa: E402
 from src.assistant import answer as llm_answer, api_key as llm_key, cost_usd as llm_cost  # noqa: E402
@@ -703,6 +704,33 @@ def holders(ticker: str):
         return {"ticker": ticker.upper(), "holders": institutional_holders(ticker)}
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(502, f"holders fetch failed: {exc}")
+
+
+@app.get("/api/screener/fields")
+def screener_fields_route():
+    """The filterable field catalog (sectors, exchanges, fundamentals, ESG, …)
+    and starter presets, so the screener UI can render itself without hardcoding
+    Yahoo's field list twice."""
+    return screener_fields()
+
+
+@app.post("/api/screener/run")
+def screener_run_route(payload: dict | None = None):
+    """Run a custom screen over the full market (region=us). Body:
+    {filters: [{field, op, value|values|min+max}], sort_field, sort_asc, offset, size}."""
+    p = payload or {}
+    try:
+        return run_screen(
+            p.get("filters") or [],
+            sort_field=p.get("sort_field") or "intradaymarketcap",
+            sort_asc=bool(p.get("sort_asc", False)),
+            offset=int(p.get("offset") or 0),
+            size=int(p.get("size") or 50),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"screener fetch failed: {exc}")
 
 
 def _current_user_id(request: Request) -> str | None:
