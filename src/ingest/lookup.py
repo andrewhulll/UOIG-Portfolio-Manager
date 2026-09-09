@@ -149,7 +149,21 @@ def quote_overview(ticker: str) -> dict | None:
 
     prev = (_num(info.get("regularMarketPreviousClose")) or _num(info.get("previousClose"))
             or _num(_fi("previous_close")) or _num(_fi("regular_market_previous_close")))
-    chg = ((px - prev) / prev * 100) if (prev and px is not None) else _num(info.get("regularMarketChangePercent"))
+    # When markets are closed and .info is throttled/empty, fast_info's
+    # last_price and previous_close are the same last close, which would
+    # fabricate a +0.00% day change (#46). Fall back to the reported change
+    # percent, then to the last two daily closes.
+    chg = ((px - prev) / prev * 100) if (prev and px is not None and px != prev) else None
+    if chg is None:
+        chg = _num(info.get("regularMarketChangePercent"))
+    if chg is None and px is not None:
+        try:
+            hist = yf_retry(lambda: tk.history(period="5d", auto_adjust=False))
+            closes = hist["Close"].dropna() if hist is not None and not hist.empty else []
+            if len(closes) >= 2 and closes.iloc[-2]:
+                chg = (closes.iloc[-1] - closes.iloc[-2]) / closes.iloc[-2] * 100
+        except Exception:  # noqa: BLE001 — keep chg None rather than fail the quote
+            pass
 
     mc = _num(info.get("marketCap")) or _num(_fi("market_cap"))
     pe = _num(info.get("forwardPE")) or _num(info.get("trailingPE"))

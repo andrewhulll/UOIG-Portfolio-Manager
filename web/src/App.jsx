@@ -357,8 +357,11 @@ export default class App extends React.Component {
   }
   _fundSectors(fk) {
     const hs = fk === 'all' ? this.allH : this.allH.filter((h) => h.fund === fk)
+    // #28: on the All Funds view, sector shares must be portfolio weights, not
+    // an average of each fund's internal weights.
+    const wOf = (h) => (fk === 'all' && h.wAll != null ? h.wAll : h.w)
     const m = {}; let tot = 0
-    hs.forEach((h) => { const g = SECTOR_OF[h.s]; if (!g) return; m[g.name] = (m[g.name] || 0) + h.w; tot += h.w })
+    hs.forEach((h) => { const g = SECTOR_OF[h.s]; if (!g) return; const w = wOf(h); m[g.name] = (m[g.name] || 0) + w; tot += w })
     return Object.keys(m).map((name) => ({ name, w: m[name], pct: tot ? m[name] / tot * 100 : 0 }))
       .sort((a, b) => b.w - a.w)
   }
@@ -989,7 +992,7 @@ export default class App extends React.Component {
   _renderSectors(v) {
     return (
       <div style={s('height:calc(100vh - 48px);padding:16px;display:flex;flex-direction:column;gap:13px;')}>
-        <div style={s('flex:0 0 auto;')}><div style={s("font:600 17px 'IBM Plex Sans';color:#e8edf7;")}>Sectors</div><div style={s("font-family:'IBM Plex Mono';font-size:10.5px;color:#6b7794;margin-top:3px;")}>The five UOIG groups across the combined endowment · click a column to drill in, a card to open the holding</div></div>
+        <div style={s('flex:0 0 auto;')}><div style={s("font:600 17px 'IBM Plex Sans';color:#e8edf7;")}>Sectors</div><div style={s("font-family:'IBM Plex Mono';font-size:10.5px;color:#6b7794;margin-top:3px;")}>{v.sectorsSubtitle}</div></div>
         <div style={s('flex:1;min-height:0;display:grid;grid-template-columns:repeat(5,1fr);gap:12px;')}>
           {v.sectorCols.map((c) => (
             <div key={c.name} style={s('display:flex;flex-direction:column;min-height:0;background:#0b0f1a;border:1px solid #1d2840;border-radius:10px;overflow:hidden;')}>
@@ -997,7 +1000,7 @@ export default class App extends React.Component {
               <div onClick={c.on} className="dc-hover" style={s('flex:0 0 auto;padding:12px 13px;border-bottom:1px solid #1d2840;cursor:pointer;')}>
                 <div style={s('display:flex;justify-content:space-between;align-items:center;')}>
                   <div style={s('display:flex;align-items:center;gap:8px;min-width:0;')}><span style={{ ...s('width:9px;height:9px;border-radius:3px;flex:0 0 auto;'), background: c.color }}></span><span style={s("font:600 13.5px 'IBM Plex Sans';color:#e8edf7;")}>{c.name}</span></div>
-                  <span style={s("font-family:'IBM Plex Mono';font-size:15px;color:#e8edf7;")}>{c.shareStr}</span>
+                  <span style={s("text-align:right;")}><span style={s("font-family:'IBM Plex Mono';font-size:15px;color:#e8edf7;")}>{c.shareStr}</span>{c.shareBase && <span style={s("display:block;font-family:'IBM Plex Mono';font-size:8px;color:#5d6a85;")}>{c.shareBase}</span>}</span>
                 </div>
                 <div style={s("font-family:'IBM Plex Mono';font-size:8.5px;color:#5d6a85;margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")}>{c.members}</div>
                 <div style={s('display:flex;justify-content:space-between;align-items:center;margin-top:9px;')}><span style={s("font-family:'IBM Plex Mono';font-size:9.5px;color:#6b7794;")}>{c.count} holding{c.count === 1 ? '' : 's'}</span><span style={{ ...s("font-family:'IBM Plex Mono';font-size:10.5px;"), color: c.retColor }}>MTD {c.retStr}</span></div>
@@ -1953,7 +1956,7 @@ export default class App extends React.Component {
             </div>
           )}
           {v.chatMsgs.map((m) => (
-            <div key={m.key} style={{ ...s('padding:10px 13px;font-size:12.5px;line-height:1.6;white-space:pre-wrap;'), alignSelf: m.align, maxWidth: m.maxw, background: m.bg, border: '1px solid ' + m.border, borderRadius: m.radius, color: m.color }}>{m.body}</div>
+            <div key={m.key} style={{ ...s('padding:10px 13px;font-size:12.5px;line-height:1.6;white-space:pre-wrap;overflow-wrap:break-word;'), alignSelf: m.align, maxWidth: m.maxw, background: m.bg, border: '1px solid ' + m.border, borderRadius: m.radius, color: m.color }}>{m.body}</div>
           ))}
           {v.loading && (
             <div style={s('align-self:flex-start;display:flex;align-items:center;gap:7px;color:#7a6fb5;font-size:11px;')}><span style={s('display:flex;gap:3px;')}><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite;')}></span><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite .2s;')}></span><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite .4s;')}></span></span>Claude is analyzing…</div>
@@ -2085,12 +2088,13 @@ export default class App extends React.Component {
     // sectors kanban — one column per UOIG group, in taxonomy order
     const agg = this._aggSectors(fk)
     const singleFund = fk !== 'all'
+    v.sectorsSubtitle = (singleFund ? 'The five UOIG groups across ' + F[fk].name : 'The five UOIG groups across the combined endowment') + ' · click a column to drill in, a card to open the holding'
     v.sectorCols = SECTOR_GROUPS.map((g) => {
       const a = agg[g.name]
-      if (!a) return { name: g.name, color: g.color, members: g.members.join(' · '), shareStr: '0.0%', count: 0, cards: [], singleFund, on: () => {} }
+      if (!a) return { name: g.name, color: g.color, members: g.members.join(' · '), shareStr: '0.0%', shareBase: '', count: 0, cards: [], singleFund, on: () => {} }
       const gd = (a.wByFund[fundA] || 0) / 100 * F[fundA].aum, vd = (a.wByFund[fundB] || 0) / 100 * F[fundB].aum
       const tot = gd + vd || 1
-      const cards = a.holdings.slice().sort((x, y) => y.w - x.w).map((h) => ({
+      const cards = a.holdings.map(wAll).sort((x, y) => y.w - x.w).map((h) => ({
         t: h.t, n: h.n, wStr: h.w.toFixed(1) + '%',
         dayStr: this._sign(h.chg) + '%', dayColor: this._col(h.chg),
         mtdStr: this._sign(h.mtd, 1) + '%', mtdColor: this._col(h.mtd),
@@ -2099,7 +2103,9 @@ export default class App extends React.Component {
       }))
       return {
         name: g.name, color: g.color, members: g.members.join(' · '),
-        shareStr: a.share.toFixed(1) + '%', count: a.count,
+        shareStr: a.share.toFixed(1) + '%',
+        shareBase: singleFund ? 'of ' + F[fk].name : 'of endowment',
+        count: a.count,
         retStr: this._sign(a.ret, 1) + '%', retColor: this._col(a.ret),
         gPct: (gd / tot * 100).toFixed(0) + '%', vPct: (vd / tot * 100).toFixed(0) + '%',
         cards, singleFund,

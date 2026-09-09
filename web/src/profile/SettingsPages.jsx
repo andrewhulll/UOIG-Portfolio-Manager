@@ -209,9 +209,15 @@ export function OrganizationPage({ auth, holdings, onNavigate, onOpenStock }) {
   const load = React.useCallback(() => getOrganizationMembers().then(x => { setData(x); setSelected(s => s || x.members[0] || null) }).catch(e => setError(e.detail || 'Could not load members')), [])
   React.useEffect(() => { load() }, [load])
   const send = async (e) => {
-    e.preventDefault(); if (!invite.email.trim()) return
+    e.preventDefault()
+    const email = invite.email.trim()
+    if (!email) return
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setInvite(x => ({ ...x, status: 'error', message: 'Enter a valid email address (e.g. name@uoregon.edu).' }))
+      return
+    }
     setInvite(x => ({ ...x, status: 'sending', message: '' }))
-    try { await sendInvite(invite.email.trim(), invite.role); setInvite({ ...invite, email: '', status: 'sent', message: `Invitation sent to ${invite.email.trim()}` }) }
+    try { await sendInvite(email, invite.role); setInvite({ ...invite, email: '', status: 'sent', message: `Invitation sent to ${email}` }) }
     catch (err) { setInvite(x => ({ ...x, status: 'error', message: err.detail || 'Could not send invitation' })) }
   }
   if (error) return <SettingsShell active="organization" onNavigate={onNavigate} eyebrow="UOIG" title="Organization" subtitle="Member directory and coverage ownership."><div className="settings-card settings-empty"><b>Directory unavailable</b><span>{error}</span><button onClick={() => { setError(''); load() }}>Try again</button></div></SettingsShell>
