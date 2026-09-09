@@ -1046,7 +1046,8 @@ export default class App extends React.Component {
               </div>
             </div>
           </div>
-          <div style={s('height:184px;margin-top:10px;')}>{v.heroChartEl}</div>
+          <div style={s("display:flex;gap:15px;font:500 10px 'IBM Plex Sans';margin-top:10px;flex-wrap:wrap;")}>{v.heroLegend.map((l, i) => (<span key={i} style={{ color: l.color }}>{l.mark} {l.label}</span>))}</div>
+          <div style={s('height:184px;margin-top:6px;')}>{v.heroChartEl}</div>
           <div style={s("display:flex;justify-content:space-between;font-family:'IBM Plex Mono';font-size:9px;color:#4a5573;margin-top:6px;")}>{v.xLabels.map((x, i) => (<span key={i}>{x}</span>))}</div>
         </div>
         {/* stat tiles */}
@@ -2198,9 +2199,20 @@ export default class App extends React.Component {
       v.heroRetColor = this._col(r)
       v.heroRetText = (r >= 0 ? '▲' : '▼') + ' ' + this._sign(r, 1) + '% ' + per + ' · ' + this._kdSigned(gain * 1e6) + ' · blended α ' + this._sign(this._blend((f) => f.alpha), 1) + '% vs policy'
       const lines = []
-      if (fseries && fseries.multi) fseries.multi.forEach((m, i) => lines.push({ values: m.fund.values, color: F[keys[i]].color, area: i === 0, width: 2 }))
+      const benchColors = ['#5d6a85', '#6b5a3e'] // muted, distinct per fund
+      const legend = keys.map((k) => ({ mark: '●', label: F[k].name, color: F[k].color }))
+      if (fseries && fseries.multi) fseries.multi.forEach((m, i) => {
+        lines.push({ values: m.fund.values, color: F[keys[i]].color, area: i === 0, width: 2 })
+        // #41: overlay each fund's benchmark on the combined view. Both series
+        // are rebased to 100 at period start by the backend, so one axis works.
+        if (m.bench && m.bench.values && m.bench.values.length) {
+          const bc = benchColors[i % benchColors.length]
+          lines.push({ values: m.bench.values, color: bc, width: 1.2, dash: '4 4' })
+          legend.push({ mark: '┄', label: F[keys[i]].benchShort || m.bench.ticker || 'Benchmark', color: bc })
+        }
+      })
       v.heroChartEl = this._chart('heroAll' + per, lines, 184)
-      v.heroLegend = keys.map((k) => ({ mark: '●', label: F[k].name, color: F[k].color }))
+      v.heroLegend = legend
       v.heroStats = [
         { l: 'Blended α', v: this._sign(this._blend((f) => f.alpha), 1) + '%', sub: 'vs policy', c: '#21d07a', tooltip: 'Active return compared to the benchmark.' },
         { l: 'Beta', v: this._blend((f) => f.beta).toFixed(2), sub: '3Y', c: '#cdd6e8', tooltip: 'Volatility compared to the market.' },
