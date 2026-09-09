@@ -386,7 +386,10 @@ export default class App extends React.Component {
 
   // ---------- navigation ----------
   _go(view) { this.setState({ view, profileOpen: false }) }
-  _setFund(k) { try { localStorage.setItem('uoig.fund', k) } catch (e) { /* ignore */ } this.setState({ fund: k }) }
+  _setFund(k) { try { localStorage.setItem('uoig.fund', k) } catch (e) { /* ignore */ } this.setState({ fund: k, optimizeFund: null }) }  // #37: keep the header tabs and the optimize page's fund in sync
+  // #37: the Optimize page follows the global fund tab (falls back to the
+  // first fund when 'all' is selected, since optimization is per-fund).
+  _optimizeFundKey() { return this.state.optimizeFund || ((this.fundKeys || []).includes(this.state.fund) ? this.state.fund : (this.fundKeys || [])[0]) }
   _openStock(t, from) {
     const tk = (t || '').toUpperCase()
     this.setState({ view: 'stock', ticker: tk, prevView: from || this.state.view, stkTab: 'overview' },
@@ -527,7 +530,7 @@ export default class App extends React.Component {
 
   // Per-fund optimization diagnostics (active risk vs benchmark) for the Optimize page.
   _ensureOptimizeDiag() {
-    const key = this.state.optimizeFund || (this.fundKeys && this.fundKeys[0])
+    const key = this._optimizeFundKey()
     if (!key || this.state.optimizeDiag[key]) return
     this.setState((st) => ({ optimizeDiag: { ...st.optimizeDiag, [key]: 'loading' } }))
     getOptimizeDiagnostics(key)
@@ -537,7 +540,7 @@ export default class App extends React.Component {
 
   // What-if sandbox inputs (covariance + weights) — the client recomputes risk live.
   _ensureWhatif() {
-    const key = this.state.optimizeFund || (this.fundKeys && this.fundKeys[0])
+    const key = this._optimizeFundKey()
     if (!key || this.state.whatif[key]) return
     this.setState((st) => ({ whatif: { ...st.whatif, [key]: 'loading' } }))
     getOptimizeWhatif(key)
@@ -548,13 +551,13 @@ export default class App extends React.Component {
   // Black-Litterman solve. Auto-runs once per fund (implied returns, no views);
   // the Solve button re-runs with the club's views and constraints.
   _ensureOptSolve() {
-    const key = this.state.optimizeFund || (this.fundKeys && this.fundKeys[0])
+    const key = this._optimizeFundKey()
     if (!key || this.state.optResult[key]) return
     this._runSolve(key)
   }
 
   _runSolve(k) {
-    const key = k || this.state.optimizeFund || (this.fundKeys && this.fundKeys[0])
+    const key = k || this._optimizeFundKey()
     if (!key) return
     const vmap = this.state.optViews[key] || {}
     const views = Object.entries(vmap)
@@ -832,7 +835,7 @@ export default class App extends React.Component {
             {v.isOptimize && this._renderOptimize(v)}
             {v.isAssistant && this._renderAssistant(v)}
             {this.state.view === 'profile' && <ProfilePage auth={this.state.auth} onNavigate={(view) => this._go(view)} onUserUpdated={(user) => this.setState((st) => ({ auth: { ...st.auth, user }, avatarImgFailed: false }))} />}
-            {this.state.view === 'preferences' && <PreferencesPage fundOptions={[{ value: 'all', label: 'All Funds' }, ...this.fundKeys.map(k => ({ value: k, label: this.funds[k].name }))]} currentFund={this.state.fund} currentPeriod={this.state.period} onNavigate={(view) => this._go(view)} onApply={(preferences) => this.setState({ preferences, fund: preferences.defaultFund, period: preferences.defaultPeriod })} />}
+            {this.state.view === 'preferences' && <PreferencesPage fundOptions={[{ value: 'all', label: 'All Funds' }, ...this.fundKeys.map(k => ({ value: k, label: this.funds[k].name }))]} currentFund={this.state.fund} currentPeriod={this.state.period} onNavigate={(view) => this._go(view)} onApply={(preferences) => this.setState({ preferences, fund: preferences.defaultFund, period: preferences.defaultPeriod, optimizeFund: null })} />}
             {this.state.view === 'organization' && <OrganizationPage auth={this.state.auth} holdings={this.organizationHoldings} onNavigate={(view) => this._go(view)} onOpenStock={(ticker) => this._openStock(ticker, 'organization')} />}
             {this.state.view === 'coverage' && <><MyCoverage onOpenStock={(ticker) => this._openStock(ticker, 'coverage')} /><WeeklySubmission auth={this.state.auth} /></>}
             {this.state.view === 'inbox' && <InboxPage auth={this.state.auth} />}
@@ -1420,7 +1423,7 @@ export default class App extends React.Component {
 
   _renderOptimize(v) {
     const st = this.state, F = this.funds
-    const key = st.optimizeFund || this.fundKeys[0]
+    const key = this._optimizeFundKey()
     const f = F[key]
     const d = st.optimizeDiag[key]
     const tab = st.optimizeTab || 'diagnostics'
@@ -1439,7 +1442,7 @@ export default class App extends React.Component {
             <div style={s('display:flex;background:#0a0f1a;border:1px solid #1d2840;border-radius:8px;padding:3px;')}>
               {this.fundKeys.map((k) => {
                 const on = k === key
-                return <span key={k} onClick={() => this.setState({ optimizeFund: k })} style={{ ...s("padding:5px 13px;border-radius:5px;cursor:pointer;font:600 11px 'IBM Plex Sans';"), background: on ? '#13203a' : 'transparent', color: on ? F[k].color : '#6b7794', border: on ? '1px solid #28406e' : '1px solid transparent' }}>{F[k].name}</span>
+                return <span key={k} onClick={() => this._setFund(k)} style={{ ...s("padding:5px 13px;border-radius:5px;cursor:pointer;font:600 11px 'IBM Plex Sans';"), background: on ? '#13203a' : 'transparent', color: on ? F[k].color : '#6b7794', border: on ? '1px solid #28406e' : '1px solid transparent' }}>{F[k].name}</span>
               })}
             </div>
             <div style={s('text-align:right;')}>
@@ -1980,7 +1983,10 @@ export default class App extends React.Component {
     const v = {}
     const mkt = this._marketStatus()
     v.marketOpen = mkt.open
-    v.asOf = 'AS OF ' + mkt.date
+    // #36: the header as-of must match the data vintage (used on the stock
+    // page), not today's calendar date — otherwise they disagree whenever
+    // the bundle was built on an earlier date.
+    v.asOf = 'AS OF ' + (st.data && st.data.asOf ? String(st.data.asOf).slice(0, 10) : mkt.date)
     v.isDashboard = st.view === 'dashboard'; v.isStocks = st.view === 'stocks'
     v.isSectors = st.view === 'sectors'; v.isStock = st.view === 'stock'; v.isSector = st.view === 'sector'
     v.isOptimize = st.view === 'optimize'; v.isAssistant = st.view === 'assistant'

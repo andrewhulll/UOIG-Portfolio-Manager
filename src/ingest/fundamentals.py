@@ -31,6 +31,22 @@ def _info(ticker: str) -> dict:
         return {}
 
 
+def _provider_yield(info: dict) -> float | None:
+    """TTM dividend yield straight from the provider (#43 fallback).
+
+    Used when our own dividends table has no payouts for the ticker; mirrors
+    the quote path's logic (rate/price preferred, reported yield field as backup).
+    """
+    px = _f(info.get("currentPrice")) or _f(info.get("regularMarketPrice"))
+    rate = _f(info.get("trailingAnnualDividendRate")) or _f(info.get("dividendRate"))
+    if rate is not None and px:
+        return rate / px * 100
+    raw = _f(info.get("dividendYield"))
+    if raw is None:
+        return None
+    return raw if raw > 1 else raw * 100
+
+
 def pull_fundamentals(cfg: dict, conn: sqlite3.Connection | None = None,
                       tickers: list[str] | None = None) -> dict:
     own = conn is None
@@ -55,7 +71,8 @@ def pull_fundamentals(cfg: dict, conn: sqlite3.Connection | None = None,
              _f(info.get("priceToBook")), _f(info.get("enterpriseToEbitda")),
              _f(info.get("marketCap")),
              _f(info.get("fiftyTwoWeekLow")), _f(info.get("fiftyTwoWeekHigh")),
-             (info.get("longBusinessSummary") or "")[:600], today)
+             (info.get("longBusinessSummary") or "")[:600], today,
+             _provider_yield(info))
         )
         summary["updated"] += 1
     if rows:
@@ -63,7 +80,8 @@ def pull_fundamentals(cfg: dict, conn: sqlite3.Connection | None = None,
             conn,
             db.upsert_sql(conn, "fundamentals",
                           ["ticker", "gics_sector", "pe", "pb", "ev_ebitda", "market_cap",
-                           "week52_low", "week52_high", "description", "updated"], ["ticker"]),
+                           "week52_low", "week52_high", "description", "updated",
+                           "div_yield_provider"], ["ticker"]),
             rows
         )
     conn.commit()
