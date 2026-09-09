@@ -1187,15 +1187,8 @@ def _agent_portfolio_json(data: dict) -> str:
 # one blocking HTTP request (proxies/gateways cut it off), so the button kicks off
 # a background thread and the frontend polls the status endpoint below.
 _AGENT_JOBS: dict[str, dict] = {}
-
-
-def _run_agent_task(job_id: str, aid: str, task: str, context: str, attachments: list, agent):
-    try:
-        reply = agent.run_agent(aid, task, context, attachments=attachments)
-        _AGENT_JOBS[job_id] = {"status": "done", "reply": reply, "error": None}
-    except Exception as exc:  # noqa: BLE001
-        log.exception("agent run failed")
-        _AGENT_JOBS[job_id] = {"status": "error", "reply": None, "error": str(exc)}
+_MAX_CONCURRENT_AGENT_RUNS = 2
+_AGENT_JOB_TTL = 3600  # seconds; finished jobs older than this are evicted
 
 
 @app.post("/api/agent/run")
@@ -1208,32 +1201,27 @@ def agent_run(request: Request, payload: dict, background_tasks: BackgroundTasks
     if not _enforce_rate_limit(user_id, _USER_AGENT_RUNS, lock=_AGENT_LOCK, limit=5, window=600):
         raise HTTPException(429, "Too many agent runs. Please try again later.")
 
-    now = time.time()
-    job_id = uuid.uuid4().hex
-
-    with _AGENT_LOCK:
-        # evict stale
-        stale_keys = []
-        for k, v in _AGENT_JOBS.items():
-            age = now - v.get("started_at", now)
-            if v["status"] in ("done", "error") and age > 300:
-                stale_keys.append(k)
-            elif v["status"] == "running" and age > 1800:
-                stale_keys.append(k)
-        for k in stale_keys:
-            _AGENT_JOBS.pop(k, None)
-
-        active_jobs = sum(1 for v in _AGENT_JOBS.values() if v["status"] == "running")
-        if active_jobs >= 3:
-            raise HTTPException(503, "Agent service is busy. Please wait a moment.")
-
-        _AGENT_JOBS[job_id] = {"status": "running", "reply": None, "error": None, "started_at": now}
-
     from src import agent_run as agent
     aid = (os.environ.get("ANTHROPIC_AGENT_ID") or CFG.get("agent_id") or "").strip()
     if not aid:
-        _AGENT_JOBS.pop(job_id, None)
         raise HTTPException(503, "agent_not_configured")
+
+    now = time.time()
+    job_id = uuid.uuid4().hex
+    with _AGENT_LOCK:
+        # evict stale jobs: finished ones older than the TTL, or ones still
+        # "running" after 30 minutes (a crashed worker never updates them)
+        for jid, job in list(_AGENT_JOBS.items()):
+            age = now - job.get("created_at", now)
+            if (job["status"] in ("done", "error") and age > _AGENT_JOB_TTL) or \
+               (job["status"] == "running" and age > 1800):
+                _AGENT_JOBS.pop(jid, None)
+        running = sum(1 for job in _AGENT_JOBS.values() if job["status"] == "running")
+        if running >= _MAX_CONCURRENT_AGENT_RUNS:
+            raise HTTPException(429, "Too many concurrent agent runs across the system")
+        _AGENT_JOBS[job_id] = {"status": "running", "reply": None, "error": None,
+                               "created_at": now}
+
     conn = _conn()
     try:
         data = build_terminal_data(CFG, conn)
@@ -1247,24 +1235,6 @@ def agent_run(request: Request, payload: dict, background_tasks: BackgroundTasks
         "market analysis for our portfolio: the key macro and sector drivers, notable "
         "moves in our holdings, and any risks or names to watch. Be concise and "
         "specific; cite sources where you used them.")
-
-
-    MAX_CONCURRENT_RUNS = 2
-    JOB_TTL = 3600
-
-    # TTL cleanup
-    now = time.time()
-    for jid, job in list(_AGENT_JOBS.items()):
-        if now - job.get("created_at", now) > JOB_TTL:
-            _AGENT_JOBS.pop(jid, None)
-
-    # Max concurrent check
-    running_jobs = sum(1 for job in _AGENT_JOBS.values() if job["status"] == "running")
-    if running_jobs >= MAX_CONCURRENT_RUNS:
-        raise HTTPException(429, "Too many concurrent agent runs across the system")
-
-    job_id = uuid.uuid4().hex
-    _AGENT_JOBS[job_id] = {"status": "running", "reply": None, "error": None, "created_at": time.time()}
 
     def _worker():
         try:
