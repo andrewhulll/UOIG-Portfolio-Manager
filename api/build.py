@@ -142,6 +142,7 @@ def build_terminal_data(cfg: dict, conn: sqlite3.Connection) -> dict:
 
         funds[meta.get("key", name)] = {
             "key": meta.get("key", name), "name": name,
+            "slug": name.lower().replace(" ", "-"),  # #40: URL slug, e.g. tall-firs
             "long": f"{name} · Net Asset Value",
             "bench": meta.get("benchShort", bench), "benchShort": meta.get("benchShort", bench),
             "benchTicker": bench, "color": meta.get("color", "#5a93f9"),

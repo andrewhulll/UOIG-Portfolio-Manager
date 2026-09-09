@@ -22,6 +22,9 @@ STATE_COOKIE = "uoig_oauth_state"
 # Carries an invitation token across the Google-OAuth round trip, so the callback
 # can accept the invite when an invitee signs in with Google. Short-lived.
 INVITE_COOKIE = "uoig_invite"
+# Carries the pre-login deep link across the Google-OAuth round trip (#40),
+# so the callback can send the user back to the page they started from.
+NEXT_COOKIE = "uoig_next"
 SESSION_MAX_AGE = 60 * 60 * 24  # 1 day
 
 

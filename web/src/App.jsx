@@ -158,16 +158,20 @@ export default class App extends React.Component {
       searchQ: '', searchResults: [], searchOpen: false, searchActive: -1, searchDone: false,
     }
     this._searchSeq = 0
+    this._onPopState = this._onPopState.bind(this)  // #40
   }
 
   componentDidMount() {
     // Gate on sign-in first; only load portfolio data once authenticated. AuthScreen
     // (rendered when auth is null) owns the sign-in / invite / reset URL handling.
+    try { window.addEventListener('popstate', this._onPopState) } catch (e) { /* ignore */ }
     getMe()
       .then((me) => {
         // Analysts land on their coverage by default (unless they've picked an
         // explicit landing page in Preferences); admins/leadership keep the dashboard.
-        const view = (me.role === 'member' && !this.state.preferences.landingPage)
+        // A deep link (#40) always wins over the default landing page.
+        const deep = (window.location.pathname || '/').replace(/\/+$/, '') !== ''
+        const view = (!deep && me.role === 'member' && !this.state.preferences.landingPage)
           ? 'coverage' : this.state.view
         this.setState({ auth: me, view })
         this._loadData()
@@ -185,6 +189,7 @@ export default class App extends React.Component {
   componentWillUnmount() {
     if (this._clock) clearInterval(this._clock)
     if (this._dataPoll) clearInterval(this._dataPoll)
+    try { window.removeEventListener('popstate', this._onPopState) } catch (e) { /* ignore */ }
   }
 
   // Refetch portfolio data in place (live prices) without resetting the view —
@@ -213,7 +218,7 @@ export default class App extends React.Component {
       .then((data) => {
         const keys = Object.keys(data.funds)
         const fund = ['all', ...keys].includes(this.state.fund) ? this.state.fund : 'all'
-        this.setState({ data, fund }, this._ensureSeries)
+        this.setState({ data, fund }, () => { this._ensureSeries(); this._applyInitialRoute() })
       })
       .catch(() => this.setState({ error: 'Could not reach the API. Is the backend running on :8000?' }))
   }
@@ -246,7 +251,7 @@ export default class App extends React.Component {
     const a = this.state.auth || {}
     const u = a.user || {}
     const roleName = a.role === 'member' ? 'Analyst' : a.role === 'sector-leader' ? 'Sector Leader' : (a.role || 'Member')
-    const open = (view) => this.setState({ view, profileOpen: false })
+    const open = (view) => this._navigate({ view, profileOpen: false })  // #40: via router
     return (
       <>
         <div onClick={() => this.setState({ profileOpen: false })} style={s('position:fixed;inset:0;z-index:90;')}></div>
@@ -386,17 +391,150 @@ export default class App extends React.Component {
   _col(x) { return x >= 0 ? '#21d07a' : '#ff5666' }
 
   // ---------- navigation ----------
-  _go(view) { this.setState({ view, profileOpen: false }) }
-  _setFund(k) { try { localStorage.setItem('uoig.fund', k) } catch (e) { /* ignore */ } this.setState({ fund: k, optimizeFund: null }) }  // #37: keep the header tabs and the optimize page's fund in sync
+  _go(view) { this._navigate({ view, profileOpen: false }) }  // #40: via router
+  _setFund(k) { try { localStorage.setItem('uoig.fund', k) } catch (e) { /* ignore */ } this._navigate({ fund: k, optimizeFund: null }) }  // #37: keep the header tabs and the optimize page's fund in sync
   // #37: the Optimize page follows the global fund tab (falls back to the
   // first fund when 'all' is selected, since optimization is per-fund).
   _optimizeFundKey() { return this.state.optimizeFund || ((this.fundKeys || []).includes(this.state.fund) ? this.state.fund : (this.fundKeys || [])[0]) }
   _openStock(t, from) {
     const tk = (t || '').toUpperCase()
-    this.setState({ view: 'stock', ticker: tk, prevView: from || this.state.view, stkTab: 'overview' },
-      () => this._ensureQuote(tk))
+    // #40: via router (_ensureQuote runs through componentDidUpdate->_ensureSeries)
+    this._navigate({ view: 'stock', ticker: tk, prevView: from || this.state.view, stkTab: 'overview' })
   }
-  _openSector(name, from) { this.setState({ view: 'sector', sector: name, prevView: from || this.state.view }) }
+  _openSector(name, from) { this._navigate({ view: 'sector', sector: name, prevView: from || this.state.view }) }  // #40: via router
+
+  // ---------- routing (#40) ----------
+  // URL <-> view-state mapping. Every view is shareable/bookmarkable and the
+  // browser back/forward buttons work via pushState + popstate.
+  //   /                    dashboard (fund=all)
+  //   /fund/tall-firs      dashboard scoped to a fund (slug from fund.slug)
+  //   /stocks              full holdings
+  //   /ticker/AAPL         stock page (?tab=financials ...)
+  //   /sectors             sector overview
+  //   /sector/Technology   sector detail
+  //   /optimize            optimizer (?tab=whatif, ?fund=tall-firs)
+  //   /inbox /coverage /organization /profile /preferences /assistant
+  _routeSlugs() {
+    const out = {}
+    if (this.state.data) for (const k of this.fundKeys) out[((this.funds[k] || {}).slug) || k] = k
+    return out
+  }
+  _fundSlug(key) { return ((this.state.data && this.funds[key]) || {}).slug || key }
+  _validStkTab(t) {
+    return ['overview', 'thesis', 'financials', 'earnings', 'news', 'research', 'predictions'].includes(t) ? t : 'overview'
+  }
+  _validOptTab(t) { return ['diagnostics', 'whatif', 'optimizer'].includes(t) ? t : 'diagnostics' }
+  _parseRoute() {
+    // -> { patch, replace } | { redirect } | null (null = "/", keep boot defaults)
+    const raw = (window.location.pathname || '/').replace(/\/+$/, '') || '/'
+    if (raw === '/') return null
+    const q = new URLSearchParams(window.location.search || '')
+    const segs = raw.split('/').filter(Boolean)
+    const slugs = this._routeSlugs()
+    const fundKey = (s2) => (s2 && slugs[s2]) || null
+    const ok = (patch) => ({ patch, replace: false })
+    const norm = (patch) => ({ patch, replace: true })
+    const [a, b] = segs
+    if (a === 'fund' && b && segs.length === 2) {
+      const key = fundKey(b)
+      return key ? ok({ view: 'dashboard', fund: key }) : norm({ view: 'dashboard', fund: 'all' })
+    }
+    if (a === 'stocks' && segs.length === 1) return ok({ view: 'stocks' })
+    if (a === 'ticker' && b && segs.length === 2) {
+      const tk = b.toUpperCase()
+      let tab = this._validStkTab(q.get('tab'))
+      let heldOnly = false
+      // Thesis/Predictions tabs only exist for held names — clamp deep links
+      // to them back to overview (and normalize the URL).
+      try {
+        if ((tab === 'thesis' || tab === 'predictions') && this.state.data && !this.byT[tk]) {
+          tab = 'overview'; heldOnly = true
+        }
+      } catch (e) { /* ignore */ }
+      const patch = { view: 'stock', ticker: tk, stkTab: tab, prevView: 'dashboard' }
+      return heldOnly ? norm(patch) : ok(patch)
+    }
+    if (a === 'sectors' && segs.length === 1) return ok({ view: 'sectors' })
+    if (a === 'sector' && b && segs.length === 2) {
+      let name = b
+      try { name = decodeURIComponent(b) } catch (e) { /* keep raw */ }
+      return ok({ view: 'sector', sector: name, prevView: 'dashboard' })
+    }
+    if (a === 'optimize' && segs.length === 1) {
+      return ok({ view: 'optimize', optimizeTab: this._validOptTab(q.get('tab')), fund: fundKey(q.get('fund')) || 'all' })
+    }
+    if (segs.length === 1 && ['inbox', 'coverage', 'organization', 'profile', 'preferences', 'assistant'].includes(a)) {
+      return ok({ view: a })
+    }
+    return { redirect: '/' }
+  }
+  _urlFor(st) {
+    const v = st.view
+    if (v === 'dashboard') return st.fund && st.fund !== 'all' ? '/fund/' + this._fundSlug(st.fund) : '/'
+    if (v === 'stocks') return '/stocks'
+    if (v === 'stock' && st.ticker) {
+      return '/ticker/' + encodeURIComponent(st.ticker) + (st.stkTab && st.stkTab !== 'overview' ? '?tab=' + st.stkTab : '')
+    }
+    if (v === 'sectors') return '/sectors'
+    if (v === 'sector' && st.sector) return '/sector/' + encodeURIComponent(st.sector)
+    if (v === 'optimize') {
+      const qp = new URLSearchParams()
+      if (st.optimizeTab && st.optimizeTab !== 'diagnostics') qp.set('tab', st.optimizeTab)
+      if (st.fund && st.fund !== 'all') qp.set('fund', this._fundSlug(st.fund))
+      const qs = qp.toString()
+      return '/optimize' + (qs ? '?' + qs : '')
+    }
+    if (['inbox', 'coverage', 'organization', 'profile', 'preferences', 'assistant'].includes(v)) return '/' + v
+    return '/'
+  }
+  _titleFor(st) {
+    const base = 'UOIG Terminal'
+    if (st.view === 'stock' && st.ticker) return st.ticker + ' \u2014 ' + base
+    if (st.view === 'sector' && st.sector) return st.sector + ' \u2014 ' + base
+    if (st.view === 'dashboard' && st.fund && st.fund !== 'all' && st.data && this.funds[st.fund]) {
+      return this.funds[st.fund].name + ' \u2014 ' + base
+    }
+    const names = { dashboard: 'Dashboard', stocks: 'Holdings', sectors: 'Sectors', optimize: 'Optimize', inbox: 'Inbox', coverage: 'Coverage', organization: 'Organization', profile: 'Profile', preferences: 'Preferences', assistant: 'Co-Pilot' }
+    return (names[st.view] || 'Dashboard') + ' \u2014 ' + base
+  }
+  _navigate(patch, opts) {
+    // Central navigation: state change + history entry, so every view is
+    // shareable/bookmarkable and browser back/forward works.
+    opts = opts || {}
+    const next = { ...this.state, ...patch }
+    let url = '/'
+    try { url = this._urlFor(next) } catch (e) { /* ignore */ }
+    try {
+      if (opts.replace) window.history.replaceState({}, '', url)
+      else window.history.pushState({}, '', url)
+    } catch (e) { /* ignore (non-browser env) */ }
+    this.setState(patch, () => { try { document.title = this._titleFor(this.state) } catch (e) { /* ignore */ } })
+  }
+  _onPopState() {
+    // Browser back/forward: restore view state from the URL (no new entry).
+    const r = this._parseRoute()
+    const patch = r && !r.redirect ? r.patch : { view: 'dashboard', fund: 'all' }
+    if (r && r.redirect) { try { window.history.replaceState({}, '', '/') } catch (e) { /* ignore */ } }
+    this.setState(patch, () => { try { document.title = this._titleFor(this.state) } catch (e) { /* ignore */ } })
+  }
+  _applyInitialRoute() {
+    // After data loads: honor a deep link, otherwise canonicalize the URL for
+    // the boot-default view (landing page / member coverage / persisted fund).
+    const raw = (window.location.pathname || '/').replace(/\/+$/, '') || '/'
+    if (raw === '/') { this._navigate({}, { replace: true }); return }
+    const r = this._parseRoute()
+    if (!r || r.redirect) {
+      try { window.history.replaceState({}, '', '/') } catch (e) { /* ignore */ }
+      this._navigate({}, { replace: true })
+      return
+    }
+    this.setState(r.patch, () => {
+      if (r.replace) {
+        try { window.history.replaceState({}, '', this._urlFor(this.state)) } catch (e) { /* ignore */ }
+      }
+      try { document.title = this._titleFor(this.state) } catch (e) { /* ignore */ }
+    })
+  }
 
   // ---------- global search (Yahoo Finance + local holdings) ----------
   _localMatches(q) {
@@ -838,7 +976,7 @@ export default class App extends React.Component {
             {v.isScreener && <Screener onOpenStock={(ticker) => this._openStock(ticker, 'screener')} />}
             {v.isAssistant && this._renderAssistant(v)}
             {this.state.view === 'profile' && <ProfilePage auth={this.state.auth} onNavigate={(view) => this._go(view)} onUserUpdated={(user) => this.setState((st) => ({ auth: { ...st.auth, user }, avatarImgFailed: false }))} />}
-            {this.state.view === 'preferences' && <PreferencesPage fundOptions={[{ value: 'all', label: 'All Funds' }, ...this.fundKeys.map(k => ({ value: k, label: this.funds[k].name }))]} currentFund={this.state.fund} currentPeriod={this.state.period} onNavigate={(view) => this._go(view)} onApply={(preferences) => this.setState({ preferences, fund: preferences.defaultFund, period: preferences.defaultPeriod, optimizeFund: null })} />}
+            {this.state.view === 'preferences' && <PreferencesPage fundOptions={[{ value: 'all', label: 'All Funds' }, ...this.fundKeys.map(k => ({ value: k, label: this.funds[k].name }))]} currentFund={this.state.fund} currentPeriod={this.state.period} onNavigate={(view) => this._go(view)} onApply={(preferences) => this._navigate({ preferences, fund: preferences.defaultFund, period: preferences.defaultPeriod, optimizeFund: null }, { replace: true })} />}
             {this.state.view === 'organization' && <OrganizationPage auth={this.state.auth} holdings={this.organizationHoldings} onNavigate={(view) => this._go(view)} onOpenStock={(ticker) => this._openStock(ticker, 'organization')} />}
             {this.state.view === 'coverage' && <><MyCoverage onOpenStock={(ticker) => this._openStock(ticker, 'coverage')} /><WeeklySubmission auth={this.state.auth} /></>}
             {this.state.view === 'inbox' && <InboxPage auth={this.state.auth} />}
@@ -1456,7 +1594,7 @@ export default class App extends React.Component {
         </div>
         <div style={s('display:flex;gap:3px;border-bottom:1px solid #1d2840;')}>
           {tabs.map(([k, label]) => (
-            <span key={k} onClick={() => this.setState({ optimizeTab: k })} style={{ ...s("padding:9px 15px;font-size:11.5px;font-family:'IBM Plex Sans';cursor:pointer;margin-bottom:-1px;"), fontWeight: k === tab ? 600 : 500, color: k === tab ? '#e8edf7' : '#6b7794', borderBottom: k === tab ? '2px solid #5a93f9' : '2px solid transparent' }}>{label}</span>
+            <span key={k} onClick={() => this._navigate({ optimizeTab: k }, { replace: true })} style={{ ...s("padding:9px 15px;font-size:11.5px;font-family:'IBM Plex Sans';cursor:pointer;margin-bottom:-1px;"), fontWeight: k === tab ? 600 : 500, color: k === tab ? '#e8edf7' : '#6b7794', borderBottom: k === tab ? '2px solid #5a93f9' : '2px solid transparent' }}>{label}</span>
           ))}
         </div>
         {tab === 'diagnostics' && loading && this._optimizeMsg('Computing active-risk diagnostics…')}
@@ -2191,7 +2329,7 @@ export default class App extends React.Component {
         v.stkTabs = [['overview', 'Overview'], ['thesis', 'Thesis'], ['financials', 'Financials'], ['earnings', 'Earnings'], ['news', 'News'], ['research', 'Research'], ['predictions', 'Predictions']]
           .filter(([k]) => held || (k !== 'thesis' && k !== 'predictions'))
           .map(([k, label]) => ({
-            key: k, label, on: () => this.setState({ stkTab: k }),
+            key: k, label, on: () => this._navigate({ stkTab: k }, { replace: true }),
             weight: k === tabKey ? 600 : 500, color: k === tabKey ? '#e8edf7' : '#6b7794',
             border: k === tabKey ? '2px solid #5a93f9' : '2px solid transparent',
           }))
