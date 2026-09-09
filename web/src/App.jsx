@@ -173,19 +173,23 @@ export default class App extends React.Component {
       optResult: {},  // cache: fundKey -> BL solve result | 'loading' | 'error'
       optViews: {},  // fundKey -> {ticker: {q: str, conf: 'low'|'med'|'high'}}
       optCap: '10', optErp: '5',  // optimizer constraint inputs (% strings)
-      searchQ: '', searchResults: [], searchOpen: false, searchActive: -1,
+      searchQ: '', searchResults: [], searchOpen: false, searchActive: -1, searchDone: false,
     }
     this._searchSeq = 0
+    this._onPopState = this._onPopState.bind(this)  // #40
   }
 
   componentDidMount() {
     // Gate on sign-in first; only load portfolio data once authenticated. AuthScreen
     // (rendered when auth is null) owns the sign-in / invite / reset URL handling.
+    try { window.addEventListener('popstate', this._onPopState) } catch (e) { /* ignore */ }
     getMe()
       .then((me) => {
         // Analysts land on their coverage by default (unless they've picked an
         // explicit landing page in Preferences); admins/leadership keep the dashboard.
-        const view = (me.role === 'member' && !this.state.preferences.landingPage)
+        // A deep link (#40) always wins over the default landing page.
+        const deep = (window.location.pathname || '/').replace(/\/+$/, '') !== ''
+        const view = (!deep && me.role === 'member' && !this.state.preferences.landingPage)
           ? 'coverage' : this.state.view
         this.setState({ auth: me, view })
         this._loadData()
@@ -203,6 +207,7 @@ export default class App extends React.Component {
   componentWillUnmount() {
     if (this._clock) clearInterval(this._clock)
     if (this._dataPoll) clearInterval(this._dataPoll)
+    try { window.removeEventListener('popstate', this._onPopState) } catch (e) { /* ignore */ }
   }
 
   // Refetch portfolio data in place (live prices) without resetting the view —
@@ -231,7 +236,7 @@ export default class App extends React.Component {
       .then((data) => {
         const keys = Object.keys(data.funds)
         const fund = ['all', ...keys].includes(this.state.fund) ? this.state.fund : 'all'
-        this.setState({ data, fund }, this._ensureSeries)
+        this.setState({ data, fund }, () => { this._ensureSeries(); this._applyInitialRoute() })
       })
       .catch(() => this.setState({ error: 'Could not reach the API. Is the backend running on :8000?' }))
   }
@@ -264,7 +269,7 @@ export default class App extends React.Component {
     const a = this.state.auth || {}
     const u = a.user || {}
     const roleName = a.role === 'member' ? 'Analyst' : a.role === 'sector-leader' ? 'Sector Leader' : (a.role || 'Member')
-    const open = (view) => this.setState({ view, profileOpen: false })
+    const open = (view) => this._navigate({ view, profileOpen: false })  // #40: via router
     return (
       <>
         <div onClick={() => this.setState({ profileOpen: false })} style={s('position:fixed;inset:0;z-index:90;')}></div>
@@ -383,8 +388,11 @@ export default class App extends React.Component {
   }
   _fundSectors(fk) {
     const hs = fk === 'all' ? this.allH : this.allH.filter((h) => h.fund === fk)
+    // #28: on the All Funds view, sector shares must be portfolio weights, not
+    // an average of each fund's internal weights.
+    const wOf = (h) => (fk === 'all' && h.wAll != null ? h.wAll : h.w)
     const m = {}; let tot = 0
-    hs.forEach((h) => { const g = SECTOR_OF[h.s]; if (!g) return; m[g.name] = (m[g.name] || 0) + h.w; tot += h.w })
+    hs.forEach((h) => { const g = SECTOR_OF[h.s]; if (!g) return; const w = wOf(h); m[g.name] = (m[g.name] || 0) + w; tot += w })
     return Object.keys(m).map((name) => ({ name, w: m[name], pct: tot ? m[name] / tot * 100 : 0 }))
       .sort((a, b) => b.w - a.w)
   }
@@ -408,14 +416,150 @@ export default class App extends React.Component {
   _col(x) { return x >= 0 ? '#21d07a' : '#ff5666' }
 
   // ---------- navigation ----------
-  _go(view) { this.setState({ view, profileOpen: false }) }
-  _setFund(k) { try { localStorage.setItem('uoig.fund', k) } catch (e) { /* ignore */ } this.setState({ fund: k }) }
+  _go(view) { this._navigate({ view, profileOpen: false }) }  // #40: via router
+  _setFund(k) { try { localStorage.setItem('uoig.fund', k) } catch (e) { /* ignore */ } this._navigate({ fund: k, optimizeFund: null }) }  // #37: keep the header tabs and the optimize page's fund in sync
+  // #37: the Optimize page follows the global fund tab (falls back to the
+  // first fund when 'all' is selected, since optimization is per-fund).
+  _optimizeFundKey() { return this.state.optimizeFund || ((this.fundKeys || []).includes(this.state.fund) ? this.state.fund : (this.fundKeys || [])[0]) }
   _openStock(t, from) {
     const tk = (t || '').toUpperCase()
-    this.setState({ view: 'stock', ticker: tk, prevView: from || this.state.view, stkTab: 'overview' },
-      () => this._ensureQuote(tk))
+    // #40: via router (_ensureQuote runs through componentDidUpdate->_ensureSeries)
+    this._navigate({ view: 'stock', ticker: tk, prevView: from || this.state.view, stkTab: 'overview' })
   }
-  _openSector(name, from) { this.setState({ view: 'sector', sector: name, prevView: from || this.state.view }) }
+  _openSector(name, from) { this._navigate({ view: 'sector', sector: name, prevView: from || this.state.view }) }  // #40: via router
+
+  // ---------- routing (#40) ----------
+  // URL <-> view-state mapping. Every view is shareable/bookmarkable and the
+  // browser back/forward buttons work via pushState + popstate.
+  //   /                    dashboard (fund=all)
+  //   /fund/tall-firs      dashboard scoped to a fund (slug from fund.slug)
+  //   /stocks              full holdings
+  //   /ticker/AAPL         stock page (?tab=financials ...)
+  //   /sectors             sector overview
+  //   /sector/Technology   sector detail
+  //   /optimize            optimizer (?tab=whatif, ?fund=tall-firs)
+  //   /inbox /coverage /organization /profile /preferences /assistant
+  _routeSlugs() {
+    const out = {}
+    if (this.state.data) for (const k of this.fundKeys) out[((this.funds[k] || {}).slug) || k] = k
+    return out
+  }
+  _fundSlug(key) { return ((this.state.data && this.funds[key]) || {}).slug || key }
+  _validStkTab(t) {
+    return ['overview', 'thesis', 'financials', 'earnings', 'news', 'research', 'predictions'].includes(t) ? t : 'overview'
+  }
+  _validOptTab(t) { return ['diagnostics', 'whatif', 'optimizer'].includes(t) ? t : 'diagnostics' }
+  _parseRoute() {
+    // -> { patch, replace } | { redirect } | null (null = "/", keep boot defaults)
+    const raw = (window.location.pathname || '/').replace(/\/+$/, '') || '/'
+    if (raw === '/') return null
+    const q = new URLSearchParams(window.location.search || '')
+    const segs = raw.split('/').filter(Boolean)
+    const slugs = this._routeSlugs()
+    const fundKey = (s2) => (s2 && slugs[s2]) || null
+    const ok = (patch) => ({ patch, replace: false })
+    const norm = (patch) => ({ patch, replace: true })
+    const [a, b] = segs
+    if (a === 'fund' && b && segs.length === 2) {
+      const key = fundKey(b)
+      return key ? ok({ view: 'dashboard', fund: key }) : norm({ view: 'dashboard', fund: 'all' })
+    }
+    if (a === 'stocks' && segs.length === 1) return ok({ view: 'stocks' })
+    if (a === 'ticker' && b && segs.length === 2) {
+      const tk = b.toUpperCase()
+      let tab = this._validStkTab(q.get('tab'))
+      let heldOnly = false
+      // Thesis/Predictions tabs only exist for held names — clamp deep links
+      // to them back to overview (and normalize the URL).
+      try {
+        if ((tab === 'thesis' || tab === 'predictions') && this.state.data && !this.byT[tk]) {
+          tab = 'overview'; heldOnly = true
+        }
+      } catch (e) { /* ignore */ }
+      const patch = { view: 'stock', ticker: tk, stkTab: tab, prevView: 'dashboard' }
+      return heldOnly ? norm(patch) : ok(patch)
+    }
+    if (a === 'sectors' && segs.length === 1) return ok({ view: 'sectors' })
+    if (a === 'sector' && b && segs.length === 2) {
+      let name = b
+      try { name = decodeURIComponent(b) } catch (e) { /* keep raw */ }
+      return ok({ view: 'sector', sector: name, prevView: 'dashboard' })
+    }
+    if (a === 'optimize' && segs.length === 1) {
+      return ok({ view: 'optimize', optimizeTab: this._validOptTab(q.get('tab')), fund: fundKey(q.get('fund')) || 'all' })
+    }
+    if (segs.length === 1 && ['inbox', 'coverage', 'organization', 'profile', 'preferences', 'assistant'].includes(a)) {
+      return ok({ view: a })
+    }
+    return { redirect: '/' }
+  }
+  _urlFor(st) {
+    const v = st.view
+    if (v === 'dashboard') return st.fund && st.fund !== 'all' ? '/fund/' + this._fundSlug(st.fund) : '/'
+    if (v === 'stocks') return '/stocks'
+    if (v === 'stock' && st.ticker) {
+      return '/ticker/' + encodeURIComponent(st.ticker) + (st.stkTab && st.stkTab !== 'overview' ? '?tab=' + st.stkTab : '')
+    }
+    if (v === 'sectors') return '/sectors'
+    if (v === 'sector' && st.sector) return '/sector/' + encodeURIComponent(st.sector)
+    if (v === 'optimize') {
+      const qp = new URLSearchParams()
+      if (st.optimizeTab && st.optimizeTab !== 'diagnostics') qp.set('tab', st.optimizeTab)
+      if (st.fund && st.fund !== 'all') qp.set('fund', this._fundSlug(st.fund))
+      const qs = qp.toString()
+      return '/optimize' + (qs ? '?' + qs : '')
+    }
+    if (['inbox', 'coverage', 'organization', 'profile', 'preferences', 'assistant'].includes(v)) return '/' + v
+    return '/'
+  }
+  _titleFor(st) {
+    const base = 'UOIG Terminal'
+    if (st.view === 'stock' && st.ticker) return st.ticker + ' \u2014 ' + base
+    if (st.view === 'sector' && st.sector) return st.sector + ' \u2014 ' + base
+    if (st.view === 'dashboard' && st.fund && st.fund !== 'all' && st.data && this.funds[st.fund]) {
+      return this.funds[st.fund].name + ' \u2014 ' + base
+    }
+    const names = { dashboard: 'Dashboard', stocks: 'Holdings', sectors: 'Sectors', optimize: 'Optimize', inbox: 'Inbox', coverage: 'Coverage', organization: 'Organization', profile: 'Profile', preferences: 'Preferences', assistant: 'Co-Pilot' }
+    return (names[st.view] || 'Dashboard') + ' \u2014 ' + base
+  }
+  _navigate(patch, opts) {
+    // Central navigation: state change + history entry, so every view is
+    // shareable/bookmarkable and browser back/forward works.
+    opts = opts || {}
+    const next = { ...this.state, ...patch }
+    let url = '/'
+    try { url = this._urlFor(next) } catch (e) { /* ignore */ }
+    try {
+      if (opts.replace) window.history.replaceState({}, '', url)
+      else window.history.pushState({}, '', url)
+    } catch (e) { /* ignore (non-browser env) */ }
+    this.setState(patch, () => { try { document.title = this._titleFor(this.state) } catch (e) { /* ignore */ } })
+  }
+  _onPopState() {
+    // Browser back/forward: restore view state from the URL (no new entry).
+    const r = this._parseRoute()
+    const patch = r && !r.redirect ? r.patch : { view: 'dashboard', fund: 'all' }
+    if (r && r.redirect) { try { window.history.replaceState({}, '', '/') } catch (e) { /* ignore */ } }
+    this.setState(patch, () => { try { document.title = this._titleFor(this.state) } catch (e) { /* ignore */ } })
+  }
+  _applyInitialRoute() {
+    // After data loads: honor a deep link, otherwise canonicalize the URL for
+    // the boot-default view (landing page / member coverage / persisted fund).
+    const raw = (window.location.pathname || '/').replace(/\/+$/, '') || '/'
+    if (raw === '/') { this._navigate({}, { replace: true }); return }
+    const r = this._parseRoute()
+    if (!r || r.redirect) {
+      try { window.history.replaceState({}, '', '/') } catch (e) { /* ignore */ }
+      this._navigate({}, { replace: true })
+      return
+    }
+    this.setState(r.patch, () => {
+      if (r.replace) {
+        try { window.history.replaceState({}, '', this._urlFor(this.state)) } catch (e) { /* ignore */ }
+      }
+      try { document.title = this._titleFor(this.state) } catch (e) { /* ignore */ }
+    })
+  }
 
   // ---------- global search (Yahoo Finance + local holdings) ----------
   _localMatches(q) {
@@ -434,7 +578,7 @@ export default class App extends React.Component {
   }
   _onSearchChange(q) {
     const local = this._localMatches(q)
-    this.setState({ searchQ: q, searchOpen: true, searchActive: -1, searchResults: local })
+    this.setState({ searchQ: q, searchOpen: true, searchActive: -1, searchResults: local, searchDone: !q.trim() })
     const seq = ++this._searchSeq
     clearTimeout(this._searchTimer)
     if (!q.trim()) return
@@ -443,15 +587,15 @@ export default class App extends React.Component {
         if (seq !== this._searchSeq) return  // a newer keystroke superseded this one
         const have = new Set(local.map((r) => r.symbol))
         const remote = (res.results || []).filter((r) => !have.has(r.symbol)).map((r) => ({ ...r, remote: true }))
-        this.setState({ searchResults: [...local, ...remote] })
-      }).catch(() => {})
+        this.setState({ searchResults: [...local, ...remote], searchDone: true })
+      }).catch(() => { if (seq === this._searchSeq) this.setState({ searchDone: true }) })
     }, 180)
   }
   _searchSelect(symbol) {
     if (!symbol) return
     this._searchSeq++  // invalidate any in-flight search
     clearTimeout(this._searchTimer)
-    this.setState({ searchOpen: false, searchQ: '', searchResults: [], searchActive: -1 })
+    this.setState({ searchOpen: false, searchQ: '', searchResults: [], searchActive: -1, searchDone: false })
     this._openStock(symbol, this.state.view)
   }
   _searchKey(e) {
@@ -550,7 +694,7 @@ export default class App extends React.Component {
 
   // Per-fund optimization diagnostics (active risk vs benchmark) for the Optimize page.
   _ensureOptimizeDiag() {
-    const key = this.state.optimizeFund || (this.fundKeys && this.fundKeys[0])
+    const key = this._optimizeFundKey()
     if (!key || this.state.optimizeDiag[key]) return
     this.setState((st) => ({ optimizeDiag: { ...st.optimizeDiag, [key]: 'loading' } }))
     getOptimizeDiagnostics(key)
@@ -560,7 +704,7 @@ export default class App extends React.Component {
 
   // What-if sandbox inputs (covariance + weights) — the client recomputes risk live.
   _ensureWhatif() {
-    const key = this.state.optimizeFund || (this.fundKeys && this.fundKeys[0])
+    const key = this._optimizeFundKey()
     if (!key || this.state.whatif[key]) return
     this.setState((st) => ({ whatif: { ...st.whatif, [key]: 'loading' } }))
     getOptimizeWhatif(key)
@@ -571,13 +715,13 @@ export default class App extends React.Component {
   // Black-Litterman solve. Auto-runs once per fund (implied returns, no views);
   // the Solve button re-runs with the club's views and constraints.
   _ensureOptSolve() {
-    const key = this.state.optimizeFund || (this.fundKeys && this.fundKeys[0])
+    const key = this._optimizeFundKey()
     if (!key || this.state.optResult[key]) return
     this._runSolve(key)
   }
 
   _runSolve(k) {
-    const key = k || this.state.optimizeFund || (this.fundKeys && this.fundKeys[0])
+    const key = k || this._optimizeFundKey()
     if (!key) return
     const vmap = this.state.optViews[key] || {}
     const views = Object.entries(vmap)
@@ -792,8 +936,26 @@ export default class App extends React.Component {
       mtdStr: this._sign(h.mtd, 1) + '%', mtdColor: this._col(h.mtd),
       peStr: h.pe ? h.pe.toFixed(1) : '—',
       ctbStr: this._sign(ctb, 2), ctbColor: this._col(ctb),
+      spark: h.spark || [],
       open: () => this._openStock(h.t, from),
     }
+  }
+
+  // Tiny inline SVG price-trend sparkline (3M of closes from the backend).
+  _sparkline(pts) {
+    const w = 72, hgt = 22, pad = 2
+    if (!pts || pts.length < 2) return <span style={s("font-family:'IBM Plex Mono';font-size:10px;color:#3c465e;")}>—</span>
+    const mn = Math.min(...pts), mx = Math.max(...pts), rng = (mx - mn) || 1
+    const step = (w - pad * 2) / (pts.length - 1)
+    const d = pts.map((p, i) => (i ? 'L' : 'M') + (pad + i * step).toFixed(1) + ' ' + (pad + (1 - (p - mn) / rng) * (hgt - pad * 2)).toFixed(1)).join(' ')
+    const up = pts[pts.length - 1] >= pts[0]
+    const color = up ? '#21d07a' : '#ff5666'
+    return (
+      <svg width={w} height={hgt} viewBox={'0 0 ' + w + ' ' + hgt} style={{ display: 'block', overflow: 'visible' }}>
+        <path d={d} fill="none" stroke={color} strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" opacity="0.95" />
+        <circle cx={(pad + (pts.length - 1) * step).toFixed(1)} cy={(pad + (1 - (pts[pts.length - 1] - mn) / rng) * (hgt - pad * 2)).toFixed(1)} r="2" fill={color} />
+      </svg>
+    )
   }
 
 
@@ -837,6 +999,11 @@ export default class App extends React.Component {
                 ))}
               </div>
             )}
+            {this.state.searchOpen && this.state.searchResults.length === 0 && this.state.searchQ.trim() && this.state.searchDone && (
+              <div style={s('position:absolute;top:40px;left:0;right:0;background:#0b1120;border:1px solid #1d2840;border-radius:8px;box-shadow:0 16px 40px rgba(0,0,0,.55);z-index:80;padding:14px 12px;text-align:center;font-size:12px;color:#6b7794;')}>
+                No results for &ldquo;{this.state.searchQ.trim()}&rdquo; — press Enter to look it up anyway
+              </div>
+            )}
           </div>
           <div className="app-fund-tabs" style={s('display:flex;background:#0e1422;border:1px solid #1d2840;border-radius:9px;padding:3px;gap:2px;margin-left:10px;')}>
             {v.fundTabs.map((t) => (<span key={t.k} onClick={t.on} style={{ ...s("padding:6px 15px;border-radius:6px;cursor:pointer;font-size:11.5px;font-family:'IBM Plex Sans';"), fontWeight: t.weight, background: t.bg, color: t.color }}>{t.label}</span>))}
@@ -851,7 +1018,7 @@ export default class App extends React.Component {
         {/* BODY */}
         <div style={s('flex:1;display:flex;min-height:0;')}>
           {/* NAV RAIL */}
-          <div style={s('width:54px;flex:0 0 54px;background:#0a0f1a;border-right:1px solid #1d2840;display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:5px;')}>
+          <div className="app-nav-rail" style={s('width:54px;flex:0 0 54px;background:#0a0f1a;border-right:1px solid #1d2840;display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:5px;')}>
             {v.nav.map((item) => (
               <div key={item.key} onClick={item.on} title={item.label} className={item.disabled ? '' : 'dc-hover'} style={{ ...s('width:40px;height:38px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;'), background: item.bg, color: item.color, cursor: item.disabled ? 'default' : 'pointer' }}>{item.icon}</div>
             ))}
@@ -868,7 +1035,7 @@ export default class App extends React.Component {
             {v.isScreener && <Screener onOpenStock={(ticker) => this._openStock(ticker, 'screener')} />}
             {v.isAssistant && this._renderAssistant(v)}
             {this.state.view === 'profile' && <ProfilePage auth={this.state.auth} onNavigate={(view) => this._go(view)} onUserUpdated={(user) => this.setState((st) => ({ auth: { ...st.auth, user }, avatarImgFailed: false }))} />}
-            {this.state.view === 'preferences' && <PreferencesPage fundOptions={[{ value: 'all', label: 'All Funds' }, ...this.fundKeys.map(k => ({ value: k, label: this.funds[k].name }))]} currentFund={this.state.fund} currentPeriod={this.state.period} onNavigate={(view) => this._go(view)} onApply={(preferences) => this.setState({ preferences, fund: preferences.defaultFund, period: preferences.defaultPeriod })} />}
+            {this.state.view === 'preferences' && <PreferencesPage fundOptions={[{ value: 'all', label: 'All Funds' }, ...this.fundKeys.map(k => ({ value: k, label: this.funds[k].name }))]} currentFund={this.state.fund} currentPeriod={this.state.period} onNavigate={(view) => this._go(view)} onApply={(preferences) => this._navigate({ preferences, fund: preferences.defaultFund, period: preferences.defaultPeriod, optimizeFund: null }, { replace: true })} />}
             {this.state.view === 'organization' && <OrganizationPage auth={this.state.auth} holdings={this.organizationHoldings} onNavigate={(view) => this._go(view)} onOpenStock={(ticker) => this._openStock(ticker, 'organization')} />}
             {this.state.view === 'coverage' && <><MyCoverage onOpenStock={(ticker) => this._openStock(ticker, 'coverage')} /><WeeklySubmission auth={this.state.auth} /></>}
             {this.state.view === 'inbox' && <InboxPage auth={this.state.auth} />}
@@ -878,7 +1045,7 @@ export default class App extends React.Component {
 
         {/* ASK-CLAUDE POPUP */}
         {this.state.chatOpen && !['profile', 'preferences', 'organization', 'assistant'].includes(this.state.view) && (
-          <div style={s('position:fixed;right:22px;bottom:88px;width:374px;height:560px;max-height:calc(100vh - 120px);background:#0b0d1d;border:1px solid #241f3e;border-radius:16px;box-shadow:0 26px 64px rgba(0,0,0,.55);display:flex;flex-direction:column;overflow:hidden;z-index:60;')}>
+          <div className="no-print" style={s('position:fixed;right:22px;bottom:88px;width:374px;height:560px;max-height:calc(100vh - 120px);background:#0b0d1d;border:1px solid #241f3e;border-radius:16px;box-shadow:0 26px 64px rgba(0,0,0,.55);display:flex;flex-direction:column;overflow:hidden;z-index:60;')}>
             <div style={s('display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-bottom:1px solid #241f3e;background:linear-gradient(180deg,#140f2c,#0b0d1d);flex:0 0 auto;')}>
               <div style={s("display:flex;align-items:center;gap:8px;font:600 11px 'IBM Plex Sans';letter-spacing:.08em;text-transform:uppercase;color:#c3b9ff;")}><span style={s('font-size:15px;')}>✦</span>Ask Claude</div>
               <div style={s('display:flex;align-items:center;gap:7px;')}>
@@ -897,7 +1064,7 @@ export default class App extends React.Component {
                 </div>
               )}
               {v.chatMsgs.map((m) => (
-                <div key={m.key} style={{ ...s('padding:9px 11px;font-size:11.5px;line-height:1.55;white-space:pre-wrap;'), alignSelf: m.align, maxWidth: m.maxw, background: m.bg, border: '1px solid ' + m.border, borderRadius: m.radius, color: m.color }}>{m.body}</div>
+                <div key={m.key} style={{ ...s('padding:9px 11px;font-size:11.5px;line-height:1.55;white-space:pre-wrap;overflow-wrap:break-word;'), alignSelf: m.align, maxWidth: m.maxw, background: m.bg, border: '1px solid ' + m.border, borderRadius: m.radius, color: m.color }}>{m.body}</div>
               ))}
               {v.loading && (
                 <div style={s('align-self:flex-start;display:flex;align-items:center;gap:7px;color:#7a6fb5;font-size:10.5px;')}><span style={s('display:flex;gap:3px;')}><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite;')}></span><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite .2s;')}></span><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite .4s;')}></span></span>Claude is analyzing…</div>
@@ -914,7 +1081,7 @@ export default class App extends React.Component {
         )}
 
         {/* ASK-CLAUDE FAB */}
-        {!['profile', 'preferences', 'organization', 'assistant'].includes(this.state.view) && <div onClick={() => this.setState((st) => ({ chatOpen: !st.chatOpen }))} title="Ask Claude" style={{ ...s('position:fixed;right:22px;bottom:22px;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;font-size:23px;z-index:61;box-shadow:0 12px 30px rgba(90,79,214,.5);'), background: this.state.chatOpen ? '#2c2550' : 'linear-gradient(135deg,#5a4fd6,#3a31a8)' }}>{this.state.chatOpen ? '✕' : '✦'}</div>}
+        {!['profile', 'preferences', 'organization', 'assistant'].includes(this.state.view) && <div onClick={() => this.setState((st) => ({ chatOpen: !st.chatOpen }))} title="Ask Claude" className="no-print" style={{ ...s('position:fixed;right:22px;bottom:22px;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;font-size:23px;z-index:61;box-shadow:0 12px 30px rgba(90,79,214,.5);'), background: this.state.chatOpen ? '#2c2550' : 'linear-gradient(135deg,#5a4fd6,#3a31a8)' }}>{this.state.chatOpen ? '✕' : '✦'}</div>}
         <Analytics />
       </div>
     )
@@ -932,8 +1099,11 @@ export default class App extends React.Component {
               <div style={s("font-family:'IBM Plex Mono';font-size:36px;font-weight:500;color:#e8edf7;margin-top:5px;letter-spacing:-.01em;")}>{v.heroValue}</div>
               <div style={{ ...s("font-family:'IBM Plex Mono';font-size:13px;margin-top:3px;"), color: v.heroRetColor }}>{v.heroRetText}</div>
             </div>
-            <div style={s('display:flex;align-items:center;gap:3px;background:#0a0f1a;border:1px solid #1d2840;border-radius:8px;padding:3px;')}>
-              {v.periods.map((p) => (<span key={p.k} onClick={p.on} style={{ ...s("padding:5px 10px;border-radius:5px;cursor:pointer;font-size:10px;font-family:'IBM Plex Mono';"), fontWeight: p.weight, background: p.bg, color: p.color }}>{p.k}</span>))}
+            <div style={s('display:flex;align-items:center;gap:8px;')}>
+              <span onClick={() => window.print()} className="dc-hover no-print" style={s("border:1px solid #1d2840;border-radius:8px;padding:6px 12px;font:500 10.5px 'IBM Plex Sans';color:#9aa7c2;cursor:pointer;white-space:nowrap;background:#0a0f1a;")}>Print / PDF</span>
+              <div className="no-print" style={s('display:flex;align-items:center;gap:3px;background:#0a0f1a;border:1px solid #1d2840;border-radius:8px;padding:3px;')}>
+                {v.periods.map((p) => (<span key={p.k} onClick={p.on} style={{ ...s("padding:5px 10px;border-radius:5px;cursor:pointer;font-size:10px;font-family:'IBM Plex Mono';"), fontWeight: p.weight, background: p.bg, color: p.color }}>{p.k}</span>))}
+              </div>
             </div>
           </div>
           <div style={s('height:184px;margin-top:10px;')}>{v.heroChartEl}</div>
@@ -953,15 +1123,16 @@ export default class App extends React.Component {
         <div style={s('display:grid;grid-template-columns:1fr 360px;gap:13px;')}>
           <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;display:flex;flex-direction:column;overflow:hidden;')}>
             <div style={s('display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #1d2840;')}><span style={s("font:600 10.5px 'IBM Plex Sans';letter-spacing:.08em;text-transform:uppercase;color:#7e8aa6;")}>{v.dashTitle}</span><span style={s("font-family:'IBM Plex Mono';font-size:9.5px;color:#5d6a85;")}>{v.dashCount}</span></div>
-            <div style={s("display:grid;grid-template-columns:62px 1fr 50px 54px 70px 78px 60px 64px;gap:8px;padding:8px 14px;border-bottom:1px solid #1d2840;font:600 8.5px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;color:#6b7794;")}><span>Ticker</span><span>Name</span><span style={s('text-align:right;')}>Fund</span><span style={s('text-align:right;')}>Wt</span><span style={s('text-align:right;')}>Val</span><span style={s('text-align:right;')}>Price</span><span style={s('text-align:right;')}>Day</span><span style={s('text-align:right;')}>Contrib</span></div>
+            <div style={s("display:grid;grid-template-columns:62px 1fr 50px 54px 70px 78px 72px 60px 64px;gap:8px;padding:8px 14px;border-bottom:1px solid #1d2840;font:600 8.5px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;color:#6b7794;")}><span>Ticker</span><span>Name</span><span style={s('text-align:right;')}>Fund</span><span style={s('text-align:right;')}>Wt</span><span style={s('text-align:right;')}>Val</span><span style={s('text-align:right;')}>Price</span><span>Trend</span><span style={s('text-align:right;')}>Day</span><span style={s('text-align:right;')}>Contrib</span></div>
             {v.dashHoldings.map((r) => (
-              <div key={r.rk} onClick={r.open} className="dc-row" style={s('display:grid;grid-template-columns:62px 1fr 50px 54px 70px 78px 60px 64px;gap:8px;align-items:center;padding:7.5px 14px;border-bottom:1px solid #131c2f;font-size:11px;cursor:pointer;')}>
+              <div key={r.rk} onClick={r.open} className="dc-row" style={s('display:grid;grid-template-columns:62px 1fr 50px 54px 70px 78px 72px 60px 64px;gap:8px;align-items:center;padding:7.5px 14px;border-bottom:1px solid #131c2f;font-size:11px;cursor:pointer;')}>
                 <span style={s("font-family:'IBM Plex Mono';font-weight:600;color:#e8edf7;")}>{r.t}</span>
                 <span style={s('color:#9aa7c2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;')}>{r.n}</span>
                 <span style={{ ...s("text-align:right;font:500 9px 'IBM Plex Mono';"), color: r.fundColor }}>{r.fundTag}</span>
                 <span style={s("font-family:'IBM Plex Mono';text-align:right;color:#cdd6e8;")}>{r.wStr}</span>
                 <span style={s("font-family:'IBM Plex Mono';text-align:right;color:#e8edf7;")}>{r.mvStr}</span>
                 <span style={s("font-family:'IBM Plex Mono';text-align:right;color:#cdd6e8;")}>{r.pxStr}</span>
+                <span>{this._sparkline(r.spark)}</span>
                 <span style={{ ...s("font-family:'IBM Plex Mono';text-align:right;"), color: r.dayColor }}>{r.dayStr}</span>
                 <span style={{ ...s("font-family:'IBM Plex Mono';text-align:right;"), color: r.ctbColor }}>{r.ctbStr}</span>
               </div>
@@ -995,17 +1166,21 @@ export default class App extends React.Component {
       <div style={s('padding:16px;display:flex;flex-direction:column;gap:13px;')}>
         <div style={s('display:flex;align-items:center;justify-content:space-between;')}>
           <div><div style={s("font:600 17px 'IBM Plex Sans';color:#e8edf7;")}>{v.stocksTitle}</div><div style={s("font-family:'IBM Plex Mono';font-size:10.5px;color:#6b7794;margin-top:3px;")}>{v.stocksCount}</div></div>
-          <div style={s('display:flex;align-items:center;gap:8px;background:#0e1422;border:1px solid #1d2840;border-radius:8px;padding:8px 12px;width:280px;')}>
+          <div style={s('display:flex;align-items:center;gap:8px;')}>
+            <span onClick={() => this._exportCsv(v)} className="dc-hover no-print" style={s("border:1px solid #1d2840;border-radius:8px;padding:8px 14px;font:500 11px 'IBM Plex Sans';color:#9aa7c2;cursor:pointer;white-space:nowrap;background:#0e1422;")}>Export CSV</span>
+            <div style={s('display:flex;align-items:center;gap:8px;background:#0e1422;border:1px solid #1d2840;border-radius:8px;padding:8px 12px;width:280px;')}>
             <svg width="13" height="13" viewBox="0 0 16 16" style={{ fill: 'none', stroke: '#5d6a85', strokeWidth: 1.6 }}><circle cx="7" cy="7" r="4.5"></circle><line x1="11" y1="11" x2="14.5" y2="14.5" style={{ strokeLinecap: 'round' }}></line></svg>
             <input value={v.query} onChange={(e) => this.setState({ query: e.target.value })} placeholder="Filter by ticker, name, sector…" style={s("flex:1;background:transparent;border:none;outline:none;color:#e8edf7;font:400 11.5px 'IBM Plex Sans';")} />
           </div>
+          </div>
         </div>
-        <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;overflow:hidden;')}>
-          <div style={s("display:grid;grid-template-columns:74px 1fr 150px 64px 70px 86px 92px 72px 72px 60px;gap:8px;padding:9px 14px;border-bottom:1px solid #1d2840;font:600 8.5px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;color:#6b7794;")}>
+        <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;overflow:clip;')}>
+          <div style={s("position:sticky;top:0;z-index:5;background:#0e1422;display:grid;grid-template-columns:74px 1fr 150px 64px 70px 86px 92px 72px 72px 72px 60px;gap:8px;padding:9px 14px;border-bottom:1px solid #1d2840;font:600 8.5px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;color:#6b7794;")}>
             {v.stocksHead.map((h, i) => (<span key={i} onClick={h.on} style={{ ...s('cursor:pointer;'), textAlign: h.align, color: h.color }}>{h.label}{h.caret}</span>))}
+            <span>Trend</span>
           </div>
           {v.stocksRows.map((r) => (
-            <div key={r.rk} onClick={r.open} className="dc-row" style={s('display:grid;grid-template-columns:74px 1fr 150px 64px 70px 86px 92px 72px 72px 60px;gap:8px;align-items:center;padding:7.5px 14px;border-bottom:1px solid #131c2f;font-size:11px;cursor:pointer;')}>
+            <div key={r.rk} onClick={r.open} className="dc-row" style={s('display:grid;grid-template-columns:74px 1fr 150px 64px 70px 86px 92px 72px 72px 72px 60px;gap:8px;align-items:center;padding:7.5px 14px;border-bottom:1px solid #131c2f;font-size:11px;cursor:pointer;')}>
               <span style={s("font-family:'IBM Plex Mono';font-weight:600;color:#e8edf7;")}>{r.t}</span>
               <span style={s('color:#9aa7c2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;')}>{r.n}</span>
               <span style={s('color:#6b7794;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;')}>{r.s}</span>
@@ -1013,6 +1188,7 @@ export default class App extends React.Component {
               <span style={s("font-family:'IBM Plex Mono';text-align:right;color:#cdd6e8;")}>{r.wStr}</span>
               <span style={s("font-family:'IBM Plex Mono';text-align:right;color:#e8edf7;")}>{r.mvStr}</span>
               <span style={s("font-family:'IBM Plex Mono';text-align:right;color:#cdd6e8;")}>{r.pxStr}</span>
+              <span>{this._sparkline(r.spark)}</span>
               <span style={{ ...s("font-family:'IBM Plex Mono';text-align:right;"), color: r.dayColor }}>{r.dayStr}</span>
               <span style={{ ...s("font-family:'IBM Plex Mono';text-align:right;"), color: r.mtdColor }}>{r.mtdStr}</span>
               <span style={s("font-family:'IBM Plex Mono';text-align:right;color:#7e8aa6;")}>{r.peStr}</span>
@@ -1023,10 +1199,38 @@ export default class App extends React.Component {
     )
   }
 
+  // #42: CSV export of the holdings table — serializes exactly what's on
+  // screen (current fund tab, filter query, and sort order).
+  _exportCsv(v) {
+    const rows = v.stocksRaw || []
+    const F = this.funds
+    const esc = (x) => {
+      const str = String(x == null ? '' : x)
+      return /[",\n\r]/.test(str) ? '"' + str.replace(/"/g, '""') + '"' : str
+    }
+    const num = (x, d) => (x == null || isNaN(x) ? '' : Number(x).toFixed(d))
+    const lines = [['Ticker', 'Name', 'Sector', 'Fund', 'Weight %', 'Market Value', 'Price', 'Day %', 'MTD %', 'P/E'].join(',')]
+    for (const h of rows) {
+      lines.push([
+        esc(h.t), esc(h.n), esc(h.s || ''), esc((F[h.fund] || {}).name || h.fund || ''),
+        num(h.w, 2), h.mv == null ? '' : Math.round(h.mv), h.px == null ? '' : h.px,
+        num(h.chg, 2), num(h.mtd, 2), num(h.pe, 2),
+      ].join(','))
+    }
+    const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = 'uoig-holdings-' + (this.state.fund || 'all') + '-' + new Date().toISOString().slice(0, 10) + '.csv'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+  }
+
   _renderSectors(v) {
     return (
       <div style={s('height:calc(100vh - 48px);padding:16px;display:flex;flex-direction:column;gap:13px;')}>
-        <div style={s('flex:0 0 auto;')}><div style={s("font:600 17px 'IBM Plex Sans';color:#e8edf7;")}>Sectors</div><div style={s("font-family:'IBM Plex Mono';font-size:10.5px;color:#6b7794;margin-top:3px;")}>The five UOIG groups across the combined endowment · click a column to drill in, a card to open the holding</div></div>
+        <div style={s('flex:0 0 auto;')}><div style={s("font:600 17px 'IBM Plex Sans';color:#e8edf7;")}>Sectors</div><div style={s("font-family:'IBM Plex Mono';font-size:10.5px;color:#6b7794;margin-top:3px;")}>{v.sectorsSubtitle}</div></div>
         <div style={s('flex:1;min-height:0;display:grid;grid-template-columns:repeat(5,1fr);gap:12px;')}>
           {v.sectorCols.map((c) => (
             <div key={c.name} style={s('display:flex;flex-direction:column;min-height:0;background:#0b0f1a;border:1px solid #1d2840;border-radius:10px;overflow:hidden;')}>
@@ -1034,7 +1238,7 @@ export default class App extends React.Component {
               <div onClick={c.on} className="dc-hover" style={s('flex:0 0 auto;padding:12px 13px;border-bottom:1px solid #1d2840;cursor:pointer;')}>
                 <div style={s('display:flex;justify-content:space-between;align-items:center;')}>
                   <div style={s('display:flex;align-items:center;gap:8px;min-width:0;')}><span style={{ ...s('width:9px;height:9px;border-radius:3px;flex:0 0 auto;'), background: c.color }}></span><span style={s("font:600 13.5px 'IBM Plex Sans';color:#e8edf7;")}>{c.name}</span></div>
-                  <span style={s("font-family:'IBM Plex Mono';font-size:15px;color:#e8edf7;")}>{c.shareStr}</span>
+                  <span style={s("text-align:right;")}><span style={s("font-family:'IBM Plex Mono';font-size:15px;color:#e8edf7;")}>{c.shareStr}</span>{c.shareBase && <span style={s("display:block;font-family:'IBM Plex Mono';font-size:8px;color:#5d6a85;")}>{c.shareBase}</span>}</span>
                 </div>
                 <div style={s("font-family:'IBM Plex Mono';font-size:8.5px;color:#5d6a85;margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")}>{c.members}</div>
                 <div style={s('display:flex;justify-content:space-between;align-items:center;margin-top:9px;')}><span style={s("font-family:'IBM Plex Mono';font-size:9.5px;color:#6b7794;")}>{c.count} holding{c.count === 1 ? '' : 's'}</span><span style={{ ...s("font-family:'IBM Plex Mono';font-size:10.5px;"), color: c.retColor }}>MTD {c.retStr}</span></div>
@@ -1123,7 +1327,7 @@ export default class App extends React.Component {
           {fin.caption ? <div style={s("font:500 11px 'IBM Plex Sans';color:#9aa7c2;margin-top:12px;")}>{fin.caption}</div> : null}
         </div>
         <div>
-          <div style={s("display:grid;grid-template-columns:1fr 72px 72px 60px;gap:6px;padding-bottom:8px;border-bottom:1px solid #1d2840;font:600 8.5px 'IBM Plex Sans';letter-spacing:.05em;text-transform:uppercase;color:#6b7794;")}><span></span><span style={s('text-align:right;')}>Latest</span><span style={s('text-align:right;')}>Prior</span><span style={s('text-align:right;')}>YoY</span></div>
+          <div style={s("display:grid;grid-template-columns:1fr 72px 72px 60px;gap:6px;padding-bottom:8px;border-bottom:1px solid #1d2840;font:600 8.5px 'IBM Plex Sans';letter-spacing:.05em;text-transform:uppercase;color:#6b7794;")}><span></span><span style={s('text-align:right;')}>Latest</span><span style={s('text-align:right;')}>Prior Yr</span><span style={s('text-align:right;')}>YoY</span></div>
           {fin.rows.map((r, i) => (
             <div key={i} style={s('display:grid;grid-template-columns:1fr 72px 72px 60px;gap:6px;padding:8px 0;border-bottom:1px solid #131c2f;font-size:11px;')}><span style={s('color:#9aa7c2;')}>{r.label}</span><span style={s("font-family:'IBM Plex Mono';text-align:right;color:#e8edf7;")}>{r.cur}</span><span style={s("font-family:'IBM Plex Mono';text-align:right;color:#9aa7c2;")}>{r.prev}</span><span style={{ ...s("font-family:'IBM Plex Mono';text-align:right;"), color: this._yc(r.yoy) }}>{r.yoy}</span></div>
           ))}
@@ -1172,12 +1376,15 @@ export default class App extends React.Component {
 
   _renderEarnings(e) {
     const beatPos = (e.beat || 0) >= 0
+    const nextVal = e.next && e.next !== '—' ? (e.nextEstimated ? '~' + e.next : e.next) : null
+    const cards = [['EPS actual / est', e.epsActual, e.epsEst], ['Revenue actual / est', e.revActual, e.revEst], ['Revenue YoY', e.revYoY, null]]
+    if (nextVal) cards.push(['Next report est', nextVal, null])
     return (
       <div style={s('display:flex;flex-direction:column;gap:14px;')}>
         <div style={s('background:linear-gradient(180deg,#0c1f18,#0e1422);border:1px solid #1d4536;border-radius:9px;padding:16px;')}>
           <div style={s('display:flex;align-items:center;gap:10px;margin-bottom:13px;flex-wrap:wrap;')}><span style={s("font:600 10px 'IBM Plex Sans';letter-spacing:.1em;text-transform:uppercase;color:#7e8aa6;")}>Most Recent Earnings</span><span style={s("font-family:'IBM Plex Mono';font-size:10px;color:#6b7794;")}>{e.qtrLabel} · {e.when}</span>{e.beat != null ? <span style={{ ...s("margin-left:auto;font:600 10px 'IBM Plex Sans';border-radius:5px;padding:4px 10px;"), color: beatPos ? '#21d07a' : '#ff5666', background: beatPos ? '#0c2a1e' : '#2a1115', border: '1px solid ' + (beatPos ? '#1d4536' : '#4a1f25') }}>EPS {beatPos ? 'beat' : 'miss'} {this._sign(e.beat, 1)}%</span> : null}</div>
-          <div style={s('display:grid;grid-template-columns:repeat(4,1fr);gap:13px;')}>
-            {[['EPS actual / est', e.epsActual, e.epsEst], ['Revenue actual / est', e.revActual, e.revEst], ['Revenue YoY', e.revYoY, null], ['Next report est', e.next, null]].map((c, i) => (
+          <div style={{ ...s('display:grid;gap:13px;'), gridTemplateColumns: 'repeat(' + cards.length + ',1fr)' }}>
+            {cards.map((c, i) => (
               <div key={i} style={s('background:#0a1410;border:1px solid #163a2c;border-radius:7px;padding:12px;')}><div style={s("font:600 8.5px 'IBM Plex Sans';letter-spacing:.05em;text-transform:uppercase;color:#6b7794;")}>{c[0]}</div><div style={{ ...s("font-family:'IBM Plex Mono';font-size:16px;margin-top:6px;"), color: i === 2 ? this._yc(c[1]) : '#e8edf7' }}>{c[1]}{c[2] ? <span style={s('color:#5d6a85;font-size:12px;')}> / {c[2]}</span> : null}</div></div>
             ))}
           </div>
@@ -1451,7 +1658,7 @@ export default class App extends React.Component {
 
   _renderOptimize(v) {
     const st = this.state, F = this.funds
-    const key = st.optimizeFund || this.fundKeys[0]
+    const key = this._optimizeFundKey()
     const f = F[key]
     const d = st.optimizeDiag[key]
     const tab = st.optimizeTab || 'diagnostics'
@@ -1470,7 +1677,7 @@ export default class App extends React.Component {
             <div style={s('display:flex;background:#0a0f1a;border:1px solid #1d2840;border-radius:8px;padding:3px;')}>
               {this.fundKeys.map((k) => {
                 const on = k === key
-                return <span key={k} onClick={() => this.setState({ optimizeFund: k })} style={{ ...s("padding:5px 13px;border-radius:5px;cursor:pointer;font:600 11px 'IBM Plex Sans';"), background: on ? '#13203a' : 'transparent', color: on ? F[k].color : '#6b7794', border: on ? '1px solid #28406e' : '1px solid transparent' }}>{F[k].name}</span>
+                return <span key={k} onClick={() => this._setFund(k)} style={{ ...s("padding:5px 13px;border-radius:5px;cursor:pointer;font:600 11px 'IBM Plex Sans';"), background: on ? '#13203a' : 'transparent', color: on ? F[k].color : '#6b7794', border: on ? '1px solid #28406e' : '1px solid transparent' }}>{F[k].name}</span>
               })}
             </div>
             <div style={s('text-align:right;')}>
@@ -1481,7 +1688,7 @@ export default class App extends React.Component {
         </div>
         <div style={s('display:flex;gap:3px;border-bottom:1px solid #1d2840;')}>
           {tabs.map(([k, label]) => (
-            <span key={k} onClick={() => this.setState({ optimizeTab: k })} style={{ ...s("padding:9px 15px;font-size:11.5px;font-family:'IBM Plex Sans';cursor:pointer;margin-bottom:-1px;"), fontWeight: k === tab ? 600 : 500, color: k === tab ? '#e8edf7' : '#6b7794', borderBottom: k === tab ? '2px solid #5a93f9' : '2px solid transparent' }}>{label}</span>
+            <span key={k} onClick={() => this._navigate({ optimizeTab: k }, { replace: true })} style={{ ...s("padding:9px 15px;font-size:11.5px;font-family:'IBM Plex Sans';cursor:pointer;margin-bottom:-1px;"), fontWeight: k === tab ? 600 : 500, color: k === tab ? '#e8edf7' : '#6b7794', borderBottom: k === tab ? '2px solid #5a93f9' : '2px solid transparent' }}>{label}</span>
           ))}
         </div>
         {tab === 'diagnostics' && loading && this._optimizeMsg('Computing active-risk diagnostics…')}
@@ -2004,7 +2211,7 @@ export default class App extends React.Component {
               </div>
             )}
             {v.chatMsgs.map((m) => (
-              <div key={m.key} style={{ ...s('padding:10px 13px;font-size:12.5px;line-height:1.6;white-space:pre-wrap;'), alignSelf: m.align, maxWidth: m.maxw, background: m.bg, border: '1px solid ' + m.border, borderRadius: m.radius, color: m.color }}>{m.body}</div>
+              <div key={m.key} style={{ ...s('padding:10px 13px;font-size:12.5px;line-height:1.6;white-space:pre-wrap;overflow-wrap:break-word;'), alignSelf: m.align, maxWidth: m.maxw, background: m.bg, border: '1px solid ' + m.border, borderRadius: m.radius, color: m.color }}>{m.body}</div>
             ))}
             {v.loading && (
               <div style={s('align-self:flex-start;display:flex;align-items:center;gap:7px;color:#7a6fb5;font-size:11px;')}><span style={s('display:flex;gap:3px;')}><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite;')}></span><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite .2s;')}></span><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite .4s;')}></span></span>Claude is analyzing…</div>
@@ -2029,7 +2236,10 @@ export default class App extends React.Component {
     const v = {}
     const mkt = this._marketStatus()
     v.marketOpen = mkt.open
-    v.asOf = 'AS OF ' + mkt.date
+    // #36: the header as-of must match the data vintage (used on the stock
+    // page), not today's calendar date — otherwise they disagree whenever
+    // the bundle was built on an earlier date.
+    v.asOf = 'AS OF ' + (st.data && st.data.asOf ? String(st.data.asOf).slice(0, 10) : mkt.date)
     v.isDashboard = st.view === 'dashboard'; v.isStocks = st.view === 'stocks'
     v.isSectors = st.view === 'sectors'; v.isStock = st.view === 'stock'; v.isSector = st.view === 'sector'
     v.isOptimize = st.view === 'optimize'; v.isScreener = st.view === 'screener'; v.isAssistant = st.view === 'assistant'
@@ -2100,7 +2310,11 @@ export default class App extends React.Component {
       ]
     }
 
-    const dashSrc = fk === 'all' ? this.allH : this.allH.filter((h) => h.fund === fk)
+    // #28: on the All Funds view, weights are vs total portfolio NAV,
+    // not each holding's home fund — normalize once so sorting, display,
+    // and contribution math below all use the right base.
+    const wAll = (h) => (fk === 'all' && h.wAll != null ? { ...h, w: h.wAll } : h)
+    const dashSrc = (fk === 'all' ? this.allH : this.allH.filter((h) => h.fund === fk)).map(wAll)
     const dashSorted = dashSrc.slice().sort((a, b) => b.w - a.w)
     v.dashHoldings = dashSorted.slice(0, 10).map((h) => this._rowVM(h, 'dashboard'))
     v.dashTitle = fk === 'all' ? 'Top Holdings' : F[fk].name + ' Holdings'
@@ -2119,13 +2333,14 @@ export default class App extends React.Component {
 
     // stocks list
     const q = (st.query || '').toLowerCase()
-    const stockPool = fk === 'all' ? this.allH : this.allH.filter((h) => h.fund === fk)
+    const stockPool = (fk === 'all' ? this.allH : this.allH.filter((h) => h.fund === fk)).map(wAll)
     let rows = stockPool.filter((h) => !q || h.t.toLowerCase().indexOf(q) >= 0 || h.n.toLowerCase().indexOf(q) >= 0 || (h.s || '').toLowerCase().indexOf(q) >= 0)
     const dir = st.sortDir === 'asc' ? 1 : -1
     const keyf = { t: (h) => h.t, n: (h) => h.n, s: (h) => h.s || '', w: (h) => h.w, mv: (h) => h.mv || 0, px: (h) => h.px, chg: (h) => h.chg, mtd: (h) => h.mtd, pe: (h) => h.pe || 0 }
     const kf = keyf[st.sortKey] || keyf.w
     rows = rows.slice().sort((a, b) => { const x = kf(a), y = kf(b); return typeof x === 'string' ? x.localeCompare(y) * dir : (x - y) * dir })
     v.stocksRows = rows.map((h) => this._rowVM(h, 'stocks'))
+    v.stocksRaw = rows // #42: raw filtered/sorted holdings for CSV export (exactly what's on screen)
     v.stocksTitle = fk === 'all' ? 'All Holdings' : F[fk].name + ' Holdings'
     v.stocksCount = rows.length + ' of ' + stockPool.length + ' holdings · ' + (fk === 'all' ? 'both funds' : F[fk].name)
     v.query = st.query || ''
@@ -2135,12 +2350,13 @@ export default class App extends React.Component {
     // sectors kanban — one column per UOIG group, in taxonomy order
     const agg = this._aggSectors(fk)
     const singleFund = fk !== 'all'
+    v.sectorsSubtitle = (singleFund ? 'The five UOIG groups across ' + F[fk].name : 'The five UOIG groups across the combined endowment') + ' · click a column to drill in, a card to open the holding'
     v.sectorCols = SECTOR_GROUPS.map((g) => {
       const a = agg[g.name]
-      if (!a) return { name: g.name, color: g.color, members: g.members.join(' · '), shareStr: '0.0%', count: 0, cards: [], singleFund, on: () => {} }
+      if (!a) return { name: g.name, color: g.color, members: g.members.join(' · '), shareStr: '0.0%', shareBase: '', count: 0, cards: [], singleFund, on: () => {} }
       const gd = (a.wByFund[fundA] || 0) / 100 * F[fundA].aum, vd = (a.wByFund[fundB] || 0) / 100 * F[fundB].aum
       const tot = gd + vd || 1
-      const cards = a.holdings.slice().sort((x, y) => y.w - x.w).map((h) => ({
+      const cards = a.holdings.map(wAll).sort((x, y) => y.w - x.w).map((h) => ({
         t: h.t, n: h.n, wStr: h.w.toFixed(1) + '%',
         dayStr: this._sign(h.chg) + '%', dayColor: this._col(h.chg),
         mtdStr: this._sign(h.mtd, 1) + '%', mtdColor: this._col(h.mtd),
@@ -2149,7 +2365,9 @@ export default class App extends React.Component {
       }))
       return {
         name: g.name, color: g.color, members: g.members.join(' · '),
-        shareStr: a.share.toFixed(1) + '%', count: a.count,
+        shareStr: a.share.toFixed(1) + '%',
+        shareBase: singleFund ? 'of ' + F[fk].name : 'of endowment',
+        count: a.count,
         retStr: this._sign(a.ret, 1) + '%', retColor: this._col(a.ret),
         gPct: (gd / tot * 100).toFixed(0) + '%', vPct: (vd / tot * 100).toFixed(0) + '%',
         cards, singleFund,
@@ -2224,7 +2442,7 @@ export default class App extends React.Component {
         v.stkTabs = [['overview', 'Overview'], ['thesis', 'Thesis'], ['financials', 'Financials'], ['earnings', 'Earnings'], ['news', 'News'], ['research', 'Research'], ['predictions', 'Predictions']]
           .filter(([k]) => held || (k !== 'thesis' && k !== 'predictions'))
           .map(([k, label]) => ({
-            key: k, label, on: () => this.setState({ stkTab: k }),
+            key: k, label, on: () => this._navigate({ stkTab: k }, { replace: true }),
             weight: k === tabKey ? 600 : 500, color: k === tabKey ? '#e8edf7' : '#6b7794',
             border: k === tabKey ? '2px solid #5a93f9' : '2px solid transparent',
           }))

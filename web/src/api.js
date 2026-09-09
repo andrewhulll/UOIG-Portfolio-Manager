@@ -60,8 +60,15 @@ export const getAgentRun = (jobId) => get(`/api/agent/run/${jobId}`)
 export const getMe = () => get('/api/auth/me')
 export const logout = () => post('/api/auth/logout')
 // Pass an invitation token to carry it through Google OAuth (invitee accept flow).
-export const loginUrl = (invitationToken) =>
-  `${BASE}/api/auth/login${invitationToken ? `?invitation_token=${encodeURIComponent(invitationToken)}` : ''}`
+// `next` carries the pre-login deep link (#40) across the OAuth round trip.
+export const loginUrl = (invitationToken) => {
+  const here = window.location.pathname + window.location.search
+  const params = new URLSearchParams()
+  if (invitationToken) params.set('invitation_token', invitationToken)
+  if (here && here !== '/') params.set('next', here)
+  const q = params.toString()
+  return `${BASE}/api/auth/login${q ? `?${q}` : ''}`
+}
 export const sendInvite = (email, roleSlug) => post('/api/auth/invite', { email, role_slug: roleSlug })
 export const getOrganizationMembers = () => get('/api/organization/members')
 const put = (path, body) =>

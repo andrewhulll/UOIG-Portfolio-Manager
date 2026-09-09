@@ -16,7 +16,8 @@ from src.analytics.pnl import load_positions
 from src.analytics.returns import enrich_returns
 from src.analytics.risk import _beta, add_betas, daily_returns_matrix, fund_risk_table
 from src.analytics.series import (PERIODS, div_yield_ttm, mtd_return, period_return,
-                                  price_frame)
+                                  price_frame, ticker_series)
+from src.model import schema as _schema
 
 # fund key + display styling
 FUND_META = {
@@ -61,6 +62,7 @@ def _wavg(pairs):
 
 
 def build_terminal_data(cfg: dict, conn: sqlite3.Connection) -> dict:
+    _schema.create_schema(conn)  # idempotent; ensures latest migrated columns exist
     pos = enrich_returns(load_positions(cfg, conn), conn)
     rets = daily_returns_matrix(conn, (cfg.get("risk") or {}).get("beta_window_years", 3))
     pos = add_betas(pos, rets)
@@ -70,7 +72,16 @@ def build_terminal_data(cfg: dict, conn: sqlite3.Connection) -> dict:
 
     funda = {r[0]: r for r in conn.execute(
         "SELECT ticker, gics_sector, pe, pb, market_cap, week52_low, week52_high, "
-        "description, ev_ebitda FROM fundamentals").fetchall()}
+        "description, ev_ebitda, div_yield_provider FROM fundamentals").fetchall()}
+
+    def _dy(ticker, px):
+        # #43: our dividends table first; fall back to the provider's reported
+        # TTM yield (backfilled by the fundamentals refresh) when it has nothing.
+        db_yield = div_yield_ttm(conn, ticker, px)
+        if db_yield:
+            return db_yield
+        row = funda.get(ticker)
+        return row[9] if row else None
 
     rf = period_return(pf, (cfg.get("risk") or {}).get("risk_free", "BIL"), "1Y") or 0.04
 
@@ -92,13 +103,21 @@ def build_terminal_data(cfg: dict, conn: sqlite3.Connection) -> dict:
             "pe": _clean(fd[2]) if fd else None,
             "pb": _clean(fd[3]) if fd else None,
             "evEbitda": _clean(fd[8]) if fd else None,
-            "dy": _clean(div_yield_ttm(conn, r.ticker, px)),
+            "dy": _clean(_dy(r.ticker, px)),
             "beta": _clean(r.beta),
             "mc": _clean(fd[4] / 1e9) if fd and fd[4] else None,   # $B
             "lo": _clean(fd[5]) if fd else None,
             "hi": _clean(fd[6]) if fd else None,
             "desc": (fd[7] if fd else "") or "",
+            # 3M of downsampled closes for the holdings-table sparkline column
+            "spark": ticker_series(pf, r.ticker, "3M", points=30)["close"],
         })
+
+    # Total-portfolio weight for the All Funds view (#28): port_w above is
+    # fund-relative, so the combined view showed each fund's internal weight.
+    total_mv = sum(h["mv"] for h in holdings if h["mv"])
+    for h in holdings:
+        h["wAll"] = round(h["mv"] / total_mv * 100, 2) if total_mv and h["mv"] else 0.0
 
     # ---- funds ----
     funds = {}
@@ -123,6 +142,7 @@ def build_terminal_data(cfg: dict, conn: sqlite3.Connection) -> dict:
 
         funds[meta.get("key", name)] = {
             "key": meta.get("key", name), "name": name,
+            "slug": name.lower().replace(" ", "-"),  # #40: URL slug, e.g. tall-firs
             "long": f"{name} · Net Asset Value",
             "bench": meta.get("benchShort", bench), "benchShort": meta.get("benchShort", bench),
             "benchTicker": bench, "color": meta.get("color", "#5a93f9"),
@@ -135,7 +155,7 @@ def build_terminal_data(cfg: dict, conn: sqlite3.Connection) -> dict:
                                 for r in stocks.itertuples()])),
             "pb": _clean(_wavg([(r.port_w, funda.get(r.ticker, [None]*4)[3] if funda.get(r.ticker) else None)
                                 for r in stocks.itertuples()])),
-            "dy": _clean(_wavg([(r.port_w, div_yield_ttm(conn, r.ticker, r.price))
+            "dy": _clean(_wavg([(r.port_w, _dy(r.ticker, r.price))
                                 for r in stocks.itertuples()])),
         }
 

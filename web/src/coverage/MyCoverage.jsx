@@ -93,7 +93,7 @@ function CoverageCard({ card, onOpenStock }) {
 
       <div style={s('display:flex;flex-wrap:wrap;gap:14px 20px;margin-top:14px;padding-top:14px;border-top:1px solid #1a2438;')}>
         <Stat label="Next earnings">
-          <div style={s("font:500 12px 'IBM Plex Mono';color:" + (soon ? '#f4a531' : '#cdd6e8') + ';')}>{card.nextEarnings || '—'}</div>
+          <div style={s("font:500 12px 'IBM Plex Mono';color:" + (soon ? '#f4a531' : '#cdd6e8') + ';')}>{card.nextEarnings ? (card.nextEarningsEstimated ? '~' : '') + card.nextEarnings : '—'}</div>
           {soon && <div style={s("font:600 9px 'IBM Plex Sans';color:#f4a531;margin-top:2px;")}>in {card.earningsInDays}d</div>}
         </Stat>
         <Stat label="Street">

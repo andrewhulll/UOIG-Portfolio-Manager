@@ -30,8 +30,7 @@ import secrets as _secrets  # noqa: E402
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
-from fastapi.staticfiles import StaticFiles  # noqa: E402
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse  # noqa: E402
 
 from api.build import FUND_META, build_terminal_data  # noqa: E402
 from src.auth import sessions as auth_sessions  # noqa: E402
@@ -118,6 +117,22 @@ def _app_redirect(path: str = "/"):
     return RedirectResponse(wc.frontend_url() + path, status_code=302)
 
 
+def _safe_next(path: str) -> str:
+    """Validate a post-login redirect target (#40): must be a same-origin path,
+    never a protocol-relative or absolute URL (open-redirect guard)."""
+    if not path or not path.startswith("/") or path.startswith("//"):
+        return "/"
+    return path
+
+
+def _auth_error_redirect(request: Request, err: str):
+    """Send auth failures back to the page the user started from (#40), with the
+    error flag attached — AuthScreen reads it from the query on any path."""
+    nxt = _safe_next(request.cookies.get(wc.NEXT_COOKIE) or "/")
+    sep = "&" if "?" in nxt else "?"
+    return _app_redirect(f"{nxt}{sep}auth_error={err}")
+
+
 def _current(request: Request):
     """(session_result, new_sealed) for the request's cookie, or (None, None)."""
     sealed = request.cookies.get(wc.COOKIE_NAME)
@@ -143,10 +158,11 @@ async def auth_gate(request: Request, call_next):
 
 
 @app.get("/api/auth/login")
-def auth_login(invitation_token: str = ""):
+def auth_login(invitation_token: str = "", next: str = ""):
     """Begin Google OAuth: stash a CSRF state cookie, 302 to WorkOS. When an
     invitee starts from the accept page, `invitation_token` is stashed in a
-    short-lived cookie so the callback can accept the invite after Google."""
+    short-lived cookie so the callback can accept the invite after Google.
+    `next` carries the pre-login deep link (#40) across the round trip."""
     if not wc.configured():
         raise HTTPException(503, "WorkOS is not configured on the server")
     state = _secrets.token_urlsafe(24)
@@ -155,6 +171,10 @@ def auth_login(invitation_token: str = ""):
                     samesite=wc.cookie_samesite(), secure=wc.is_secure(), path="/")
     if invitation_token:
         resp.set_cookie(wc.INVITE_COOKIE, invitation_token, max_age=600, httponly=True,
+                        samesite=wc.cookie_samesite(), secure=wc.is_secure(), path="/")
+    nxt = _safe_next(next)
+    if nxt != "/":
+        resp.set_cookie(wc.NEXT_COOKIE, nxt, max_age=600, httponly=True,
                         samesite=wc.cookie_samesite(), secure=wc.is_secure(), path="/")
     return resp
 
@@ -165,17 +185,19 @@ def auth_callback(request: Request, code: str = "", state: str = ""):
     If an invite token rode along (invitee signing in with Google), pass it to the
     exchange so WorkOS accepts the invitation and joins them to the org."""
     if not code or not state or state != request.cookies.get(wc.STATE_COOKIE):
-        return _app_redirect("/?auth_error=bad_state")
+        return _auth_error_redirect(request, "bad_state")
     invite = request.cookies.get(wc.INVITE_COOKIE) or None
     try:
         auth = auth_sessions.complete_login(code, invitation_token=invite)
     except Exception:  # noqa: BLE001
-        return _app_redirect("/?auth_error=auth_failed")
+        return _auth_error_redirect(request, "auth_failed")
     if not auth_sessions.is_member(auth):
-        return _app_redirect("/?auth_error=not_invited")
-    resp = _app_redirect("/")
+        return _auth_error_redirect(request, "not_invited")
+    nxt = _safe_next(request.cookies.get(wc.NEXT_COOKIE) or "/")
+    resp = _app_redirect(nxt)
     resp.delete_cookie(wc.STATE_COOKIE, path="/")
     resp.delete_cookie(wc.INVITE_COOKIE, path="/")
+    resp.delete_cookie(wc.NEXT_COOKIE, path="/")
     _set_session_cookie(resp, auth_sessions.seal(auth))
     return resp
 
@@ -868,6 +890,7 @@ def coverage_me(request: Request):
             "sector": row.get("sector"),
             **bundle,
             "nextEarnings": next_earnings,
+            "nextEarningsEstimated": bool(earnings.get("nextEstimated")),
             "earningsInDays": days_until,
             "news": news,
             "thesis": stock_thesis(ticker).get("thesis"),
@@ -1328,4 +1351,14 @@ app.include_router(submissions_router)
 
 _DIST = Path(__file__).resolve().parents[1] / "web" / "dist"
 if _DIST.exists():
-    app.mount("/", StaticFiles(directory=str(_DIST), html=True), name="web")
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def _spa(full_path: str):
+        """Serve the built SPA (#40): real files straight from dist; every other
+        non-API path falls back to index.html so client-side routes (deep links)
+        load on direct visit, refresh, and share. API routes are registered above
+        and match first; traversal outside dist is rejected."""
+        base = _DIST.resolve()
+        target = (base / full_path).resolve() if full_path else base / "index.html"
+        if full_path and str(target).startswith(str(base) + os.sep) and target.is_file():
+            return FileResponse(str(target))
+        return FileResponse(str(base / "index.html"))
