@@ -95,7 +95,13 @@ def div_yield_ttm(conn: sqlite3.Connection, ticker: str, price: float):
 
 
 def synthetic_index(rets: pd.DataFrame, weights: dict, period: str) -> dict:
-    """Reconstructed current-weights fund index (base 100) over the period."""
+    """Reconstructed current-weights fund index (base 100) over the period.
+
+    Weights are renormalized each day over the constituents that actually have
+    a return that day, so a name with missing history no longer drags the index
+    toward flat (the old ``.fillna(0.0)`` did exactly that). Days on which no
+    constituent has data are dropped from the index.
+    """
     cols = [t for t in weights if t in rets.columns]
     if not cols:
         return {"dates": [], "values": [], "ret": None}
@@ -106,7 +112,11 @@ def synthetic_index(rets: pd.DataFrame, weights: dict, period: str) -> dict:
         return {"dates": [], "values": [], "ret": None}
     w = pd.Series({t: weights[t] for t in cols})
     w = w / w.sum()
-    port = win.mul(w, axis=1).sum(axis=1, min_count=1).fillna(0.0)
+    # Per-day renormalization over the names with data; drop all-NaN days.
+    wsum = win.notna().mul(w, axis=1).sum(axis=1)
+    port = (win.mul(w, axis=1).sum(axis=1, min_count=1) / wsum).where(wsum > 0).dropna()
+    if port.empty:
+        return {"dates": [], "values": [], "ret": None}
     idx = (1 + port).cumprod() * 100
     return {"dates": [d.strftime("%Y-%m-%d") for d in idx.index],
             "values": [round(float(v), 3) for v in idx.values],
