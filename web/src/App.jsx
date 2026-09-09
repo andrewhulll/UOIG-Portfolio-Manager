@@ -154,7 +154,7 @@ export default class App extends React.Component {
       optResult: {},  // cache: fundKey -> BL solve result | 'loading' | 'error'
       optViews: {},  // fundKey -> {ticker: {q: str, conf: 'low'|'med'|'high'}}
       optCap: '10', optErp: '5',  // optimizer constraint inputs (% strings)
-      searchQ: '', searchResults: [], searchOpen: false, searchActive: -1,
+      searchQ: '', searchResults: [], searchOpen: false, searchActive: -1, searchDone: false,
     }
     this._searchSeq = 0
   }
@@ -408,7 +408,7 @@ export default class App extends React.Component {
   }
   _onSearchChange(q) {
     const local = this._localMatches(q)
-    this.setState({ searchQ: q, searchOpen: true, searchActive: -1, searchResults: local })
+    this.setState({ searchQ: q, searchOpen: true, searchActive: -1, searchResults: local, searchDone: !q.trim() })
     const seq = ++this._searchSeq
     clearTimeout(this._searchTimer)
     if (!q.trim()) return
@@ -417,15 +417,15 @@ export default class App extends React.Component {
         if (seq !== this._searchSeq) return  // a newer keystroke superseded this one
         const have = new Set(local.map((r) => r.symbol))
         const remote = (res.results || []).filter((r) => !have.has(r.symbol)).map((r) => ({ ...r, remote: true }))
-        this.setState({ searchResults: [...local, ...remote] })
-      }).catch(() => {})
+        this.setState({ searchResults: [...local, ...remote], searchDone: true })
+      }).catch(() => { if (seq === this._searchSeq) this.setState({ searchDone: true }) })
     }, 180)
   }
   _searchSelect(symbol) {
     if (!symbol) return
     this._searchSeq++  // invalidate any in-flight search
     clearTimeout(this._searchTimer)
-    this.setState({ searchOpen: false, searchQ: '', searchResults: [], searchActive: -1 })
+    this.setState({ searchOpen: false, searchQ: '', searchResults: [], searchActive: -1, searchDone: false })
     this._openStock(symbol, this.state.view)
   }
   _searchKey(e) {
@@ -794,6 +794,11 @@ export default class App extends React.Component {
                 ))}
               </div>
             )}
+            {this.state.searchOpen && this.state.searchResults.length === 0 && this.state.searchQ.trim() && this.state.searchDone && (
+              <div style={s('position:absolute;top:40px;left:0;right:0;background:#0b1120;border:1px solid #1d2840;border-radius:8px;box-shadow:0 16px 40px rgba(0,0,0,.55);z-index:80;padding:14px 12px;text-align:center;font-size:12px;color:#6b7794;')}>
+                No results for &ldquo;{this.state.searchQ.trim()}&rdquo; — press Enter to look it up anyway
+              </div>
+            )}
           </div>
           <div className="app-fund-tabs" style={s('display:flex;background:#0e1422;border:1px solid #1d2840;border-radius:9px;padding:3px;gap:2px;margin-left:10px;')}>
             {v.fundTabs.map((t) => (<span key={t.k} onClick={t.on} style={{ ...s("padding:6px 15px;border-radius:6px;cursor:pointer;font-size:11.5px;font-family:'IBM Plex Sans';"), fontWeight: t.weight, background: t.bg, color: t.color }}>{t.label}</span>))}
@@ -1081,7 +1086,7 @@ export default class App extends React.Component {
           {fin.caption ? <div style={s("font:500 11px 'IBM Plex Sans';color:#9aa7c2;margin-top:12px;")}>{fin.caption}</div> : null}
         </div>
         <div>
-          <div style={s("display:grid;grid-template-columns:1fr 72px 72px 60px;gap:6px;padding-bottom:8px;border-bottom:1px solid #1d2840;font:600 8.5px 'IBM Plex Sans';letter-spacing:.05em;text-transform:uppercase;color:#6b7794;")}><span></span><span style={s('text-align:right;')}>Latest</span><span style={s('text-align:right;')}>Prior</span><span style={s('text-align:right;')}>YoY</span></div>
+          <div style={s("display:grid;grid-template-columns:1fr 72px 72px 60px;gap:6px;padding-bottom:8px;border-bottom:1px solid #1d2840;font:600 8.5px 'IBM Plex Sans';letter-spacing:.05em;text-transform:uppercase;color:#6b7794;")}><span></span><span style={s('text-align:right;')}>Latest</span><span style={s('text-align:right;')}>Prior Yr</span><span style={s('text-align:right;')}>YoY</span></div>
           {fin.rows.map((r, i) => (
             <div key={i} style={s('display:grid;grid-template-columns:1fr 72px 72px 60px;gap:6px;padding:8px 0;border-bottom:1px solid #131c2f;font-size:11px;')}><span style={s('color:#9aa7c2;')}>{r.label}</span><span style={s("font-family:'IBM Plex Mono';text-align:right;color:#e8edf7;")}>{r.cur}</span><span style={s("font-family:'IBM Plex Mono';text-align:right;color:#9aa7c2;")}>{r.prev}</span><span style={{ ...s("font-family:'IBM Plex Mono';text-align:right;"), color: this._yc(r.yoy) }}>{r.yoy}</span></div>
           ))}
@@ -2041,7 +2046,11 @@ export default class App extends React.Component {
       ]
     }
 
-    const dashSrc = fk === 'all' ? this.allH : this.allH.filter((h) => h.fund === fk)
+    // #28: on the All Funds view, weights are vs total portfolio NAV,
+    // not each holding's home fund — normalize once so sorting, display,
+    // and contribution math below all use the right base.
+    const wAll = (h) => (fk === 'all' && h.wAll != null ? { ...h, w: h.wAll } : h)
+    const dashSrc = (fk === 'all' ? this.allH : this.allH.filter((h) => h.fund === fk)).map(wAll)
     const dashSorted = dashSrc.slice().sort((a, b) => b.w - a.w)
     v.dashHoldings = dashSorted.slice(0, 10).map((h) => this._rowVM(h, 'dashboard'))
     v.dashTitle = fk === 'all' ? 'Top Holdings' : F[fk].name + ' Holdings'
@@ -2060,7 +2069,7 @@ export default class App extends React.Component {
 
     // stocks list
     const q = (st.query || '').toLowerCase()
-    const stockPool = fk === 'all' ? this.allH : this.allH.filter((h) => h.fund === fk)
+    const stockPool = (fk === 'all' ? this.allH : this.allH.filter((h) => h.fund === fk)).map(wAll)
     let rows = stockPool.filter((h) => !q || h.t.toLowerCase().indexOf(q) >= 0 || h.n.toLowerCase().indexOf(q) >= 0 || (h.s || '').toLowerCase().indexOf(q) >= 0)
     const dir = st.sortDir === 'asc' ? 1 : -1
     const keyf = { t: (h) => h.t, n: (h) => h.n, s: (h) => h.s || '', w: (h) => h.w, mv: (h) => h.mv || 0, px: (h) => h.px, chg: (h) => h.chg, mtd: (h) => h.mtd, pe: (h) => h.pe || 0 }
