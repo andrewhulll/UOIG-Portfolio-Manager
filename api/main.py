@@ -480,9 +480,14 @@ def _dev_directory():
         "sectors": list(dict.fromkeys(row["sector"] for row in coverage)),
         "leadSectors": [],
     } for name, coverage in people.items()]
+    # Give the local dev user the same coverage as their real roster entry (if any)
+    # so /api/coverage/me has something to show while working on the UI locally.
+    dev_coverage = people.get("Andrew Hull", [])
     members.insert(0, {"id": "dev", "name": "Dev User", "email": "dev@local",
                        "profilePictureUrl": None, "role": "admin", "roleName": "Admin",
-                       "isMock": False, "coverage": [], "sectors": [], "leadSectors": []})
+                       "isMock": False, "coverage": dev_coverage,
+                       "sectors": list(dict.fromkeys(row["sector"] for row in dev_coverage)),
+                       "leadSectors": []})
     return {"organization": {"id": "dev-uoig", "name": "UOIG"}, "members": members}
 
 
@@ -761,15 +766,17 @@ def _relevant_news(ticker: str, name: str | None, items: list[dict] | None) -> l
 
 
 def _coverage_price_bundle(pf, ticker: str) -> dict:
-    """Name + price + day/MTD change for a covered ticker: the portfolio price
-    store when it's a holding (same source as /api/series), a live yfinance
-    quote otherwise. Name always comes from the live quote (cheap, TTL-cached)
-    since it's needed either way for news-relevance filtering."""
+    """Name + price + day/MTD change + a 1M sparkline for a covered ticker: the
+    portfolio price store when it's a holding (same source as /api/series), a
+    live yfinance quote otherwise. Name always comes from the live quote (cheap,
+    TTL-cached) since it's needed either way for news-relevance filtering."""
     try:
         q = quote_overview(ticker)
     except Exception:  # noqa: BLE001
         q = None
     name = q.get("n") if q else None
+    mc = q.get("mc") if q else None
+    pe = q.get("pe") if q else None
 
     s = pf[pf.ticker == ticker]
     if len(s) >= 2:
@@ -780,9 +787,14 @@ def _coverage_price_bundle(pf, ticker: str) -> dict:
             "price": round(last, 2),
             "dayChangePct": round((last / prev - 1) * 100, 2) if prev else None,
             "mtdChangePct": round(mtd * 100, 2) if mtd is not None else None,
+            "series": [round(float(v), 2) for v in s["close"].tail(22)],
+            "marketCap": mc,
+            "forwardPE": pe,
+            "held": True,
         }
 
     mtd_pct = None
+    closes = []
     try:
         live = live_series(ticker, "1M")
         closes, dates = live.get("close") or [], live.get("dates") or []
@@ -800,6 +812,10 @@ def _coverage_price_bundle(pf, ticker: str) -> dict:
         "price": q.get("px") if q else None,
         "dayChangePct": q.get("chg") if q else None,
         "mtdChangePct": mtd_pct,
+        "series": closes,
+        "marketCap": mc,
+        "forwardPE": pe,
+        "held": False,
     }
 
 
@@ -854,6 +870,8 @@ def coverage_me(request: Request):
             "nextEarnings": next_earnings,
             "earningsInDays": days_until,
             "news": news,
+            "thesis": stock_thesis(ticker).get("thesis"),
+            "consensus": (research.get("research") or {}).get("consensus"),
         })
         if days_until is not None and 0 <= days_until <= 5:
             earnings_this_week.append(ticker)

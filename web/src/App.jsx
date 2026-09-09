@@ -24,9 +24,21 @@ SECTOR_GROUPS.forEach((g) => g.members.forEach((m) => (SECTOR_OF[m] = g)))
 const GROUP_COLOR = {}
 SECTOR_GROUPS.forEach((g) => (GROUP_COLOR[g.name] = g.color))
 
-// Running Ask-Claude token/cost tally for this browser session only — held in
-// React state (not persisted), so it resets on Clear or a page reload.
+// Running Ask-Claude token/cost tally, per chat session.
 const ZERO_CHAT_USAGE = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, costUsd: 0 }
+
+// Ask-Claude sessions: each is its own message list + usage tally, persisted to
+// localStorage so switching tabs or reloading the terminal doesn't lose history.
+const newSessionId = () => 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
+const emptyChatSession = () => ({ id: newSessionId(), title: 'New chat', chat: [], chatUsage: ZERO_CHAT_USAGE, createdAt: Date.now(), updatedAt: Date.now() })
+const activeSessionOf = (st) => st.chatSessions.find((c) => c.id === st.activeChatId) || st.chatSessions[0]
+function relTime(ts) {
+  const sec = Math.max(0, (Date.now() - ts) / 1000)
+  if (sec < 60) return 'now'
+  if (sec < 3600) return Math.floor(sec / 60) + 'm'
+  if (sec < 86400) return Math.floor(sec / 3600) + 'h'
+  return Math.floor(sec / 86400) + 'd'
+}
 
 // s() (CSS-string -> React style object) and the C palette live in ./ui.js.
 
@@ -127,6 +139,12 @@ export default class App extends React.Component {
     let preferences = {}
     try { preferences = JSON.parse(localStorage.getItem('uoig.preferences') || '{}') } catch (_) { /* ignore invalid local state */ }
     const landing = ['dashboard', 'stocks', 'sectors', 'optimize'].includes(preferences.landingPage) ? preferences.landingPage : 'dashboard'
+    let chatSessions = []
+    try { chatSessions = JSON.parse(localStorage.getItem('uoig.chat.sessions') || '[]') } catch (_) { /* ignore invalid local state */ }
+    if (!Array.isArray(chatSessions) || !chatSessions.length) chatSessions = [emptyChatSession()]
+    let activeChatId = null
+    try { activeChatId = localStorage.getItem('uoig.chat.active') } catch (_) { /* ignore */ }
+    if (!chatSessions.some((c) => c.id === activeChatId)) activeChatId = chatSessions[0].id
     this.state = {
       auth: 'loading',  // 'loading' | { user, role, canInvite } | null (signed out)
       profileOpen: false,  // profile menu popover
@@ -137,7 +155,7 @@ export default class App extends React.Component {
       ticker: null, sector: null, prevView: 'dashboard',
       stkTab: 'overview', chatOpen: false,
       sortKey: 'w', sortDir: 'desc', query: '',
-      chat: [], input: '', loading: false, agentBusy: false, chatUsage: ZERO_CHAT_USAGE,
+      chatSessions, activeChatId, input: '', loading: false, agentBusy: false,
       series: {},  // cache: key -> {dates, values/close, ...}
       sectorSeries: {},  // cache: `${group}:${period}` -> {sector, benchmarks, movers} | 'loading' | 'error'
       sectorPeriod: '1M',  // sector comparison chart window (independent of the global period)
@@ -295,9 +313,16 @@ export default class App extends React.Component {
         if (this.state.optimizeTab === 'optimizer') { this._ensureWhatif(); this._ensureOptSolve() }
       }
     }
-    const pl = (prev.chat && prev.chat.length) || 0
-    if (this.chatRef.current && (pl !== this.state.chat.length || prev.loading !== this.state.loading))
+    const pl = activeSessionOf(prev).chat.length
+    if (this.chatRef.current && (pl !== activeSessionOf(this.state).chat.length ||
+        prev.loading !== this.state.loading || prev.activeChatId !== this.state.activeChatId))
       this.chatRef.current.scrollTop = this.chatRef.current.scrollHeight
+    if (prev.chatSessions !== this.state.chatSessions || prev.activeChatId !== this.state.activeChatId) {
+      try {
+        localStorage.setItem('uoig.chat.sessions', JSON.stringify(this.state.chatSessions))
+        localStorage.setItem('uoig.chat.active', this.state.activeChatId)
+      } catch (_) { /* ignore quota / private-mode errors */ }
+    }
   }
 
   // ---------- data shaping ----------
@@ -671,25 +696,54 @@ export default class App extends React.Component {
     const f = st.fund === 'all' ? 'both funds combined' : (this.funds[st.fund] || {}).name
     return st.view + ' view · ' + f + ' · ' + st.period
   }
+  // Apply an updater(session) => partial to one chat session by id, leaving the
+  // rest of chatSessions untouched. Every chat mutation (send, agent run, error)
+  // goes through this so a reply always lands in the session it was asked of,
+  // even if the user has since switched the active tab.
+  _patchSession(id, updater) {
+    this.setState((st) => ({
+      chatSessions: st.chatSessions.map((s) => (s.id === id ? { ...s, ...updater(s), updatedAt: Date.now() } : s)),
+    }))
+  }
+  _newChatSession() {
+    const session = emptyChatSession()
+    this.setState((st) => ({ chatSessions: [session, ...st.chatSessions], activeChatId: session.id, chatOpen: true, input: '' }))
+  }
+  _switchChatSession(id) { this.setState({ activeChatId: id, chatOpen: true }) }
+  _deleteChatSession(id) {
+    this.setState((st) => {
+      const remaining = st.chatSessions.filter((s) => s.id !== id)
+      const chatSessions = remaining.length ? remaining : [emptyChatSession()]
+      const activeChatId = st.activeChatId === id ? chatSessions[0].id : st.activeChatId
+      return { chatSessions, activeChatId }
+    })
+  }
   async _send(text) {
     const q = (text != null ? text : this.state.input).trim()
     if (!q || this.state.loading) return
     const ctx = this._chatContext()
-    const chat = this.state.chat.concat([{ role: 'user', content: q }])
-    this.setState({ chat, input: '', loading: true, chatOpen: true })
+    const id = this.state.activeChatId
+    const active = activeSessionOf(this.state)
+    const chat = active.chat.concat([{ role: 'user', content: q }])
+    const title = active.chat.length ? active.title : q.slice(0, 48)
+    this._patchSession(id, () => ({ chat, title }))
+    this.setState({ input: '', loading: true, chatOpen: true })
     try {
       const res = await postChat(chat, ctx)
       const u = res.usage || {}
-      this.setState((st) => ({ chat: st.chat.concat([{ role: 'assistant', content: res.reply || '(no response)' }]), loading: false,
+      this._patchSession(id, (s) => ({
+        chat: s.chat.concat([{ role: 'assistant', content: res.reply || '(no response)' }]),
         chatUsage: {
-          inputTokens: st.chatUsage.inputTokens + (u.inputTokens || 0),
-          outputTokens: st.chatUsage.outputTokens + (u.outputTokens || 0),
-          cacheWriteTokens: st.chatUsage.cacheWriteTokens + (u.cacheWriteTokens || 0),
-          cacheReadTokens: st.chatUsage.cacheReadTokens + (u.cacheReadTokens || 0),
-          costUsd: st.chatUsage.costUsd + (u.costUsd || 0),
+          inputTokens: s.chatUsage.inputTokens + (u.inputTokens || 0),
+          outputTokens: s.chatUsage.outputTokens + (u.outputTokens || 0),
+          cacheWriteTokens: s.chatUsage.cacheWriteTokens + (u.cacheWriteTokens || 0),
+          cacheReadTokens: s.chatUsage.cacheReadTokens + (u.cacheReadTokens || 0),
+          costUsd: s.chatUsage.costUsd + (u.costUsd || 0),
         } }))
+      this.setState({ loading: false })
     } catch (e) {
-      this.setState((st) => ({ chat: st.chat.concat([{ role: 'assistant', content: '⚠ Could not reach the assistant.' }]), loading: false }))
+      this._patchSession(id, (s) => ({ chat: s.chat.concat([{ role: 'assistant', content: '⚠ Could not reach the assistant.' }]) }))
+      this.setState({ loading: false })
     }
   }
 
@@ -698,10 +752,15 @@ export default class App extends React.Component {
   // request to time out. Output drops into the chat when ready.
   _runAgent() {
     if (this.state.agentBusy || this.state.loading) return
-    this.setState((st) => ({ chatOpen: true, loading: true, agentBusy: true,
-      chat: st.chat.concat([{ role: 'user', content: '▶ Run market analysis' }]) }))
-    const finish = (content) => this.setState((st) => ({ loading: false, agentBusy: false,
-      chat: st.chat.concat([{ role: 'assistant', content }]) }))
+    const id = this.state.activeChatId
+    const active = activeSessionOf(this.state)
+    const title = active.chat.length ? active.title : 'Market analysis'
+    this._patchSession(id, (s) => ({ chat: s.chat.concat([{ role: 'user', content: '▶ Run market analysis' }]), title }))
+    this.setState({ chatOpen: true, loading: true, agentBusy: true })
+    const finish = (content) => {
+      this._patchSession(id, (s) => ({ chat: s.chat.concat([{ role: 'assistant', content }]) }))
+      this.setState({ loading: false, agentBusy: false })
+    }
     runAgent()
       .then((res) => {
         if (!res || !res.job_id) { finish('⚠ Could not start the agent run.'); return }
@@ -823,8 +882,9 @@ export default class App extends React.Component {
             <div style={s('display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-bottom:1px solid #241f3e;background:linear-gradient(180deg,#140f2c,#0b0d1d);flex:0 0 auto;')}>
               <div style={s("display:flex;align-items:center;gap:8px;font:600 11px 'IBM Plex Sans';letter-spacing:.08em;text-transform:uppercase;color:#c3b9ff;")}><span style={s('font-size:15px;')}>✦</span>Ask Claude</div>
               <div style={s('display:flex;align-items:center;gap:7px;')}>
-                <span onClick={() => this.setState({ chat: [], chatUsage: ZERO_CHAT_USAGE })} style={s('font-size:9px;color:#7a6fb5;border:1px solid #2c2550;border-radius:5px;padding:3px 8px;cursor:pointer;')}>CLEAR</span>
-                <span onClick={() => this.setState({ chatOpen: false })} style={s('width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:13px;color:#7a6fb5;border:1px solid #2c2550;border-radius:5px;cursor:pointer;')}>✕</span>
+                <span onClick={() => this._go('assistant')} title="Open full Assistant + chat history" className="dc-hover" style={s('font-size:9px;color:#7a6fb5;border:1px solid #2c2550;border-radius:5px;padding:3px 8px;cursor:pointer;')}>⤢ Sessions</span>
+                <span onClick={() => this._newChatSession()} title="Start a new chat" className="dc-hover" style={s('font-size:9px;color:#7a6fb5;border:1px solid #2c2550;border-radius:5px;padding:3px 8px;cursor:pointer;')}>+ New</span>
+                <span onClick={() => this.setState({ chatOpen: false })} className="dc-hover" style={s('width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:13px;color:#7a6fb5;border:1px solid #2c2550;border-radius:5px;cursor:pointer;')}>✕</span>
               </div>
             </div>
             <div style={s('padding:9px 13px;border-bottom:1px solid #1a1730;display:flex;align-items:center;gap:7px;flex:0 0 auto;')}><span style={s('font-size:8.5px;color:#7a6fb5;text-transform:uppercase;letter-spacing:.06em;')}>Context</span><span style={s('font-size:9.5px;color:#c3b9ff;background:#15112c;border:1px solid #2c2550;border-radius:5px;padding:3px 9px;')}>{v.ctxLabel}</span>{v.usageLabel && <span title={v.usageTitle} style={s("margin-left:auto;font-size:9px;font-family:'IBM Plex Mono';color:#6b6591;white-space:nowrap;")}>{v.usageLabel}</span>}</div>
@@ -1898,46 +1958,64 @@ export default class App extends React.Component {
   }
 
   // Dedicated full-page Assistant tab — same chat state/backend as the Ask-Claude
-  // popup (this.state.chat, _send, _runAgent), just laid out to fill the main pane
-  // instead of a floating widget, for longer research sessions.
+  // popup (chat sessions, _send, _runAgent), laid out as a session list beside the
+  // transcript so longer research threads stay organized and switchable.
   _renderAssistant(v) {
     return (
-      <div style={s('height:100%;display:flex;flex-direction:column;')}>
-        <div style={s('display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #1d2840;flex:0 0 auto;')}>
-          <div style={s('display:flex;align-items:center;gap:10px;')}>
-            <span style={s('font-size:18px;color:#5a4fd6;')}>✦</span>
-            <div>
-              <div style={s("font:600 14px 'IBM Plex Sans';color:#e8edf7;")}>Assistant</div>
-              <div style={s("font-size:10.5px;color:#6b7794;margin-top:1px;")}>Your research co-pilot — knows the live portfolio</div>
+      <div style={s('height:100%;display:flex;background:#08070f;')}>
+        <div style={s('width:252px;flex:0 0 auto;border-right:1px solid #1d1733;display:flex;flex-direction:column;overflow:hidden;background:#0b0a17;')}>
+          <div style={s('padding:16px 14px 12px;flex:0 0 auto;')}>
+            <div style={s('display:flex;align-items:center;gap:8px;margin-bottom:14px;')}>
+              <span style={s('font-size:16px;color:#8b7cf6;')}>✦</span>
+              <div style={s("font:600 13px 'IBM Plex Sans';color:#e8edf7;")}>Assistant</div>
+            </div>
+            <div onClick={() => this._newChatSession()} className="dc-hover" style={s("display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:8px;font:600 11px 'IBM Plex Sans';cursor:pointer;background:linear-gradient(135deg,#5a4fd6,#3a31a8);color:#fff;")}>
+              <span style={s('font-size:13px;line-height:1;')}>+</span>New chat
             </div>
           </div>
-          <div style={s('display:flex;align-items:center;gap:9px;')}>
-            {v.usageLabel && <span title={v.usageTitle} style={s("font-size:10px;font-family:'IBM Plex Mono';color:#6b6591;white-space:nowrap;")}>{v.usageLabel}</span>}
-            <span style={s('font-size:9px;color:#7a6fb5;text-transform:uppercase;letter-spacing:.06em;')}>Context</span>
-            <span style={s('font-size:10.5px;color:#c3b9ff;background:#15112c;border:1px solid #2c2550;border-radius:6px;padding:4px 10px;')}>{v.ctxLabel}</span>
-            <span onClick={() => this.setState({ chat: [], chatUsage: ZERO_CHAT_USAGE })} className="dc-hover" style={s('font-size:10px;color:#7a6fb5;border:1px solid #2c2550;border-radius:6px;padding:5px 10px;cursor:pointer;')}>Clear</span>
+          <div style={s('flex:1;min-height:0;overflow-y:auto;padding:2px 8px 10px;')}>
+            {v.chatSessions.map((cs) => (
+              <div key={cs.id} onClick={() => this._switchChatSession(cs.id)} className="chat-sess"
+                style={{ ...s('display:flex;align-items:flex-start;gap:6px;padding:9px 9px 9px 10px;border-radius:8px;cursor:pointer;margin-bottom:2px;'), background: cs.active ? '#191341' : 'transparent', borderLeft: '2px solid ' + (cs.active ? '#8b7cf6' : 'transparent') }}>
+                <div style={s('flex:1;min-width:0;')}>
+                  <div style={{ ...s("font:600 11.5px 'IBM Plex Sans';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"), color: cs.active ? '#eae6ff' : '#a9b4d6' }}>{cs.title}</div>
+                  <div style={s("font:500 9.5px 'IBM Plex Sans';color:#5c5a80;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")}>{cs.when} ago{cs.count > 0 ? ' · ' + cs.count + ' msg' + (cs.count === 1 ? '' : 's') : ''}</div>
+                </div>
+                <span onClick={(e) => { e.stopPropagation(); this._deleteChatSession(cs.id) }} title="Delete chat" className="chat-sess-del" style={s('flex:0 0 auto;width:18px;height:18px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#6b6591;cursor:pointer;')}>✕</span>
+              </div>
+            ))}
           </div>
         </div>
-        <div ref={this.chatRef} style={s('flex:1;min-height:0;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:13px;max-width:760px;width:100%;margin:0 auto;')}>
-          {v.chatEmpty && (
-            <div style={s('display:flex;flex-direction:column;align-items:center;text-align:center;gap:9px;margin:auto 0;color:#6b7794;padding:0 6px;')}>
-              <span style={s('font-size:30px;color:#5a4fd6;')}>✦</span>
-              <div style={s("font:600 14px 'IBM Plex Sans';color:#b8aef0;")}>Your research co-pilot</div>
-              <div style={s('font-size:12px;line-height:1.6;max-width:420px;')}>Ask anything about a fund, holding, or sector — it knows the live portfolio and can read the terminal's own code.</div>
+        <div style={s('flex:1;min-width:0;display:flex;flex-direction:column;')}>
+          <div style={s('display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #1d2840;flex:0 0 auto;')}>
+            <div style={s("font:600 13px 'IBM Plex Sans';color:#e8edf7;")}>{activeSessionOf(this.state).title}</div>
+            <div style={s('display:flex;align-items:center;gap:9px;')}>
+              {v.usageLabel && <span title={v.usageTitle} style={s("font-size:10px;font-family:'IBM Plex Mono';color:#6b6591;white-space:nowrap;")}>{v.usageLabel}</span>}
+              <span style={s('font-size:9px;color:#7a6fb5;text-transform:uppercase;letter-spacing:.06em;')}>Context</span>
+              <span style={s('font-size:10.5px;color:#c3b9ff;background:#15112c;border:1px solid #2c2550;border-radius:6px;padding:4px 10px;')}>{v.ctxLabel}</span>
             </div>
-          )}
-          {v.chatMsgs.map((m) => (
-            <div key={m.key} style={{ ...s('padding:10px 13px;font-size:12.5px;line-height:1.6;white-space:pre-wrap;'), alignSelf: m.align, maxWidth: m.maxw, background: m.bg, border: '1px solid ' + m.border, borderRadius: m.radius, color: m.color }}>{m.body}</div>
-          ))}
-          {v.loading && (
-            <div style={s('align-self:flex-start;display:flex;align-items:center;gap:7px;color:#7a6fb5;font-size:11px;')}><span style={s('display:flex;gap:3px;')}><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite;')}></span><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite .2s;')}></span><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite .4s;')}></span></span>Claude is analyzing…</div>
-          )}
-        </div>
-        <div style={s('padding:14px 20px 20px;flex:0 0 auto;max-width:760px;width:100%;margin:0 auto;box-sizing:border-box;')}>
-          <div onClick={() => this._runAgent()} style={{ ...s("display:flex;align-items:center;justify-content:center;gap:7px;margin-bottom:11px;padding:9px;border-radius:8px;font:600 11px 'IBM Plex Sans';letter-spacing:.03em;cursor:pointer;"), background: this.state.agentBusy ? '#1a1533' : 'linear-gradient(135deg,#5a4fd6,#3a31a8)', color: this.state.agentBusy ? '#7a6fb5' : '#fff', cursor: this.state.agentBusy ? 'default' : 'pointer' }}><span style={s('font-size:11px;')}>▶</span>{this.state.agentBusy ? 'Running market analysis…' : 'Run market analysis'}</div>
-          <div style={s('display:flex;align-items:flex-end;gap:9px;background:#0e1422;border:1px solid #2c2550;border-radius:10px;padding:10px 12px;')}>
-            <input value={v.input} onChange={(e) => this.setState({ input: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this._send() } }} placeholder={'Ask about ' + v.ctxShort + '…'} style={s("flex:1;background:transparent;border:none;outline:none;color:#e8edf7;font:400 12.5px 'IBM Plex Sans';")} />
-            <span onClick={() => this._send()} style={{ ...s('width:29px;height:29px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;cursor:pointer;flex:0 0 auto;'), background: v.sendBg }}>↑</span>
+          </div>
+          <div ref={this.chatRef} style={s('flex:1;min-height:0;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:13px;max-width:760px;width:100%;margin:0 auto;')}>
+            {v.chatEmpty && (
+              <div style={s('display:flex;flex-direction:column;align-items:center;text-align:center;gap:9px;margin:auto 0;color:#6b7794;padding:0 6px;')}>
+                <span style={s('font-size:30px;color:#5a4fd6;')}>✦</span>
+                <div style={s("font:600 14px 'IBM Plex Sans';color:#b8aef0;")}>Your research co-pilot</div>
+                <div style={s('font-size:12px;line-height:1.6;max-width:420px;')}>Ask anything about a fund, holding, or sector — it knows the live portfolio and can read the terminal's own code.</div>
+              </div>
+            )}
+            {v.chatMsgs.map((m) => (
+              <div key={m.key} style={{ ...s('padding:10px 13px;font-size:12.5px;line-height:1.6;white-space:pre-wrap;'), alignSelf: m.align, maxWidth: m.maxw, background: m.bg, border: '1px solid ' + m.border, borderRadius: m.radius, color: m.color }}>{m.body}</div>
+            ))}
+            {v.loading && (
+              <div style={s('align-self:flex-start;display:flex;align-items:center;gap:7px;color:#7a6fb5;font-size:11px;')}><span style={s('display:flex;gap:3px;')}><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite;')}></span><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite .2s;')}></span><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite .4s;')}></span></span>Claude is analyzing…</div>
+            )}
+          </div>
+          <div style={s('padding:14px 20px 20px;flex:0 0 auto;max-width:760px;width:100%;margin:0 auto;box-sizing:border-box;')}>
+            <div onClick={() => this._runAgent()} style={{ ...s("display:flex;align-items:center;justify-content:center;gap:7px;margin-bottom:11px;padding:9px;border-radius:8px;font:600 11px 'IBM Plex Sans';letter-spacing:.03em;cursor:pointer;"), background: this.state.agentBusy ? '#1a1533' : 'linear-gradient(135deg,#5a4fd6,#3a31a8)', color: this.state.agentBusy ? '#7a6fb5' : '#fff', cursor: this.state.agentBusy ? 'default' : 'pointer' }}><span style={s('font-size:11px;')}>▶</span>{this.state.agentBusy ? 'Running market analysis…' : 'Run market analysis'}</div>
+            <div style={s('display:flex;align-items:flex-end;gap:9px;background:#0e1422;border:1px solid #2c2550;border-radius:10px;padding:10px 12px;')}>
+              <input value={v.input} onChange={(e) => this.setState({ input: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this._send() } }} placeholder={'Ask about ' + v.ctxShort + '…'} style={s("flex:1;background:transparent;border:none;outline:none;color:#e8edf7;font:400 12.5px 'IBM Plex Sans';")} />
+              <span onClick={() => this._send()} style={{ ...s('width:29px;height:29px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;cursor:pointer;flex:0 0 auto;'), background: v.sendBg }}>↑</span>
+            </div>
           </div>
         </div>
       </div>
@@ -1958,7 +2036,7 @@ export default class App extends React.Component {
     v.isCoverage = st.view === 'coverage'
     v.fundAName = F[fundA].name; v.fundBName = F[fundB].name
 
-    const isAnalyst = st.auth && ['member', 'analyst'].includes(st.auth.role)
+    const isAnalyst = st.auth && ['member', 'analyst', 'admin'].includes(st.auth.role)
     const navDef = [
       ...(isAnalyst ? [['coverage', 'My Coverage', 'coverage']] : []),
       ['inbox', 'Inbox', 'inbox'],
@@ -2206,17 +2284,24 @@ export default class App extends React.Component {
     else if (st.view === 'sector' && agg[st.sector]) { ctxLabel = 'Sector · ' + st.sector; ctxShort = st.sector }
     else { const lbl = fk === 'all' ? 'Combined' : F[fk].name; ctxLabel = lbl + ' · ' + per; ctxShort = 'this fund' }
     v.ctxLabel = ctxLabel; v.ctxShort = ctxShort
-    v.chatEmpty = st.chat.length === 0 && !st.loading
-    v.chatMsgs = st.chat.map((m, i) => { const user = m.role === 'user'; return { body: user ? m.content : this._fmt(m.content), align: user ? 'flex-end' : 'flex-start', maxw: user ? '86%' : '95%', bg: user ? '#13203a' : '#15112c', border: user ? '#13203a' : '#2a2350', radius: user ? '11px 11px 3px 11px' : '11px 11px 11px 3px', color: user ? '#cdd6e8' : '#d7d2f0', key: i } })
-    const cu = st.chatUsage
+    const activeSession = activeSessionOf(st)
+    v.activeChatId = activeSession.id
+    v.chatEmpty = activeSession.chat.length === 0 && !st.loading
+    v.chatMsgs = activeSession.chat.map((m, i) => { const user = m.role === 'user'; return { body: user ? m.content : this._fmt(m.content), align: user ? 'flex-end' : 'flex-start', maxw: user ? '86%' : '95%', bg: user ? '#13203a' : '#15112c', border: user ? '#13203a' : '#2a2350', radius: user ? '11px 11px 3px 11px' : '11px 11px 11px 3px', color: user ? '#cdd6e8' : '#d7d2f0', key: i } })
+    v.chatSessions = [...st.chatSessions].sort((a, b) => b.updatedAt - a.updatedAt).map((s) => ({
+      id: s.id, title: s.title, active: s.id === activeSession.id,
+      preview: (s.chat.find((m) => m.role === 'user') || {}).content || 'No messages yet',
+      when: relTime(s.updatedAt), count: s.chat.length,
+    }))
+    const cu = activeSession.chatUsage
     const totalTok = cu.inputTokens + cu.outputTokens + cu.cacheWriteTokens + cu.cacheReadTokens
     const fmtTok = (n) => n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n)
     v.usageLabel = totalTok > 0 ? fmtTok(totalTok) + ' tok · $' + cu.costUsd.toFixed(3) : null
     v.usageTitle = totalTok > 0
-      ? `This session (Ask Claude chat only):\n${cu.inputTokens.toLocaleString()} input · ${cu.outputTokens.toLocaleString()} output`
+      ? `This chat:\n${cu.inputTokens.toLocaleString()} input · ${cu.outputTokens.toLocaleString()} output`
         + `\n${cu.cacheWriteTokens.toLocaleString()} cache write · ${cu.cacheReadTokens.toLocaleString()} cache read`
-        + `\n~$${cu.costUsd.toFixed(4)} estimated · resets on Clear or reload`
-      : 'No chat requests yet this session'
+        + `\n~$${cu.costUsd.toFixed(4)} estimated for this chat`
+      : 'No chat requests yet in this chat'
     v.loading = st.loading; v.input = st.input || ''
     v.sendBg = (st.input && st.input.trim() && !st.loading) ? '#5a4fd6' : '#2c2550'
     return v
