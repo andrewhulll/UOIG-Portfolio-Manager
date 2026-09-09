@@ -180,7 +180,8 @@ def create_schema(conn) -> None:
 
 # Columns added after the initial schema shipped. CREATE TABLE IF NOT EXISTS
 # leaves existing tables untouched, so add any missing columns idempotently.
-_ADDED_COLUMNS = [("fundamentals", "ev_ebitda", "REAL")]
+_ADDED_COLUMNS = [("fundamentals", "ev_ebitda", "REAL"),
+                   ("fundamentals", "div_yield_provider", "REAL")]  # #43: provider TTM yield fallback
 
 
 def _migrate(conn) -> None:
