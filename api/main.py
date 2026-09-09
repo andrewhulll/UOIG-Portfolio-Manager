@@ -824,6 +824,7 @@ def coverage_me(request: Request):
             "sector": row.get("sector"),
             **bundle,
             "nextEarnings": next_earnings,
+            "nextEarningsEstimated": bool(earnings.get("nextEstimated")),
             "earningsInDays": days_until,
             "news": news,
         })

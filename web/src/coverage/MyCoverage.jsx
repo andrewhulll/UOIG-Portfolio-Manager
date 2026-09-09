@@ -43,7 +43,7 @@ function CoverageCard({ card, onOpenStock }) {
 
       <div style={{ ...s("display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid #1a2438;font:500 11px 'IBM Plex Sans';"), color: soon ? '#f4a531' : '#7e8aa6' }}>
         <span>Next earnings:</span>
-        <span style={s("font-family:'IBM Plex Mono';")}>{card.nextEarnings || '—'}</span>
+        <span style={s("font-family:'IBM Plex Mono';")}>{card.nextEarnings ? (card.nextEarningsEstimated ? '~' : '') + card.nextEarnings : '—'}</span>
         {card.earningsInDays != null && card.earningsInDays >= 0 && (
           <span style={{ ...s("margin-left:auto;font:600 9px 'IBM Plex Sans';border-radius:4px;padding:2px 7px;"), color: soon ? '#f4a531' : '#6b7794', background: soon ? '#3a2c0f' : '#161f34' }}>
             in {card.earningsInDays} day{card.earningsInDays === 1 ? '' : 's'}

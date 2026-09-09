@@ -233,6 +233,7 @@ def _earnings(tk, rev_summary):
         cal = {}
 
     most, history = None, []
+    last_report = None  # most recent actual report date (for estimating next)
     if ed is not None and not ed.empty and "Reported EPS" in ed.columns:
         past = ed[ed["Reported EPS"].notna()].sort_index(ascending=False)
         for ts, r in past.head(4).iterrows():
@@ -244,6 +245,7 @@ def _earnings(tk, rev_summary):
         if not past.empty:
             ts0, r0 = past.index[0], past.iloc[0]
             d = pd.Timestamp(ts0)
+            last_report = d
             most = {
                 "qtrLabel": f"{((d.month - 1) // 3) + 1}Q FY{d.year}",
                 "when": "reported " + d.strftime("%b %d, %Y"),
@@ -269,10 +271,19 @@ def _earnings(tk, rev_summary):
         history = [{"q": h["q"], "est": "—", "act": h["act"], "surprise": "—"} for h in eh]
 
     nextd = "—"
+    next_estimated = False
     edates = cal.get("Earnings Date")
     if edates:
         try:
             nextd = pd.Timestamp(edates[0]).strftime("%b %d, %Y")
+        except Exception:
+            nextd = "—"
+    if nextd == "—" and last_report is not None:
+        # yfinance's calendar is often empty on cloud IPs; estimate the next
+        # report from the actual reporting cadence (last report + one quarter).
+        try:
+            nextd = (last_report + pd.DateOffset(months=3)).strftime("%b %d, %Y")
+            next_estimated = True
         except Exception:
             nextd = "—"
     rev_summary = rev_summary or {}
@@ -281,6 +292,7 @@ def _earnings(tk, rev_summary):
         "revEst": "—",  # yfinance has no reliable historical revenue estimate
         "revYoY": rev_summary.get("revYoY") or "—",
         "next": nextd,
+        "nextEstimated": next_estimated,
         "history": history,
     })
     return most
