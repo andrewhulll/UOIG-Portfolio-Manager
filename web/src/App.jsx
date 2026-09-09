@@ -959,7 +959,7 @@ export default class App extends React.Component {
         {/* BODY */}
         <div style={s('flex:1;display:flex;min-height:0;')}>
           {/* NAV RAIL */}
-          <div style={s('width:54px;flex:0 0 54px;background:#0a0f1a;border-right:1px solid #1d2840;display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:5px;')}>
+          <div className="app-nav-rail" style={s('width:54px;flex:0 0 54px;background:#0a0f1a;border-right:1px solid #1d2840;display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:5px;')}>
             {v.nav.map((item) => (
               <div key={item.key} onClick={item.on} title={item.label} className={item.disabled ? '' : 'dc-hover'} style={{ ...s('width:40px;height:38px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;'), background: item.bg, color: item.color, cursor: item.disabled ? 'default' : 'pointer' }}>{item.icon}</div>
             ))}
@@ -986,7 +986,7 @@ export default class App extends React.Component {
 
         {/* ASK-CLAUDE POPUP */}
         {this.state.chatOpen && !['profile', 'preferences', 'organization', 'assistant'].includes(this.state.view) && (
-          <div style={s('position:fixed;right:22px;bottom:88px;width:374px;height:560px;max-height:calc(100vh - 120px);background:#0b0d1d;border:1px solid #241f3e;border-radius:16px;box-shadow:0 26px 64px rgba(0,0,0,.55);display:flex;flex-direction:column;overflow:hidden;z-index:60;')}>
+          <div className="no-print" style={s('position:fixed;right:22px;bottom:88px;width:374px;height:560px;max-height:calc(100vh - 120px);background:#0b0d1d;border:1px solid #241f3e;border-radius:16px;box-shadow:0 26px 64px rgba(0,0,0,.55);display:flex;flex-direction:column;overflow:hidden;z-index:60;')}>
             <div style={s('display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-bottom:1px solid #241f3e;background:linear-gradient(180deg,#140f2c,#0b0d1d);flex:0 0 auto;')}>
               <div style={s("display:flex;align-items:center;gap:8px;font:600 11px 'IBM Plex Sans';letter-spacing:.08em;text-transform:uppercase;color:#c3b9ff;")}><span style={s('font-size:15px;')}>✦</span>Ask Claude</div>
               <div style={s('display:flex;align-items:center;gap:7px;')}>
@@ -1021,7 +1021,7 @@ export default class App extends React.Component {
         )}
 
         {/* ASK-CLAUDE FAB */}
-        {!['profile', 'preferences', 'organization', 'assistant'].includes(this.state.view) && <div onClick={() => this.setState((st) => ({ chatOpen: !st.chatOpen }))} title="Ask Claude" style={{ ...s('position:fixed;right:22px;bottom:22px;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;font-size:23px;z-index:61;box-shadow:0 12px 30px rgba(90,79,214,.5);'), background: this.state.chatOpen ? '#2c2550' : 'linear-gradient(135deg,#5a4fd6,#3a31a8)' }}>{this.state.chatOpen ? '✕' : '✦'}</div>}
+        {!['profile', 'preferences', 'organization', 'assistant'].includes(this.state.view) && <div onClick={() => this.setState((st) => ({ chatOpen: !st.chatOpen }))} title="Ask Claude" className="no-print" style={{ ...s('position:fixed;right:22px;bottom:22px;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;font-size:23px;z-index:61;box-shadow:0 12px 30px rgba(90,79,214,.5);'), background: this.state.chatOpen ? '#2c2550' : 'linear-gradient(135deg,#5a4fd6,#3a31a8)' }}>{this.state.chatOpen ? '✕' : '✦'}</div>}
         <Analytics />
       </div>
     )
@@ -1039,8 +1039,11 @@ export default class App extends React.Component {
               <div style={s("font-family:'IBM Plex Mono';font-size:36px;font-weight:500;color:#e8edf7;margin-top:5px;letter-spacing:-.01em;")}>{v.heroValue}</div>
               <div style={{ ...s("font-family:'IBM Plex Mono';font-size:13px;margin-top:3px;"), color: v.heroRetColor }}>{v.heroRetText}</div>
             </div>
-            <div style={s('display:flex;align-items:center;gap:3px;background:#0a0f1a;border:1px solid #1d2840;border-radius:8px;padding:3px;')}>
-              {v.periods.map((p) => (<span key={p.k} onClick={p.on} style={{ ...s("padding:5px 10px;border-radius:5px;cursor:pointer;font-size:10px;font-family:'IBM Plex Mono';"), fontWeight: p.weight, background: p.bg, color: p.color }}>{p.k}</span>))}
+            <div style={s('display:flex;align-items:center;gap:8px;')}>
+              <span onClick={() => window.print()} className="dc-hover no-print" style={s("border:1px solid #1d2840;border-radius:8px;padding:6px 12px;font:500 10.5px 'IBM Plex Sans';color:#9aa7c2;cursor:pointer;white-space:nowrap;background:#0a0f1a;")}>Print / PDF</span>
+              <div className="no-print" style={s('display:flex;align-items:center;gap:3px;background:#0a0f1a;border:1px solid #1d2840;border-radius:8px;padding:3px;')}>
+                {v.periods.map((p) => (<span key={p.k} onClick={p.on} style={{ ...s("padding:5px 10px;border-radius:5px;cursor:pointer;font-size:10px;font-family:'IBM Plex Mono';"), fontWeight: p.weight, background: p.bg, color: p.color }}>{p.k}</span>))}
+              </div>
             </div>
           </div>
           <div style={s('height:184px;margin-top:10px;')}>{v.heroChartEl}</div>
@@ -1103,9 +1106,12 @@ export default class App extends React.Component {
       <div style={s('padding:16px;display:flex;flex-direction:column;gap:13px;')}>
         <div style={s('display:flex;align-items:center;justify-content:space-between;')}>
           <div><div style={s("font:600 17px 'IBM Plex Sans';color:#e8edf7;")}>{v.stocksTitle}</div><div style={s("font-family:'IBM Plex Mono';font-size:10.5px;color:#6b7794;margin-top:3px;")}>{v.stocksCount}</div></div>
-          <div style={s('display:flex;align-items:center;gap:8px;background:#0e1422;border:1px solid #1d2840;border-radius:8px;padding:8px 12px;width:280px;')}>
+          <div style={s('display:flex;align-items:center;gap:8px;')}>
+            <span onClick={() => this._exportCsv(v)} className="dc-hover no-print" style={s("border:1px solid #1d2840;border-radius:8px;padding:8px 14px;font:500 11px 'IBM Plex Sans';color:#9aa7c2;cursor:pointer;white-space:nowrap;background:#0e1422;")}>Export CSV</span>
+            <div style={s('display:flex;align-items:center;gap:8px;background:#0e1422;border:1px solid #1d2840;border-radius:8px;padding:8px 12px;width:280px;')}>
             <svg width="13" height="13" viewBox="0 0 16 16" style={{ fill: 'none', stroke: '#5d6a85', strokeWidth: 1.6 }}><circle cx="7" cy="7" r="4.5"></circle><line x1="11" y1="11" x2="14.5" y2="14.5" style={{ strokeLinecap: 'round' }}></line></svg>
             <input value={v.query} onChange={(e) => this.setState({ query: e.target.value })} placeholder="Filter by ticker, name, sector…" style={s("flex:1;background:transparent;border:none;outline:none;color:#e8edf7;font:400 11.5px 'IBM Plex Sans';")} />
+          </div>
           </div>
         </div>
         <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;overflow:clip;')}>
@@ -1131,6 +1137,34 @@ export default class App extends React.Component {
         </div>
       </div>
     )
+  }
+
+  // #42: CSV export of the holdings table — serializes exactly what's on
+  // screen (current fund tab, filter query, and sort order).
+  _exportCsv(v) {
+    const rows = v.stocksRaw || []
+    const F = this.funds
+    const esc = (x) => {
+      const str = String(x == null ? '' : x)
+      return /[",\n\r]/.test(str) ? '"' + str.replace(/"/g, '""') + '"' : str
+    }
+    const num = (x, d) => (x == null || isNaN(x) ? '' : Number(x).toFixed(d))
+    const lines = [['Ticker', 'Name', 'Sector', 'Fund', 'Weight %', 'Market Value', 'Price', 'Day %', 'MTD %', 'P/E'].join(',')]
+    for (const h of rows) {
+      lines.push([
+        esc(h.t), esc(h.n), esc(h.s || ''), esc((F[h.fund] || {}).name || h.fund || ''),
+        num(h.w, 2), h.mv == null ? '' : Math.round(h.mv), h.px == null ? '' : h.px,
+        num(h.chg, 2), num(h.mtd, 2), num(h.pe, 2),
+      ].join(','))
+    }
+    const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = 'uoig-holdings-' + (this.state.fund || 'all') + '-' + new Date().toISOString().slice(0, 10) + '.csv'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000)
   }
 
   _renderSectors(v) {
@@ -2228,6 +2262,7 @@ export default class App extends React.Component {
     const kf = keyf[st.sortKey] || keyf.w
     rows = rows.slice().sort((a, b) => { const x = kf(a), y = kf(b); return typeof x === 'string' ? x.localeCompare(y) * dir : (x - y) * dir })
     v.stocksRows = rows.map((h) => this._rowVM(h, 'stocks'))
+    v.stocksRaw = rows // #42: raw filtered/sorted holdings for CSV export (exactly what's on screen)
     v.stocksTitle = fk === 'all' ? 'All Holdings' : F[fk].name + ' Holdings'
     v.stocksCount = rows.length + ' of ' + stockPool.length + ' holdings · ' + (fk === 'all' ? 'both funds' : F[fk].name)
     v.query = st.query || ''
