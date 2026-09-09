@@ -113,7 +113,6 @@ def _financials(tk):
 
     cols = list(inc.columns)            # newest..oldest
     latest = cols[0]
-    prevq = cols[1] if len(cols) > 1 else None
     yearago = cols[4] if len(cols) > 4 else None
 
     bars = []
@@ -133,11 +132,13 @@ def _financials(tk):
         return (a - b) / abs(b) * 100
 
     def money_row(label, series):
+        # "Prior" shows the year-ago quarter so the YoY delta reconciles with
+        # the two displayed numbers (#29).
         if series is None:
             return None
         return {"label": label,
                 "cur": _money(series[latest]) or "—",
-                "prev": (_money(series[prevq]) if prevq is not None else None) or "—",
+                "prev": (_money(series[yearago]) if yearago is not None else None) or "—",
                 "yoy": _pct(yoy(series), 0) or "—"}
 
     rows = []
@@ -151,14 +152,14 @@ def _financials(tk):
             ppy = _num(gm[latest]) - _num(gm[yearago])
         rows.append({"label": "Gross margin",
                      "cur": f"{_num(gm[latest]):.1f}%" if _num(gm[latest]) is not None else "—",
-                     "prev": f"{_num(gm[prevq]):.1f}%" if prevq is not None and _num(gm[prevq]) is not None else "—",
+                     "prev": f"{_num(gm[yearago]):.1f}%" if yearago is not None and _num(gm[yearago]) is not None else "—",
                      "yoy": (f"{ppy:+.1f}pp" if ppy is not None else "—")})
     for lbl, ser in [("Operating income", oi), ("Net income", ni), ("Free cash flow", fcf)]:
         r = money_row(lbl, ser)
         if r:
             rows.append(r)
     if eps is not None:
-        a, b = _num(eps[latest]), (_num(eps[prevq]) if prevq is not None else None)
+        a, b = _num(eps[latest]), (_num(eps[yearago]) if yearago is not None else None)
         rows.append({"label": "Diluted EPS",
                      "cur": f"${a:.2f}" if a is not None else "—",
                      "prev": f"${b:.2f}" if b is not None else "—",

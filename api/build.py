@@ -102,6 +102,12 @@ def build_terminal_data(cfg: dict, conn: sqlite3.Connection) -> dict:
             "spark": ticker_series(pf, r.ticker, "3M", points=30)["close"],
         })
 
+    # Total-portfolio weight for the All Funds view (#28): port_w above is
+    # fund-relative, so the combined view showed each fund's internal weight.
+    total_mv = sum(h["mv"] for h in holdings if h["mv"])
+    for h in holdings:
+        h["wAll"] = round(h["mv"] / total_mv * 100, 2) if total_mv and h["mv"] else 0.0
+
     # ---- funds ----
     funds = {}
     for f in cfg["funds"]:
