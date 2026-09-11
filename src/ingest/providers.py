@@ -63,6 +63,28 @@ def yf_ticker(ticker: str):
     return yf.Ticker(to_yf(ticker))
 
 
+def _is_auth_error(exc: Exception) -> bool:
+    """True for yfinance's 'Invalid Crumb' 401 — a stuck cookie/crumb, not a
+    transient network blip. yfinance caches the crumb in a process-wide
+    singleton (one session for every ticker/thread), so once it goes bad every
+    call fails identically until something clears it."""
+    msg = str(exc)
+    return "Invalid Crumb" in msg or "401" in msg
+
+
+def reset_yf_auth() -> None:
+    """Clear yfinance's cached crumb/cookie so the next call re-negotiates
+    both from scratch, instead of repeating the same failed auth forever."""
+    try:
+        from yfinance.data import YfData
+        data = YfData()
+        with data._cookie_lock:
+            data._crumb = None
+            data._cookie = None
+    except Exception:  # noqa: BLE001 — best-effort; never break the caller over this
+        log.warning("failed to reset yfinance auth state", exc_info=True)
+
+
 def _nonempty(x) -> bool:
     if x is None:
         return False
@@ -91,6 +113,8 @@ def yf_retry(fn, *, tries: int = 3, base: float = 0.6, retry_empty: bool = True,
             last_exc = exc
             log.warning("yfinance call failed (attempt %d/%d)%s: %s", i + 1, tries,
                         f" [{label}]" if label else "", exc, extra={"yf_label": label})
+            if _is_auth_error(exc):
+                reset_yf_auth()
         else:
             if not retry_empty or _nonempty(last):
                 return last
@@ -137,6 +161,8 @@ class YFinanceProvider:
                 last_exc = exc
                 log.warning("yfinance history fetch failed (attempt %d/%d) for %s: %s",
                             attempt + 1, self.retries + 1, ticker, exc, extra={"ticker": ticker})
+                if _is_auth_error(exc):
+                    reset_yf_auth()
                 time.sleep(self.pause * (attempt + 1))
         log.error("yfinance history fetch exhausted retries for %s: %s", ticker, last_exc,
                    extra={"ticker": ticker})
