@@ -936,8 +936,8 @@ export default class App extends React.Component {
       mtdStr: this._sign(h.mtd, 1) + '%', mtdColor: this._col(h.mtd),
       peStr: h.pe ? h.pe.toFixed(1) : '—',
       ctbStr: this._sign(ctb, 2), ctbColor: this._col(ctb),
-      cbStr: h.cb ? this._kd(h.cb) : '—',
-      unrealPnlStr: h.unrealPnl ? this._kd(h.unrealPnl) : '—', unrealPnlColor: this._col(h.unrealPnl),
+      cbStr: h.cb == null ? '—' : this._kd(h.cb),
+      unrealPnlStr: h.unrealPnl == null ? '—' : this._kd(h.unrealPnl), unrealPnlColor: this._col(h.unrealPnl),
       unrealPnlPctStr: (h.unrealPnlPct != null ? this._sign(h.unrealPnlPct, 1) : '—') + '%', unrealPnlPctColor: this._col(h.unrealPnlPct),
       spark: h.spark || [],
       open: () => this._openStock(h.t, from),
@@ -1179,7 +1179,7 @@ export default class App extends React.Component {
           </div>
         </div>
         <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;overflow:clip;')}>
-          <div style={s("position:sticky;top:0;z-index:5;background:#0e1422;display:grid;grid-template-columns:74px 1fr 150px 64px 70px 86px 92px 72px 72px 72px 60px;gap:8px;padding:9px 14px;border-bottom:1px solid #1d2840;font:600 8.5px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;color:#6b7794;")}>
+          <div style={s("position:sticky;top:0;z-index:5;background:#0e1422;display:grid;grid-template-columns:74px 1fr 150px 64px 70px 86px 92px 72px 72px 72px 100px 100px 100px 60px;gap:8px;padding:9px 14px;border-bottom:1px solid #1d2840;font:600 8.5px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;color:#6b7794;")}>
             {v.stocksHead.map((h, i) => (<span key={i} onClick={h.on} style={{ ...s('cursor:pointer;'), textAlign: h.align, color: h.color }}>{h.label}{h.caret}</span>))}
             <span>Trend</span>
           </div>
