@@ -1,5 +1,6 @@
 import pytest
 import pandas as pd
+from src.ingest import providers as providers_mod
 from src.ingest.providers import YFinanceProvider, get_provider, to_yf, yf_session, yf_ticker, _nonempty, yf_retry
 
 def test_to_yf():
@@ -59,6 +60,43 @@ def test_yf_retry():
         return [1]
 
     assert yf_retry(empty_once, tries=2, base=0.01) == [1]
+
+@pytest.mark.parametrize("message", ["Invalid Crumb", "HTTP Error 401"])
+def test_yf_retry_resets_auth_on_auth_errors(monkeypatch, message):
+    calls = {"n": 0}
+
+    def mock_reset():
+        calls["n"] += 1
+
+    monkeypatch.setattr(providers_mod, "reset_yf_auth", mock_reset)
+
+    def always_auth_error():
+        raise RuntimeError(message)
+
+    assert yf_retry(always_auth_error, tries=2, base=0.01) is None
+    assert calls["n"] == 2
+
+def test_reset_yf_auth_clears_cookie_and_crumb(monkeypatch):
+    class DummyLock:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class DummyData:
+        def __init__(self):
+            self._cookie_lock = DummyLock()
+            self._crumb = "crumb"
+            self._cookie = {"k": "v"}
+
+    dummy = DummyData()
+    monkeypatch.setitem(__import__("sys").modules, "yfinance.data", type("M", (), {"YfData": lambda: dummy}))
+
+    providers_mod.reset_yf_auth()
+
+    assert dummy._crumb is None
+    assert dummy._cookie is None
 
 def test_get_provider():
     cfg = {}
