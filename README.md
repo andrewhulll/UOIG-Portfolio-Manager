@@ -1,181 +1,326 @@
 # UOIG Investment Terminal
 
-A Bloomberg-style portfolio terminal for the **Tall Firs** and **Alumni Fund**
-portfolios: nightly closing market data, P&L, holding-period returns, 3-year daily beta,
-and per-stock / per-sector research views. React frontend + FastAPI backend over
-the existing Python analytics.
+The UOIG Investment Terminal is the internal portfolio analytics, equity research,
+and analyst-workflow application for the University of Oregon Investment Group. It
+tracks the **Tall Firs** and **Alumni Fund** portfolios, compares each fund with its
+policy benchmark, and gives members one place to review holdings, research companies,
+test portfolio changes, and communicate weekly coverage updates.
 
-See [`DESIGN.md`](DESIGN.md) for the original architecture and build plan.
+The current application is a React/Vite frontend backed by FastAPI, Supabase
+Postgres, WorkOS authentication, and scheduled GitHub Actions. Production uses
+Vercel for the frontend and Render for the backend; the same application can also
+run locally or as a single Docker container.
 
-> **Status: terminal complete.** Real data end-to-end; the legacy Streamlit
-> dashboard has been retired. "Ask Claude" is built but stubbed (flip to the live
-> Anthropic API when ready).
+> The terminal is a decision-support and research system. It is not a brokerage,
+> order-management system, or intraday trading feed. Portfolio values use finalized
+> daily closes.
+
+## Function, features, and user workflows
+
+### Function
+
+The terminal turns UOIG's holdings, market history, company research, coverage
+assignments, and team submissions into a shared operating workspace. It serves four
+primary jobs:
+
+1. Monitor the combined endowment and each fund against its benchmark.
+2. Research current holdings and discover off-portfolio ideas.
+3. Evaluate portfolio risk, concentration, active weights, and proposed changes.
+4. Route analyst coverage updates to the appropriate sector leaders and preserve
+   acknowledgement history.
+
+### Features
+
+| Area | What it provides |
+|---|---|
+| **Funds dashboard** | Combined or per-fund AUM, indexed performance versus benchmarks, alpha, beta, Sharpe ratio, volatility, valuation, yield, top holdings, MTD contributors, and sector mix. |
+| **Holdings** | Searchable and sortable positions with fund, sector, weight, market value, closing price, day/MTD change, cost basis, unrealized gain, valuation, trend, and CSV export. |
+| **Sectors** | UOIG's five coverage groups—TMT, IME, Healthcare, Financial, and Consumer—with portfolio weights, holdings, MTD performance, fund mix, sector benchmark comparisons, and weekly movers. |
+| **Stock research** | Price history, company and position facts, institutional holders, internal thesis, quarterly financials, earnings, current news, analyst research, and curated Kalshi prediction markets. |
+| **Global equity search** | Search by company or ticker and open a research page for an equity even when UOIG does not own it. |
+| **Market screener** | Preset and custom screens across company, trading, valuation, profitability, leverage, liquidity, financial-statement, short-interest, and ESG fields. Results open directly into stock research. |
+| **Portfolio optimization** | Benchmark-relative diagnostics, tracking error, active share, beta, volatility, concentration, security/sector active-risk contribution, interactive what-if weights, and a constrained optimizer with portfolio views. |
+| **My Coverage** | Analyst-specific company cards with price/MTD context, upcoming earnings, and relevant news based on assignments stored in the organization directory. |
+| **Weekly submissions and Inbox** | Analysts flag articles or write summaries, submit a sector digest, and receive acknowledgement notices. Sector leaders review, comment on, and acknowledge routed submissions; admins can review all sectors. |
+| **Organization administration** | Invite-only member directory, profiles, roles, company coverage, and independent sector-leadership assignments. Admins manage invitations and assignments. |
+| **Claude co-pilot** | Context-aware chat about the current fund, holding, or sector, plus an asynchronous managed-agent run that receives the full portfolio snapshot for deeper market analysis. Requires Anthropic configuration. |
+| **User preferences and routing** | Persistent landing page, default fund, default period, profile settings, and deep links for funds, stocks, sectors, optimization, coverage, inbox, and assistant views. |
+
+### User workflows
+
+#### 1. Review the portfolio
+
+1. Sign in and select **All Funds**, **Tall Firs**, or **Alumni Fund**.
+2. Review performance, benchmark comparison, risk statistics, sector mix, and MTD
+   contributors on the Funds dashboard.
+3. Open **Stocks** to filter, sort, inspect cost basis and unrealized gains, or export
+   the current table to CSV.
+4. Open a holding or sector for deeper attribution and research context.
+
+#### 2. Research a current holding
+
+1. Open a holding from the dashboard, holdings table, sector board, or My Coverage.
+2. Review its finalized price chart, position weight/value, company metrics, and top
+   institutional holders.
+3. Move through Thesis, Financials, Earnings, News, Research, and Predictions.
+4. From News, flag a relevant article for the current weekly sector submission.
+
+Current holdings use the nightly database snapshot for prices and closed-company
+data. Opening a holding therefore does not fan out into live Yahoo Finance requests;
+only the News tab refreshes on demand.
+
+#### 3. Research or screen an off-portfolio idea
+
+1. Use the global search bar, or build a screen from a preset or custom filters.
+2. Open a result to load its quote, chart, holders, financials, earnings, news, and
+   analyst research on demand.
+3. Compare the opportunity with owned names without adding it to the portfolio.
+
+Off-portfolio equities use shared TTL caches to avoid repeating the same upstream
+requests for every user.
+
+#### 4. Test a portfolio change
+
+1. Choose a fund in **Optimize** and review benchmark-relative diagnostics.
+2. Use **What-if** to adjust position weights and see risk update without changing
+   the stored portfolio.
+3. Use **Optimizer** to add views and constraints, solve for proposed weights, and
+   compare the result with the current book and benchmark.
+
+Optimization outputs are analytical proposals only; they do not place trades or
+write new holdings to the database.
+
+#### 5. Submit the weekly analyst update
+
+1. Open **My Coverage** to review assigned companies, recent news, and upcoming
+   earnings.
+2. Flag relevant News-tab articles and add a note, or write a standalone summary.
+3. Review the draft for each assigned sector and submit it to the sector lead.
+4. Monitor the Inbox for comments and acknowledgement.
+
+Drafts are editable until submission. The weekly deadline is Thursday at 5:00 PM
+America/Los_Angeles, and earlier weeks remain available read-only. See
+[`SUBMISSIONS.md`](SUBMISSIONS.md) for the detailed state and permission model.
+
+#### 6. Review a sector as a leader
+
+1. Open **Inbox** to see new digests for assigned lead sectors.
+2. Read the analyst's flagged items and notes, add comments, and acknowledge the
+   submission.
+3. Use the status board and weekly history to identify outstanding analysts.
+
+Sector access comes from an explicit leadership assignment, independent of the
+member's WorkOS role and personal ticker coverage. Admins can review every sector.
+
+#### 7. Administer the organization
+
+1. Invite a member from **Organization** and assign Analyst, Sector Leader, or Admin.
+2. Assign covered companies and their UOIG sectors.
+3. Assign sector-leadership responsibility separately from company coverage.
+4. Use the directory and submission board to monitor ownership and workflow status.
+
+## Market-data behavior
+
+The application intentionally separates portfolio monitoring from exploratory
+research to limit yfinance traffic and keep production stable on a single Render IP.
+
+### Owned holdings
+
+- Prices, dividends, fundamentals, benchmark data, and stock-tab snapshots refresh
+  once nightly after the U.S. market close.
+- Only finalized closing bars enter the portfolio price store; there is no backend or
+  frontend intraday price poller.
+- API routes for owned holdings read from Postgres and do not fall through to Yahoo
+  when a snapshot is missing. The previous last-known-good snapshot remains usable if
+  part of a nightly refresh is throttled.
+- News is the only short-lived holding datum. It loads when the News tab is opened and
+  uses a shared ten-minute cache.
+
+### Unowned equities
+
+- Quotes, price series, holders, financials, earnings, news, and research load from
+  yfinance on demand.
+- Shared database-backed TTL caches prevent repeated upstream requests across users
+  and backend restarts.
+- Typed rate-limit errors stop immediately instead of retrying a blocked IP; transient
+  errors retain bounded retry/backoff and invalid Yahoo crumbs are reset.
+
+### Scheduled jobs
+
+[`nightly-refresh`](.github/workflows/refresh.yml) runs at 06:00 UTC and, in order:
+
+1. Appends finalized prices and dividends and updates fund/benchmark history.
+2. Refreshes fundamentals for current positive-share holdings.
+3. Refreshes last-known-good financial, earnings, holder, and research snapshots.
+
+The workflow requires the same `DATABASE_URL` used by the deployed backend. The
+fundamentals and snapshot stages are intentionally non-fatal so a Yahoo issue cannot
+invalidate a successful price refresh.
+
+[`keep-alive`](.github/workflows/keepalive.yml) pings only `/api/health` every ten
+minutes to reduce Render free-tier cold starts. It does not request market data or
+affect yfinance usage.
 
 ## Architecture
-```
-web/        React + Vite frontend (the terminal UI)
-api/        FastAPI backend (serves data + the built frontend)
-src/        analytics: pnl, returns, risk, series + ingest/model
-data/       SQLite store (generated; git-ignored)
-scripts/    seed / reconcile / refresh / fundamentals
+
+```text
+Browser
+  └─ React + Vite frontend (Vercel)
+       └─ FastAPI JSON API (Render)
+            ├─ Supabase Postgres
+            │    holdings, prices, dividends, fundamentals, caches,
+            │    submissions, inbox messages
+            ├─ WorkOS
+            │    sessions, invitations, roles, directory metadata
+            ├─ yfinance / Alpha Vantage / Kalshi
+            │    market data, benchmark constituents, prediction markets
+            └─ Anthropic
+                 contextual chat and managed market-analysis agent
+
+GitHub Actions
+  └─ nightly refreshes write directly to the same Supabase database
 ```
 
-## API
-The frontend talks to these JSON endpoints (Vite proxies `/api` to `:8000` in dev):
+The Docker image builds the React app and lets FastAPI serve both the SPA and API on
+one port. The production split deployment instead serves `web/dist` from Vercel and
+uses `VITE_API_BASE` to reach Render.
 
-| Endpoint | What |
+### Repository layout
+
+```text
+api/        FastAPI routes, auth gate, submissions API, and SPA mount
+web/        React/Vite terminal UI
+src/        analytics, authentication, ingestion, caching, and database model
+scripts/    seed, migrate, reconcile, refresh, fundamentals, and snapshot jobs
+tests/      backend unit and integration tests
+data/       local SQLite database and generated data (git-ignored)
+```
+
+## Authentication and roles
+
+The application is invite-only. WorkOS supports Google OAuth and email/password,
+including verification and password reset. Except for health and authentication,
+every API route requires a valid session.
+
+| Role | Application permissions |
 |---|---|
-| `GET /api/data` | Funds, holdings, sectors snapshot (DB-backed) |
-| `GET /api/series/{ticker}?period=` | Price series — nightly DB closes for holdings, cached on-demand yfinance for any other ticker |
-| `GET /api/fund-series/{fund}?period=` | Synthetic fund index vs benchmark |
-| `GET /api/search?q=` | **Yahoo Finance symbol search, equities only** (powers the global search box) |
-| `GET /api/quote/{ticker}` | Nightly DB overview for holdings; cached on-demand overview for other equities |
-| `GET /api/stock/{ticker}` | Nightly financials / earnings / analyst snapshot for holdings; full cached yfinance bundle for unowned names |
-| `GET /api/stock/{ticker}/news` | On-demand headlines with a shared 10-minute cache |
-| `GET /api/predictions/{ticker}` | Kalshi prediction-market cards |
-| `GET /api/thesis/{ticker}` | Team's written thesis |
-| `POST /api/chat` | Ask-Claude turn (Anthropic API) |
-| `GET /api/auth/login` | Begin Google OAuth (302 to WorkOS) |
-| `GET /api/auth/callback` | OAuth return — sets the session cookie |
-| `POST /api/auth/password-login` | Email + password sign-in (sets session cookie) |
-| `POST /api/auth/verify-email` | Complete an email-verification challenge |
-| `POST /api/auth/password-reset` | Request a reset / set-password email |
-| `POST /api/auth/password-reset/confirm` | Set a new password from a reset token |
-| `GET /api/auth/me` | Current user + role, or 401 |
-| `POST /api/auth/logout` | Clear the session cookie |
-| `POST /api/auth/invite` | Invite a teammate by email (**Admin role only**) |
-| `PATCH /api/profile` | Update the current user's WorkOS first/last name |
-| `GET /api/organization/members` | Active UOIG member directory, roles, sectors, and coverage |
+| **Analyst** (`member`) | Use the terminal, view assigned coverage, draft and submit weekly sector updates, and receive acknowledgement messages. |
+| **Sector Leader** | Use the terminal and review submissions for explicitly assigned lead sectors. |
+| **Admin** | Invite members, change roles, manage company coverage and leadership assignments, and review all sector submissions. |
 
-Every `/api/*` route except `/api/health` and `/api/auth/*` requires a valid session
-(see **Authentication** below).
+See [`AUTH_SETUP.md`](AUTH_SETUP.md) for WorkOS provisioning and
+[`DEPLOYMENT_PLAN.md`](DEPLOYMENT_PLAN.md) for the Vercel/Render/Supabase setup.
 
-**Search any equity.** The header search box queries Yahoo Finance live: type a name
-or ticker, pick a result, and the stock page populates for *any* equity — not just
-portfolio holdings. Held names show a "Held" badge and use finalized nightly data;
-an off-portfolio name shows a "Not held" card populated on demand from yfinance.
-The search-and-lookup path (`src/ingest/lookup.py`) is yfinance only — it does **not**
-use the Anthropic API.
+For local UI development only, `UOIG_AUTH_DISABLED=1` bypasses authentication. Never
+set it in production.
 
-## Authentication (WorkOS — invite-only; Google + email/password)
-The terminal is **invite-only and fully gated**: the whole app sits behind sign-in, and
-only people invited by email can get an account. Sign in with **Google** or
-**email + password** (with a forgot/set-password reset flow — that reset email is also how
-an invited user sets their first password). Auth is handled by **WorkOS User
-Management / AuthKit**; the backend code lives in `src/auth/` (`workos_client`, `sessions`,
-`invitations`) and the routes in `api/main.py`. Roles are read from WorkOS and surfaced;
-only the invite action is role-gated (Admin) so far.
+## Development
 
-**One-time WorkOS dashboard setup**
-- Enable AuthKit / User Management; add a **Google OAuth** connection **and** enable the **Email + Password** auth method.
-- Create an **Organization** (its membership is the invite gate) and define the three roles: `admin`, `sector-leader`, `analyst`.
-- Add the OAuth redirect URI: dev `http://localhost:5173/api/auth/callback`, prod `https://<domain>/api/auth/callback`.
-- Set the **password-reset redirect URL** to the app with a `reset` marker: dev `http://localhost:5173/?reset=1`, prod `https://<domain>/?reset=1` (WorkOS appends the `token`; the SPA shows the set-password form).
-- Invite teammates by email (dashboard, or `POST /api/auth/invite` — admin only).
+### Prerequisites
 
-**Secrets / config** (env var first, else a git-ignored `*.txt` at repo root — same pattern as `anthropic.key.txt`):
+- Python 3.12
+- Node.js 20+
+- npm
+- A local SQLite database or Supabase `DATABASE_URL`
 
-| Variable | File fallback | Notes |
-|---|---|---|
-| `WORKOS_API_KEY` | `workos.key.txt` | secret |
-| `WORKOS_CLIENT_ID` | `workos.client.txt` | |
-| `WORKOS_COOKIE_PASSWORD` | `workos.cookie.txt` | 32 random bytes encoded as URL-safe base64 (43 or 44 chars); seals the session cookie |
-| `WORKOS_ORG_ID` | `workos.org.txt` | the invite-only org |
-| `WORKOS_REDIRECT_URI` | — | defaults to `http://localhost:5173/api/auth/callback` |
-| `WORKOS_ADMIN_ROLE` | — | role slug allowed to invite teammates (default `admin`) |
-| `UOIG_COOKIE_SECURE` | — | set `1` in production (HTTPS) for Secure cookies |
-| `UOIG_AUTH_DISABLED` | — | **dev only** — bypass the gate; never set in production |
-| `UOIG_FORCE_SQLITE` | — | **dev/test only** — use local SQLite even when `supabase.url.txt` exists |
+### Run with hot reload
 
-**Profile and organization.** The avatar menu links to an editable profile,
-browser-persisted terminal preferences, and the UOIG member directory. The directory
-is visible to active members and shows allowlisted identity, role, sector, and company
-coverage fields. Admins also see the invite form; the backend still enforces that
-role (`POST /api/auth/invite` returns `403` for non-admins).
-
-Until the three secrets are set, the app stays locked: the sign-in page shows and every
-data route returns `401`. For local UI work without WorkOS, set `UOIG_AUTH_DISABLED=1`.
-
-## Run it (development — hot reload)
-
-**Weekly sector updates:** analysts flag news and submit digests from My Coverage.
-Sector leads receive them in the app's Inbox and acknowledge them; admins can review
-the submission status board for all sectors. See [SUBMISSIONS.md](SUBMISSIONS.md)
-for the workflow and API. No email service is required.
-
-Two processes; the Vite dev server proxies `/api` to the backend.
 ```bash
 python -m pip install -r requirements.txt
-python -m uvicorn api.main:app --port 8000        # backend  -> :8000
-npm --prefix web install
-npm --prefix web run dev                          # frontend -> :5173
-```
-Open http://localhost:5173.
+python -m uvicorn api.main:app --port 8000
 
-## Run it (single server — production style)
-Build the frontend once; FastAPI then serves the API **and** the built app on one port.
+npm --prefix web install
+npm --prefix web run dev
+```
+
+Open `http://localhost:5173`. Vite proxies `/api` to `http://localhost:8000`.
+
+### Run as one production-style server
+
 ```bash
 npm --prefix web run build
 python -m uvicorn api.main:app --port 8000
 ```
-Open http://localhost:8000.
 
-## Run it (Docker — one command, reproducible)
-Requires Docker Desktop. Builds the frontend and backend into one image.
+Open `http://localhost:8000`.
+
+### Run with Docker
+
 ```bash
 docker build -t uoig-terminal .
-docker run -p 8000:8000 \
-  -e WORKOS_API_KEY=... -e WORKOS_CLIENT_ID=... -e WORKOS_COOKIE_PASSWORD=... \
-  -e WORKOS_ORG_ID=... -e WORKOS_REDIRECT_URI=https://<domain>/api/auth/callback \
-  -e UOIG_COOKIE_SECURE=1 \
-  -e DATABASE_URL=postgresql://...        # Supabase pooler (omit to use bundled SQLite) \
+docker run --rm -p 8000:8000 \
+  -e DATABASE_URL=postgresql://... \
+  -e WORKOS_API_KEY=... \
+  -e WORKOS_CLIENT_ID=... \
+  -e WORKOS_COOKIE_PASSWORD=... \
+  -e WORKOS_ORG_ID=... \
   uoig-terminal
 ```
-Open http://localhost:8000. (Pass the `WORKOS_*` env at run time — see **Authentication**.)
 
-## Data
+## Data and operations
+
+SQLite is the local default at `data/portfolio.db`. Setting `DATABASE_URL`—or using
+the git-ignored `supabase.url.txt` fallback—switches the same query layer to Postgres.
+Use a Supabase pooler URI in hosted environments.
+
 ```bash
-python -m scripts.seed_db        # build data/portfolio.db from the workbook
-python -m scripts.refresh        # pull latest prices + dividends (yfinance)
-python -m scripts.fundamentals   # pull P/E, P/B, sector, 52-wk, descriptions
-python -m scripts.snapshots      # cache held-name financials/earnings/holders/research
-python -m scripts.reconcile      # verify DB == source workbook
+python -m scripts.seed_db                 # seed holdings from Portfolio Holdings.xlsx
+python -m scripts.migrate_to_postgres     # copy the local store to Postgres/Supabase
+python -m scripts.refresh                 # incremental closing prices and dividends
+python -m scripts.refresh --full          # full price-history backfill
+python -m scripts.fundamentals            # current-holding fundamentals
+python -m scripts.snapshots               # current-holding stock-tab snapshots
+python -m scripts.reconcile               # compare the DB with the source workbook
 ```
-Tests: `python tests/test_reconcile.py && python tests/test_pnl.py && python tests/test_returns.py && python tests/test_risk.py`
 
-### Database backend (SQLite or Postgres/Supabase)
-The store runs on **SQLite by default** (`data/portfolio.db`) and switches to
-**Postgres** automatically when a connection string is set — env `DATABASE_URL`, or a
-git-ignored `supabase.url.txt` at the repo root (raw password is fine; we parse the URL).
-Use a Supabase **pooler** URI (host `…pooler.supabase.com`), not the direct connection.
-`src/model/db.py` papers over the dialect differences; the same query code runs on both.
+The current holdings table remains the source of truth for positions. The transaction
+schema exists for future ledger work, but the terminal does not currently provide
+trade execution or a complete transaction-derived book.
+
+## Configuration
+
+`config.yaml` defines funds, benchmarks, sector mappings, risk parameters, market-data
+pacing, and the default managed-agent ID.
+
+Important deployed variables:
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | Supabase/Postgres connection shared by Render and GitHub Actions. |
+| `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, `WORKOS_COOKIE_PASSWORD`, `WORKOS_ORG_ID` | Invite-only authentication and organization membership. |
+| `WORKOS_REDIRECT_URI`, `FRONTEND_URL` | OAuth callback and post-login destination. |
+| `CORS_ORIGINS`, `UOIG_COOKIE_SAMESITE`, `UOIG_COOKIE_SECURE` | Cross-origin session configuration for Vercel → Render. |
+| `ANTHROPIC_API_KEY` | Claude chat and managed-agent access. |
+| `ANTHROPIC_AGENT_ID` | Optional override for the managed market-analysis agent. |
+| `ALPHAVANTAGE_API_KEY` | Optional benchmark-constituent refresh used by optimization. |
+| `VITE_API_BASE` | Public Render backend URL embedded in the Vercel frontend build. |
+
+Local secret-file fallbacks are supported and git-ignored. Do not commit API keys,
+database credentials, or WorkOS secrets.
+
+## API overview
+
+The frontend consumes the following main route groups:
+
+| Routes | Purpose |
+|---|---|
+| `/api/data`, `/api/series/*`, `/api/fund-series/*`, `/api/sector-series/*` | Portfolio snapshot and historical analytics. |
+| `/api/search`, `/api/quote/*`, `/api/holders/*`, `/api/stock/*` | Owned and off-portfolio equity research. |
+| `/api/screener/*` | Screener field catalog and market queries. |
+| `/api/optimize/*` | Diagnostics, what-if calculations, and optimizer solves. |
+| `/api/coverage/me` | Authenticated analyst coverage dashboard. |
+| `/api/flags/*`, `/api/submissions/*`, `/api/inbox/*` | Weekly coverage workflow and messaging. |
+| `/api/organization/*`, `/api/profile` | Directory, assignments, roles, and profile management. |
+| `/api/chat`, `/api/agent/run*` | Claude chat and asynchronous managed-agent analysis. |
+| `/api/auth/*` | Google OAuth, password authentication, invitations, reset, session, and logout. |
+| `/api/health` | Public backend health/configuration check. |
+
+## Validation
+
 ```bash
-# one-time copy of the local SQLite store into Supabase/Postgres
-python -m scripts.migrate_to_postgres
+python -m pytest -q
+npm --prefix web run build
 ```
-All data scripts (`seed_db`/`refresh`/`fundamentals`/`snapshots`) target whichever backend is
-configured, so after migrating you can run nightly refreshes straight against Supabase.
 
-## Roadmap
-| Phase | Status | What |
-|---|---|---|
-| 0 Foundation | done | Schema, importer, reconciliation |
-| 1 Closing prices & P&L | done | nightly yfinance close, market value, unrealized P&L |
-| 2 Returns | done | Holding-period returns, benchmark-relative |
-| 3 Risk | done | 3-yr daily beta vs Russell, vol, R² |
-| A Backend API | done | FastAPI + fundamentals enrichment |
-| B–D Terminal UI | done | Pixel-faithful React terminal; Ask-Claude stubbed |
-| E Packaging | done | Single-container Docker, this runbook, Streamlit retired |
-| F Global search | done | Yahoo Finance search + live quote/series; any equity opens a stock page (`src/ingest/lookup.py`) |
-| G Auth — sign-in | done | WorkOS invite-only Google OAuth; whole app gated; roles tracked (`src/auth/`) |
-| G2 Auth — profile menu | done | Profile dropdown (photo/name/email/role, sign out) + admin-only invite (`src/auth/`) |
-| G3 Auth — email/password | done | Email + password sign-in + forgot/set-password reset, alongside Google |
-| H Database — Supabase | done | Dual-backend SQLite/Postgres; one-command migrate (`src/model/db.py`, `scripts/migrate_to_postgres.py`) |
-| Later | | Live Ask-Claude (Anthropic API); deploy backend host + frontend to Vercel |
-
-## Handoff notes (for the next PM)
-- Config lives in `config.yaml` (funds, benchmarks, beta window).
-- The DB is reproducible: `seed_db` → `refresh` → `fundamentals` → `snapshots`.
-- Frontend API base is configurable via `VITE_API_BASE` (empty = same origin).
-  When the frontend later moves to Vercel, point it at the hosted backend.
-- Secrets (e.g. Kalshi keys) are git-ignored; keep them out of the repo.
+Tests use temporary databases and mocked external services where applicable; they do
+not submit real WorkOS messages or execute trades.
