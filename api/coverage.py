@@ -1,4 +1,5 @@
 """My Coverage companion routes: portfolio movers and member-owned watchlists."""
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import re
 
@@ -111,7 +112,22 @@ def get_watchlist(uid=Depends(identity)):
     try:
         tickers = [r[0] for r in conn.execute(db.q(conn, "SELECT ticker FROM watchlist WHERE user_id=? ORDER BY created_at,ticker"), (uid,)).fetchall()]
         owned, facts, prices = owned_symbols(conn), fundamental_rows(conn), price_frame(conn)
-        return {"items": [safe_quote(t, conn, owned=owned, facts=facts, prices=prices) for t in tickers]}
+        # Stored positions are local DB reads. External quotes can involve network
+        # I/O, so fetch those concurrently instead of making watchlist load time
+        # grow linearly with every symbol.
+        items = {
+            ticker: safe_quote(ticker, conn, owned=owned, facts=facts, prices=prices)
+            for ticker in tickers if ticker in owned
+        }
+        external = [ticker for ticker in tickers if ticker not in owned]
+        if external:
+            with ThreadPoolExecutor(max_workers=min(4, len(external))) as pool:
+                quotes = pool.map(
+                    lambda ticker: safe_quote(ticker, conn, owned=owned, facts=facts, prices=prices),
+                    external,
+                )
+                items.update(zip(external, quotes))
+        return {"items": [items[ticker] for ticker in tickers]}
     finally:
         conn.close()
 

@@ -56,6 +56,14 @@ jobs:
             exit 1
           fi
 
+      # One-time, marker-guarded correction for holdings that the former
+      # refresh path multiplied by historical splits already reflected in the
+      # source workbook. Subsequent runs exit without changing any rows.
+      - name: Repair legacy split-inflated holdings
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python -m scripts.repair_split_inflation --apply
+
       - name: Refresh prices + dividends
         # ALPHAVANTAGE_API_KEY also drives the benchmark-constituent pull inside
         # scripts.refresh (optimization page's active-weight metrics); the script

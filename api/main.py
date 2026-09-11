@@ -771,23 +771,6 @@ def _current_user_id(request: Request) -> str | None:
     return payload.get("id")
 
 
-def _relevant_news(ticker: str, name: str | None, items: list[dict] | None) -> list[dict]:
-    """Yahoo's related-news feed is noisy (e.g. another sector's headlines show up
-    on this ticker's page) — keep only items that actually mention the ticker or
-    the first word of the company name (catches "Novo Nordisk" from "Novo Nordisk A/S")."""
-    if not items:
-        return []
-    needles = {ticker.upper()}
-    if name:
-        needles.add(name.split()[0].upper())
-    out = []
-    for item in items:
-        haystack = (item.get("title") or "").upper()
-        if any(len(n) > 1 and n in haystack for n in needles):
-            out.append(item)
-    return out
-
-
 def _coverage_price_bundle(pf, ticker: str, owned_meta: dict | None = None) -> dict:
     """Name + price + day/MTD change + a 1M sparkline for a covered ticker: the
     portfolio price store when it's a holding (same source as /api/series), a
@@ -858,20 +841,23 @@ def _coverage_price_bundle(pf, ticker: str, owned_meta: dict | None = None) -> d
 @app.get("/api/coverage/me")
 def coverage_me(request: Request, fund: str = "all"):
     """Coverage bundle for the signed-in analyst: price/day/MTD change, next
-    earnings date (+ countdown), and relevance-filtered headlines for each
-    covered ticker. Composed entirely from existing data paths — the same price
-    store behind /api/series, and the same yfinance research behind /api/stock."""
+    earnings date (+ countdown), and portfolio facts for each covered ticker.
+    Headlines are intentionally fetched lazily by the client so slow market-data
+    calls never block the initial page."""
     uid = _current_user_id(request)
     if uid is None:
         raise HTTPException(401, "not authenticated")
     if fund not in {"all", "tallfirs", "alumni"}:
         raise HTTPException(422, "fund must be all, tallfirs, or alumni")
     try:
-        directory = _dev_directory() if wc.auth_disabled() else auth_organization.list_members()
+        if wc.auth_disabled():
+            directory = _dev_directory()
+            me = next((m for m in directory["members"] if m["id"] == uid), None)
+            coverage = (me or {}).get("coverage") or []
+        else:
+            coverage = auth_organization.user_coverage(uid)
     except auth_organization.OrganizationError as exc:
         raise HTTPException(502, str(exc)) from exc
-    me = next((m for m in directory["members"] if m["id"] == uid), None)
-    coverage = (me or {}).get("coverage") or []
 
     conn = _conn()
     try:
@@ -906,10 +892,6 @@ def coverage_me(request: Request, fund: str = "all"):
             research = closed_snapshot(ticker) if meta else stock_research(ticker)
         except Exception:  # noqa: BLE001
             research = {}
-        try:
-            news_items = stock_news(ticker).get("news") or []
-        except Exception:  # noqa: BLE001
-            news_items = research.get("news") or []
         earnings = research.get("earnings") or {}
         next_earnings = earnings.get("next")
         if next_earnings == "—":
@@ -921,7 +903,6 @@ def coverage_me(request: Request, fund: str = "all"):
             except ValueError:
                 days_until = None
         name = bundle.pop("name", None) or ticker
-        news = _relevant_news(ticker, name, news_items)[:5]
         tickers.append({
             "ticker": ticker,
             "name": name,
@@ -931,7 +912,7 @@ def coverage_me(request: Request, fund: str = "all"):
             "nextEarnings": next_earnings,
             "nextEarningsEstimated": bool(earnings.get("nextEstimated")),
             "earningsInDays": days_until,
-            "news": news,
+            "news": [],
             "thesis": stock_thesis(ticker).get("thesis"),
             "consensus": (research.get("research") or {}).get("consensus"),
         })

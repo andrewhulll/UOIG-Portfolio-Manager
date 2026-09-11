@@ -1,4 +1,8 @@
+.my-coverage { display:grid; grid-template-columns:minmax(0,7fr) minmax(320px,3fr); align-items:start; min-width:0; }
 .my-coverage, .my-coverage * { box-sizing:border-box; }
+.coverage-main { min-width:0; padding:22px 24px 40px; display:flex; flex-direction:column; gap:16px; }
+.coverage-sidebar { min-width:0; min-height:100%; border-left:1px solid #1d2840; background:#0a0f1a; padding:22px 20px 40px; display:flex; flex-direction:column; gap:18px; }
+.coverage-sidebar > .coverage-panel { width:100%; flex:none; }
 .my-coverage button, .my-coverage input { font:500 10px 'IBM Plex Mono',monospace; }
 .my-coverage button { color:#b7c9e8; background:#13203a; border:1px solid #28406e; border-radius:6px; padding:7px 11px; cursor:pointer; }
 .my-coverage button:hover { background:#1e3153; }
@@ -44,3 +48,7 @@
 .coverage-failure { padding:18px; border:1px solid #1d2840; border-radius:10px; color:#e8edf7; background:#111a2e; font-size:12px; }
 .coverage-failure p { color:#7e8aa6; line-height:1.6; overflow-wrap:anywhere; }
 [data-reduced-motion=true] .coverage-card { transition:none; }
+@media (max-width:1100px) {
+  .my-coverage { grid-template-columns:minmax(0,1fr); }
+  .coverage-sidebar { min-height:0; border-left:0; border-top:1px solid #1d2840; }
+}

@@ -1185,7 +1185,6 @@ export default class App extends React.Component {
         <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;overflow:clip;')}>
           <div style={s("position:sticky;top:0;z-index:5;background:#0e1422;display:grid;grid-template-columns:74px 1fr 150px 64px 70px 86px 92px 72px 72px 72px 100px 100px 100px 60px;gap:8px;padding:9px 14px;border-bottom:1px solid #1d2840;font:600 8.5px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;color:#6b7794;")}>
             {v.stocksHead.map((h, i) => (<span key={i} onClick={h.on} style={{ ...s('cursor:pointer;'), textAlign: h.align, color: h.color }}>{h.label}{h.caret}</span>))}
-            <span>Trend</span>
           </div>
           {v.stocksRows.map((r) => (
             <div key={r.rk} onClick={r.open} className="dc-row" style={s('display:grid;grid-template-columns:74px 1fr 150px 64px 70px 86px 92px 72px 72px 72px 100px 100px 100px 60px;gap:8px;align-items:center;padding:7.5px 14px;border-bottom:1px solid #131c2f;font-size:11px;cursor:pointer;')}>
@@ -2367,7 +2366,7 @@ export default class App extends React.Component {
     const stockPool = (fk === 'all' ? this.allH : this.allH.filter((h) => h.fund === fk)).map(wAll)
     let rows = stockPool.filter((h) => !q || h.t.toLowerCase().indexOf(q) >= 0 || h.n.toLowerCase().indexOf(q) >= 0 || (h.s || '').toLowerCase().indexOf(q) >= 0)
     const dir = st.sortDir === 'asc' ? 1 : -1
-    const keyf = { t: (h) => h.t, n: (h) => h.n, s: (h) => h.s || '', w: (h) => h.w, mv: (h) => h.mv || 0, px: (h) => h.px, chg: (h) => h.chg, mtd: (h) => h.mtd, pe: (h) => h.pe || 0 }
+    const keyf = { t: (h) => h.t, n: (h) => h.n, s: (h) => h.s || '', w: (h) => h.w, mv: (h) => h.mv || 0, px: (h) => h.px, chg: (h) => h.chg, mtd: (h) => h.mtd, cb: (h) => h.cb || 0, unrealPnl: (h) => h.unrealPnl || 0, unrealPnlPct: (h) => h.unrealPnlPct || 0, pe: (h) => h.pe || 0 }
     const kf = keyf[st.sortKey] || keyf.w
     rows = rows.slice().sort((a, b) => { const x = kf(a), y = kf(b); return typeof x === 'string' ? x.localeCompare(y) * dir : (x - y) * dir })
     v.stocksRows = rows.map((h) => this._rowVM(h, 'stocks'))
@@ -2375,7 +2374,10 @@ export default class App extends React.Component {
     v.stocksTitle = fk === 'all' ? 'All Holdings' : F[fk].name + ' Holdings'
     v.stocksCount = rows.length + ' of ' + stockPool.length + ' holdings · ' + (fk === 'all' ? 'both funds' : F[fk].name)
     v.query = st.query || ''
-    const heads = [['t', 'Ticker', 'left'], ['n', 'Name', 'left'], ['s', 'Sector', 'left'], ['', 'Fund', 'right'], ['w', 'Wt', 'right'], ['mv', 'Mkt Val', 'right'], ['px', 'Price', 'right'], ['chg', 'Day', 'right'], ['mtd', 'MTD', 'right'], ['cb', 'Cost Basis', 'right'], ['unrealPnl', 'Unreal Gain $', 'right'], ['unrealPnlPct', 'Unreal Gain %', 'right'], ['pe', 'P/E', 'right']]
+    // Keep this schema in the exact same order as the cells in _renderStocks.
+    // Trend sits after Price in each row; previously its header was appended at
+    // the end, shifting every label from Day through P/E one column to the left.
+    const heads = [['t', 'Ticker', 'left'], ['n', 'Name', 'left'], ['s', 'Sector', 'left'], ['', 'Fund', 'right'], ['w', 'Wt', 'right'], ['mv', 'Mkt Val', 'right'], ['px', 'Price', 'right'], ['', 'Trend', 'left'], ['chg', 'Day', 'right'], ['mtd', 'MTD', 'right'], ['cb', 'Cost Basis', 'right'], ['unrealPnl', 'Unreal Gain $', 'right'], ['unrealPnlPct', 'Unreal Gain %', 'right'], ['pe', 'P/E', 'right']]
     v.stocksHead = heads.map(([k, label, align]) => ({ label, align, color: (k && k === st.sortKey) ? '#cdd6e8' : '#6b7794', caret: (k && k === st.sortKey) ? (st.sortDir === 'asc' ? ' ↑' : ' ↓') : '', on: k ? () => this.setState((s2) => ({ sortKey: k, sortDir: (s2.sortKey === k && s2.sortDir === 'desc') ? 'asc' : 'desc' })) : () => {} }))
 
     // sectors kanban — one column per UOIG group, in taxonomy order

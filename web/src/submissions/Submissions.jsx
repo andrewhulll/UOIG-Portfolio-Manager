@@ -1,6 +1,6 @@
 import React from 'react'
 import { acknowledge, addComment, getFlags, getInbox, getQueue, markRead, removeFlag, saveFlag, submitDraft } from './api.js'
-import { getMyCoverage, getQuote, getSeries } from '../api.js'
+import { getQuote, getSeries } from '../api.js'
 import { PriceChart } from '../charts/PriceChart.jsx'
 import { SECTOR_COLORS } from '../ui.js'
 import './submissions.css'
@@ -39,23 +39,18 @@ function useRemote(fetcher, deps = []) {
 
 // Coverage bundle (price/MTD/next-earnings) for the analyst's own covered names —
 // cheap, fetched once and reused across every item card instead of a per-item call.
-function useCoverageMap() {
-  const [map, setMap] = React.useState({})
-  React.useEffect(() => {
-    let live = true
-    getMyCoverage().then(data => { if (live) setMap(Object.fromEntries((data.tickers || []).map(t => [t.ticker, t]))) }).catch(() => {})
-    return () => { live = false }
-  }, [])
-  return map
+function useCoverageMap(coverage) {
+  return React.useMemo(() => Object.fromEntries((coverage?.tickers || []).map(t => [t.ticker, t])), [coverage])
 }
 
 // Live quote (for tickers outside the analyst's coverage) + 1-month price series for
 // the mini chart, one fetch per unique ticker, deduped for the life of the component.
-function useTickerContext(tickers, coverageMap) {
+function useTickerContext(tickers, coverageMap, coverageReady) {
   const [state, setState] = React.useState({})
   const fetched = React.useRef(new Set())
   React.useEffect(() => {
     let live = true
+    if (!coverageReady) return () => { live = false }
     tickers.forEach(ticker => {
       if (!ticker || fetched.current.has(ticker)) return
       fetched.current.add(ticker)
@@ -157,14 +152,14 @@ function ItemForm({ initial, sector, busy, onSave, onCancel }) {
   </form>
 }
 
-export function WeeklySubmission({ auth }) {
+export function WeeklySubmission({ auth, coverage, coveragePending = false }) {
   const [week, setWeek] = React.useState('')
   const [sector, setSector] = React.useState('')
   const [editor, setEditor] = React.useState(null)
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState('')
   const remote = useRemote(() => getFlags(week), [week])
-  const coverageMap = useCoverageMap()
+  const coverageMap = useCoverageMap(coverage)
   const data = remote.data
   const prevWeek = data ? shiftWeek(data.week, -7) : null
   const prevRemote = useRemote(() => prevWeek ? getFlags(prevWeek) : Promise.resolve(null), [prevWeek])
@@ -175,7 +170,7 @@ export function WeeklySubmission({ auth }) {
   const prevFlags = prevRemote.data?.flags.filter(f => f.sector === selected) || []
   const lastNoteFor = ticker => prevFlags.find(f => f.ticker === ticker)?.note || null
   const tickers = [...new Set(flags.map(f => f.ticker).filter(Boolean))]
-  const ctxState = useTickerContext(tickers, coverageMap)
+  const ctxState = useTickerContext(tickers, coverageMap, !coveragePending)
   if (!isAnalyst(auth)) return null
   const editable = data && data.week === data.currentWeek && data.sectors.includes(selected) && (!draft || draft.status === 'draft')
   const changeWeek = value => { setWeek(value); setEditor(null); setError('') }

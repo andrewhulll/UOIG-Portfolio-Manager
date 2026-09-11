@@ -53,6 +53,14 @@ def refresh(cfg: dict, history_years: float | None = None,
         db.q(conn, "SELECT ticker, MAX(date) FROM prices WHERE source != 'xlsx_snapshot' GROUP BY ticker")
     ).fetchall()
     last_dates = {r[0]: r[1] for r in last_dates_raw}
+    imported = conn.execute(
+        db.q(conn, "SELECT value FROM import_meta WHERE key = ?"), ("import_date",)
+    ).fetchone()
+    # The workbook is a current-position snapshot: its shares and entry prices
+    # are already adjusted for every split on or before the import date.  When
+    # there is no downloaded history yet, use that date as the corporate-action
+    # boundary instead of replaying years of old splits into current holdings.
+    import_date = imported[0] if imported else None
 
     pause = float((cfg.get("market_data") or {}).get("request_pause_seconds", 0))
     for index, t in enumerate(tickers):
@@ -73,24 +81,16 @@ def refresh(cfg: dict, history_years: float | None = None,
         if not sp.empty:
             for r in sp.itertuples():
                 ratio = float(r.ratio)
-                if ratio > 0:
+                # The trailing history window intentionally overlaps prior
+                # refreshes.  Only a split newer than the data boundary is new;
+                # otherwise shares would be multiplied again on every refresh.
+                split_boundary = max((d for d in (last, import_date) if d), default=None)
+                if ratio > 0 and (split_boundary is None or r.date > split_boundary):
                     conn.execute(
                         db.q(conn, "UPDATE holdings SET shares = shares * ?, entry_price = entry_price / ? WHERE ticker = ? AND (entry_date IS NULL OR entry_date < ?)"),
                         (ratio, ratio, t, r.date)
                     )
-                    conn.execute(
-                        db.q(conn, "UPDATE prices SET close = close / ?, adj_close = adj_close / ? WHERE ticker = ? AND date < ?"),
-                        (ratio, ratio, t, r.date)
-                    )
-                    conn.execute(
-                        db.q(conn, "UPDATE dividends SET amount = amount / ? WHERE ticker = ? AND ex_date < ?"),
-                        (ratio, t, r.date)
-                    )
                     if t in bench_tickers:
-                        conn.execute(
-                            db.q(conn, "UPDATE benchmarks SET close = close / ? WHERE index_ticker = ? AND date < ?"),
-                            (ratio, t, r.date)
-                        )
                         conn.execute(
                             db.q(conn, "UPDATE holdings SET bench_entry_price = bench_entry_price / ? WHERE bench_ticker = ? AND (entry_date IS NULL OR entry_date < ?)"),
                             (ratio, t, r.date)
