@@ -44,6 +44,7 @@ from workos._errors import (AuthenticationError, BadRequestError, ConflictError,
                             EmailVerificationRequiredError,
                             UnprocessableEntityError, WorkOSError)
 from src.analytics.pnl import load_positions  # noqa: E402
+from src.analytics.coverage import context as coverage_context, position_facts  # noqa: E402
 from src.ingest.research import (closed_snapshot, stock_news,  # noqa: E402
                                  stock_research)
 from src.ingest.lookup import (search_symbols, quote_overview,  # noqa: E402
@@ -60,7 +61,7 @@ from src.analytics.optimize import (fund_diagnostics, solve_optimizer,  # noqa: 
 from src.analytics.series import (price_frame, period_return, synthetic_index,  # noqa: E402
                                   ticker_series, trailing_return, mtd_return)
 from src.config import db_path, load_config  # noqa: E402
-from src.model.schema import get_connection  # noqa: E402
+from src.model.schema import get_connection, create_schema  # noqa: E402
 
 CFG = load_config()
 
@@ -803,10 +804,10 @@ def _coverage_price_bundle(pf, ticker: str, owned_meta: dict | None = None) -> d
             q = None
         name = q.get("n") if q else None
         mc = q.get("mc") if q else None
-        pe = q.get("pe") if q else None
+        pe = q.get("forwardPE") if q else None
 
     s = pf[pf.ticker == ticker]
-    if len(s) >= 2:
+    if owned_meta and len(s) >= 2:
         last, prev = float(s["close"].iloc[-1]), float(s["close"].iloc[-2])
         mtd = mtd_return(pf, ticker)
         return {
@@ -818,10 +819,14 @@ def _coverage_price_bundle(pf, ticker: str, owned_meta: dict | None = None) -> d
             "marketCap": mc,
             "forwardPE": pe,
             "held": bool(owned_meta),
+            "closeDate": s["date"].iloc[-1].date().isoformat(),
+            "exchange": owned_meta.get("exchange"),
+            "revGrowth": owned_meta.get("revGrowth"),
         }
 
     mtd_pct = None
     closes = []
+    dates = []
     if not owned_meta:
         try:
             live = live_series(ticker, "1M")
@@ -844,11 +849,14 @@ def _coverage_price_bundle(pf, ticker: str, owned_meta: dict | None = None) -> d
         "marketCap": mc,
         "forwardPE": pe,
         "held": bool(owned_meta),
+        "closeDate": dates[-1] if dates else None,
+        "exchange": (owned_meta or q or {}).get("exchange"),
+        "revGrowth": (owned_meta or q or {}).get("revGrowth"),
     }
 
 
 @app.get("/api/coverage/me")
-def coverage_me(request: Request):
+def coverage_me(request: Request, fund: str = "all"):
     """Coverage bundle for the signed-in analyst: price/day/MTD change, next
     earnings date (+ countdown), and relevance-filtered headlines for each
     covered ticker. Composed entirely from existing data paths — the same price
@@ -856,6 +864,8 @@ def coverage_me(request: Request):
     uid = _current_user_id(request)
     if uid is None:
         raise HTTPException(401, "not authenticated")
+    if fund not in {"all", "tallfirs", "alumni"}:
+        raise HTTPException(422, "fund must be all, tallfirs, or alumni")
     try:
         directory = _dev_directory() if wc.auth_disabled() else auth_organization.list_members()
     except auth_organization.OrganizationError as exc:
@@ -865,9 +875,11 @@ def coverage_me(request: Request):
 
     conn = _conn()
     try:
+        create_schema(conn)
+        ctx = coverage_context(CFG, conn, fund)
         pf = price_frame(conn)
         rows = conn.execute(
-            "SELECT DISTINCT h.ticker, s.name, f.market_cap, f.pe "
+            "SELECT DISTINCT h.ticker, s.name, f.market_cap, f.forward_pe "
             "FROM holdings h JOIN securities s ON s.ticker = h.ticker "
             "LEFT JOIN fundamentals f ON f.ticker = h.ticker "
             "WHERE COALESCE(h.shares, 0) > 0 AND s.sec_type != 'cash'"
@@ -875,7 +887,10 @@ def coverage_me(request: Request):
         owned_meta = {
             r[0].upper(): {"name": r[1],
                            "marketCap": (float(r[2]) / 1e9 if r[2] is not None else None),
-                           "forwardPE": (float(r[3]) if r[3] is not None else None)}
+                           "forwardPE": (float(r[3]) if r[3] is not None else None),
+                           "exchange": ctx["facts"].get(r[0], {}).get("exchange"),
+                           "revGrowth": (ctx["facts"][r[0]]["revenue_growth"] * 100
+                                         if ctx["facts"].get(r[0], {}).get("revenue_growth") is not None else None)}
             for r in rows
         }
     finally:
@@ -884,7 +899,7 @@ def coverage_me(request: Request):
     tickers = []
     earnings_this_week = []
     for row in coverage:
-        ticker = row["ticker"]
+        ticker = row["ticker"].upper()
         meta = owned_meta.get(ticker.upper())
         bundle = _coverage_price_bundle(pf, ticker, meta)
         try:
@@ -912,6 +927,7 @@ def coverage_me(request: Request):
             "name": name,
             "sector": row.get("sector"),
             **bundle,
+            **position_facts(ctx, ticker, row.get("sector")),
             "nextEarnings": next_earnings,
             "nextEarningsEstimated": bool(earnings.get("nextEstimated")),
             "earningsInDays": days_until,
@@ -922,7 +938,7 @@ def coverage_me(request: Request):
         if days_until is not None and 0 <= days_until <= 5:
             earnings_this_week.append(ticker)
 
-    return {"tickers": tickers, "earningsThisWeek": earnings_this_week}
+    return {"tickers": tickers, "earningsThisWeek": earnings_this_week, "fund": fund}
 
 
 @app.get("/api/optimize/diagnostics/{fund}")
@@ -1385,6 +1401,8 @@ else:
 # are matched first; this catch-all mount serves the SPA for everything else.
 from api.submissions import router as submissions_router  # noqa: E402
 app.include_router(submissions_router)
+from api.coverage import router as coverage_router  # noqa: E402
+app.include_router(coverage_router)
 
 _DIST = Path(__file__).resolve().parents[1] / "web" / "dist"
 if _DIST.exists():
