@@ -14,6 +14,7 @@ import yfinance as yf
 
 from src.config import db_path
 from src.ingest.providers import to_yf
+from src.ingest.universe import owned_tickers
 from src.model import db, schema
 
 
@@ -54,8 +55,7 @@ def pull_fundamentals(cfg: dict, conn: sqlite3.Connection | None = None,
         conn = schema.get_connection(db_path(cfg))
     schema.create_schema(conn)
     if tickers is None:
-        tickers = [r[0] for r in conn.execute(
-            "SELECT ticker FROM securities WHERE sec_type != 'cash'")]
+        tickers = owned_tickers(conn)
 
     today = dt.date.today().isoformat()
     summary = {"updated": 0, "failed": []}

@@ -13,18 +13,18 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import sqlite3
+import time
 
 from src.config import db_path
 from src.ingest.providers import get_provider
+from src.ingest.universe import owned_tickers
 from src.model import db, schema
 
 log = logging.getLogger("uoig.refresh")
 
 
 def _universe(conn: sqlite3.Connection, cfg: dict) -> tuple[list[str], set[str]]:
-    held = [r[0] for r in conn.execute(
-        "SELECT ticker FROM securities WHERE sec_type != 'cash'"
-    )]
+    held = owned_tickers(conn)
     bench = {f["benchmark"] for f in cfg["funds"]}
     risk = cfg.get("risk") or {}
     for k in (risk.get("market_proxy"), risk.get("risk_free")):
@@ -54,7 +54,10 @@ def refresh(cfg: dict, history_years: float | None = None,
     ).fetchall()
     last_dates = {r[0]: r[1] for r in last_dates_raw}
 
-    for t in tickers:
+    pause = float((cfg.get("market_data") or {}).get("request_pause_seconds", 0))
+    for index, t in enumerate(tickers):
+        if index and pause > 0:
+            time.sleep(pause)
         last = last_dates.get(t)
         start = default_start if (full or not last) else max(
             default_start,

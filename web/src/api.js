@@ -42,6 +42,7 @@ export const getFundSeries = (fund, period) =>
 export const getSectorSeries = (group, period = '1M') =>
   get(`/api/sector-series/${encodeURIComponent(group)}?period=${period}`)
 export const getStock = (ticker) => get(`/api/stock/${encodeURIComponent(ticker)}`)
+export const getStockNews = (ticker) => get(`/api/stock/${encodeURIComponent(ticker)}/news`)
 export const searchTickers = (q) => get(`/api/search?q=${encodeURIComponent(q)}`)
 export const getQuote = (ticker) => get(`/api/quote/${encodeURIComponent(ticker)}`)
 export const getHolders = (ticker) => get(`/api/holders/${encodeURIComponent(ticker)}`)

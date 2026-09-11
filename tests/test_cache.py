@@ -75,6 +75,7 @@ def test_expired_is_miss():
     cache.set("quote", "OLD", {"x": 1}, ttl=0)
     time.sleep(0.02)
     assert cache.get("quote", "OLD") is cache.MISS
+    assert _val(cache.peek("quote", "OLD")) == {"x": 1}
 
 
 def test_upsert_replaces():
@@ -92,12 +93,13 @@ def test_namespaces_are_isolated():
 
 def test_purge_expired_removes_rows():
     _fresh_db()
-    cache.set("quote", "P", {"a": 1}, ttl=60)
-    # horizon 0 => cutoff is "now", so the just-written (slightly earlier) row is
-    # older than the cutoff and gets reclaimed.
+    cache.set("quote", "FRESH", {"a": 1}, ttl=60)
+    cache.set("quote", "OLD", {"a": 2}, ttl=0)
+    time.sleep(0.02)
     removed = cache.purge_expired(horizon_seconds=0)
-    assert removed >= 1
-    assert cache.get("quote", "P") is cache.MISS
+    assert removed == 1
+    assert cache.get("quote", "OLD") is cache.MISS
+    assert _val(cache.get("quote", "FRESH")) == {"a": 1}
 
 
 def test_nonserializable_write_is_skipped():

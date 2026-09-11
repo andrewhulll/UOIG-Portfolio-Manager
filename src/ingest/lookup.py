@@ -210,7 +210,8 @@ def quote_overview(ticker: str) -> dict | None:
 
 
 # ---------- institutional holders ----------
-def institutional_holders(ticker: str, limit: int = 5) -> list[dict]:
+def institutional_holders(ticker: str, limit: int = 5, *, force: bool = False,
+                          ttl: int = _TTL) -> list[dict]:
     """Top institutional shareholders from yfinance's institutional_holders
     endpoint. Returns up to `limit` rows [{holder, pct, shares, value}], largest
     by shares first. Empty list when Yahoo has no 13F data for the symbol."""
@@ -218,16 +219,20 @@ def institutional_holders(ticker: str, limit: int = 5) -> list[dict]:
     key = f"{t}|{limit}"
     now = time.time()
     hit = _HOLDERS_CACHE.get(key)
-    if hit and (now - hit[0]) < _TTL:
+    if not force and hit and (now - hit[0]) < ttl:
         return hit[1]
-    cached = cache.get("holders", key)
-    if cached is not cache.MISS:
-        value, age = cached
-        _HOLDERS_CACHE[key] = (now - age, value)
-        return value
+    if not force:
+        cached = cache.get("holders", key)
+        if cached is not cache.MISS:
+            value, age = cached
+            _HOLDERS_CACHE[key] = (now - age, value)
+            return value
 
     tk = yf_ticker(t)
-    df = yf_retry(lambda: tk.institutional_holders, label=f"holders:{t}")
+    # An empty holders table is a valid result for many securities; do not turn
+    # it into three identical upstream requests.
+    df = yf_retry(lambda: tk.institutional_holders, retry_empty=False,
+                  label=f"holders:{t}")
 
     out: list[dict] = []
     if df is not None and not df.empty:
@@ -261,10 +266,22 @@ def institutional_holders(ticker: str, limit: int = 5) -> list[dict]:
                 "value": round(value / 1e6, 1) if value is not None else None,  # $M
             })
 
+    if df is None:
+        stale = cache.peek("holders", key)
+        if stale is not cache.MISS:
+            return stale[0]
+        return []
+
     _HOLDERS_CACHE[key] = (now, out)
-    if df is not None:   # only persist a real fetch, not a transient failure's []
-        cache.set("holders", key, out, _TTL)
+    cache.set("holders", key, out, ttl)
     return out
+
+
+def holders_snapshot(ticker: str, limit: int = 5) -> list[dict]:
+    """Read the last nightly holder snapshot without contacting yfinance."""
+    key = f"{ticker.upper()}|{limit}"
+    cached = cache.peek("holders", key)
+    return cached[0] if cached is not cache.MISS else []
 
 
 # ---------- live price series ----------

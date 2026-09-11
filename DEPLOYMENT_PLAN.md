@@ -9,14 +9,14 @@ the code you already have.
 | Concern | Today | After this plan |
 |---|---|---|
 | Frontend (React/Vite, `web/`) | Built into the backend container (`Dockerfile` stage 1 → served by FastAPI's static mount in `api/main.py:317`) | Hosted on **Vercel**, talks to the backend via `VITE_API_BASE` (`web/src/api.js:4`) |
-| Backend (FastAPI, `api/main.py`) | Single container serving API **and** SPA | Container host (Render/Railway/Fly) — keeps `yfinance`, in-process caches, Anthropic, sessions |
+| Backend (FastAPI, `api/main.py`) | Single container serving API **and** SPA | Container host (Render/Railway/Fly) — serves nightly snapshots and cached on-demand research, Anthropic, sessions |
 | Database | **SQLite** `data/portfolio.db` (`src/model/schema.py`) | **Supabase** (Postgres) |
 | Auth | **WorkOS** invite-only Google OAuth, already coded (`src/auth/`) | Same code, provisioned + env vars set |
 | LLM | Anthropic (`ANTHROPIC_API_KEY`) | unchanged |
 
 > **Key architectural note.** Vercel is great for the React frontend but a poor fit
-> for *this* backend: it's long-running, keeps in-process caches (`stock_research`),
-> shells out to `yfinance`, and holds sealed WorkOS sessions. Don't try to cram
+> for *this* backend: it coordinates shared market-data caches, on-demand yfinance
+> research, and sealed WorkOS sessions. Don't try to cram
 > FastAPI into Vercel serverless functions. Use **Vercel for the frontend** and a
 > **container host for the backend** (your `Dockerfile` already builds it). The rest
 > of this doc assumes that split.
