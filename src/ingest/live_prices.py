@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import yfinance as yf
 
-from src.ingest.providers import to_yf
+from src.ingest.providers import _is_auth_error, reset_yf_auth, to_yf
 
 log = logging.getLogger("uoig.live_prices")
 
@@ -74,6 +74,11 @@ def poll_once(tickers: list[str]) -> int:
             prev = _num(fi.previous_close)
         except Exception as exc:  # noqa: BLE001 — best-effort; keep the prior cached quote
             log.warning("live quote fetch failed for %s: %s", ticker, exc, extra={"ticker": ticker})
+            if _is_auth_error(exc):
+                # Every ticker in this poll shares yfinance's cached crumb, so once
+                # it's stuck all 8 workers fail identically forever until cleared —
+                # reset it once so the next poll cycle (45s) re-negotiates.
+                reset_yf_auth()
             return None
         if px is None or prev is None or prev == 0:
             return None
