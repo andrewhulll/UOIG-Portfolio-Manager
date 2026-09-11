@@ -157,9 +157,9 @@ def test_quote_failure_preserves_membership_and_is_row_local(api, monkeypatch):
 
 
 def test_coverage_route_enriched_without_changing_thesis(api, monkeypatch):
-    monkeypatch.setattr(main.auth_organization, 'list_members', lambda: {'members': [{'id': 'a', 'coverage': [{'ticker': 'B', 'sector': 'TMT'}]}]})
+    monkeypatch.setattr(main.auth_organization, 'user_coverage', lambda uid: [{'ticker': 'B', 'sector': 'TMT'}])
     monkeypatch.setattr(main, 'closed_snapshot', lambda t: {'earnings': {'next': 'Oct 28, 2026'}})
-    monkeypatch.setattr(main, 'stock_news', lambda t: {'news': []})
+    monkeypatch.setattr(main, 'stock_news', lambda t: pytest.fail('headlines must not block coverage'))
     monkeypatch.setattr(main, 'stock_thesis', lambda t: {'thesis': {'date': '2026-09-10', 'points': ['One', 'Two', 'Three']}})
     monkeypatch.setattr(main, 'quote_overview', lambda t: pytest.fail('owned live lookup'))
     response = api.call('GET', '/coverage/me?fund=alumni')
@@ -168,6 +168,7 @@ def test_coverage_route_enriched_without_changing_thesis(api, monkeypatch):
     assert card['held'] and not card['heldInFund']
     assert card['price'] == 80 and card['forwardPE'] == 40
     assert card['exchange'] == 'NYSE' and card['closeDate'] == '2026-09-10'
+    assert card['news'] == []
     assert card['thesis']['points'] == ['One', 'Two', 'Three']
     assert api.call('GET', '/coverage/me?fund=bogus').status_code == 422
 

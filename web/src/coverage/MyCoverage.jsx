@@ -1,5 +1,5 @@
 import React from 'react'
-import { getMyCoverage, getMovers, getWatchlist, addWatchlistTicker, removeWatchlistTicker } from '../api.js'
+import { getMyCoverage, getMovers, getStockNews, getWatchlist, addWatchlistTicker, removeWatchlistTicker } from '../api.js'
 import { s, SECTOR_COLORS } from '../ui.js'
 import { smoothPath } from '../charts/PriceChart.jsx'
 import './coverage.css'
@@ -37,6 +37,35 @@ function useRegion(fetchData, key) {
 function Loading({ children }) { return <p role="status" className="coverage-muted"><span className="settings-spinner" /> {children}</p> }
 function Failure({ title, error, retry }) { return <div role="alert" className="coverage-failure"><strong>{title}</strong><p>{error}</p><button onClick={retry}>Try again</button></div> }
 
+function relevantNews(ticker, name, items = []) {
+  const needles = [ticker, name?.split(/\s+/)[0]].filter(Boolean).map(value => value.toUpperCase())
+  return items.filter(item => needles.some(needle => needle.length > 1 && (item.title || '').toUpperCase().includes(needle))).slice(0, 3)
+}
+function useLazyNews(ticker, name) {
+  const target = React.useRef(null)
+  const [version, retry] = React.useReducer(value => value + 1, 0)
+  const [state, setState] = React.useState({ status: 'idle', items: [] })
+  React.useEffect(() => {
+    let live = true, started = false, observer
+    setState({ status: 'idle', items: [] })
+    const load = () => {
+      if (started) return
+      started = true
+      setState({ status: 'loading', items: [] })
+      getStockNews(ticker)
+        .then(data => { if (live) setState({ status: 'loaded', items: relevantNews(ticker, name, data.news || []) }) })
+        .catch(() => { if (live) setState({ status: 'error', items: [] }) })
+    }
+    if (typeof IntersectionObserver === 'undefined' || !target.current) load()
+    else {
+      observer = new IntersectionObserver(entries => { if (entries.some(entry => entry.isIntersecting)) { observer.disconnect(); load() } }, { rootMargin: '300px' })
+      observer.observe(target.current)
+    }
+    return () => { live = false; observer?.disconnect() }
+  }, [ticker, name, version])
+  return { target, ...state, retry }
+}
+
 function Spark({ values = [] }) {
   const id = React.useId().replace(/:/g, '')
   const points = values.filter(Number.isFinite)
@@ -62,6 +91,7 @@ function CoverageCard({ card, onOpenStock, fund }) {
   const noPosition = card.held && !selectedHeld ? 'NOT HELD IN THIS FUND' : 'COVERAGE ONLY'
   const sectorColor = SECTOR_COLORS[card.sector] || '#7e8aa6'
   const values = (card.series || []).filter(Number.isFinite)
+  const headlines = useLazyNews(card.ticker, card.name)
   return <article className="coverage-card" role="link" tabIndex={0} aria-label={`Open ${card.ticker} research`}
     onClick={() => onOpenStock(card.ticker)} onKeyDown={e => { if (e.target === e.currentTarget && e.key === 'Enter') onOpenStock(card.ticker) }}
     style={s('background:#111a2e;border:1px solid #1d2840;border-radius:10px;padding:18px 20px;cursor:pointer;min-width:0;')}>
@@ -84,8 +114,8 @@ function CoverageCard({ card, onOpenStock, fund }) {
     <div className="coverage-rule"><div className="coverage-caption" style={s('margin:0 0 12px;')}><span className="coverage-label">THESIS</span><span>{points.length ? `FILED ${card.thesis.date}${card.thesis.analyst ? ' · ' + card.thesis.analyst : ''}` : 'NO THESIS ON FILE'}</span></div>
       {points.length ? <ol className="coverage-thesis">{points.map((p, i) => <li key={i}><span>{i + 1}</span><div>{p}</div></li>)}</ol> : <p className="coverage-muted">No thesis on file yet.</p>}
     </div>
-    <div className="coverage-rule"><div className="coverage-label" style={s('margin-bottom:12px;')}>HEADLINES</div>
-      {(card.news || []).length ? card.news.slice(0, 3).map((n, i) => <a className="coverage-headline" key={n.link || i} href={n.link} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>{n.title}<span>{n.publisher} · {n.ago}</span></a>) : <p className="coverage-muted">No recent headlines available.</p>}
+    <div className="coverage-rule" ref={headlines.target}><div className="coverage-label" style={s('margin-bottom:12px;')}>HEADLINES</div>
+      {headlines.status === 'idle' || headlines.status === 'loading' ? <Loading>Loading headlines…</Loading> : headlines.status === 'error' ? <p className="coverage-muted">Headlines unavailable. <button onClick={e => { e.stopPropagation(); headlines.retry() }}>Retry</button></p> : headlines.items.length ? headlines.items.map((n, i) => <a className="coverage-headline" key={n.link || i} href={n.link} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>{n.title}<span>{n.publisher} · {n.ago}</span></a>) : <p className="coverage-muted">No recent headlines available.</p>}
     </div>
   </article>
 }
@@ -149,8 +179,12 @@ export function MyCoverage({ onOpenStock, auth, fund = 'all', children }) {
   const now = new Date(), hour = now.getHours(), greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
   const firstName = auth?.user?.firstName?.trim()
   const nearest = cards.filter(c => c.earningsInDays != null && c.earningsInDays >= 0).sort((a, b) => a.earningsInDays - b.earningsInDays)[0]
-  return <div className="my-coverage" style={s('display:flex;flex-wrap:wrap;align-items:stretch;min-width:0;')}><main style={s('flex:1 1 460px;min-width:0;padding:22px 24px 40px;display:flex;flex-direction:column;gap:16px;')}>
+  const content = React.Children.map(children, child => React.isValidElement(child) ? React.cloneElement(child, {
+    coverage: remote.data,
+    coveragePending: !remote.data && !remote.error,
+  }) : child)
+  return <div className="my-coverage"><main className="coverage-main">
     <header style={s('margin-bottom:4px;')}><div className="coverage-label" style={s('color:#5a93f9;letter-spacing:.14em;')}>HOME / MY COVERAGE</div><h1 style={s('font-size:26px;font-weight:600;letter-spacing:-.5px;margin:8px 0 6px;')}>{greeting}{firstName ? `, ${firstName}` : ''}</h1><div style={s('font-size:12.5px;line-height:1.6;color:#7e8aa6;')}>{now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}{remote.data ? ` · ${cards.length} name${cards.length === 1 ? '' : 's'} covered` : ''}{nearest ? ` · next earnings ${nearest.ticker}${nearest.nextEarningsEstimated ? ' (estimated)' : ''} ${nearest.earningsInDays === 0 ? 'today' : `in ${nearest.earningsInDays} days`}` : ''}</div></header>
-    {remote.error ? <Failure title="Coverage unavailable" error={remote.error} retry={remote.reload} /> : !remote.data ? <Loading>Loading your coverage…</Loading> : !cards.length ? <div className="coverage-panel"><strong>No coverage assigned yet</strong><p className="coverage-muted">Your sector lead assigns company coverage in the member directory.</p></div> : cards.map(card => <CoverageCard key={card.ticker} card={card} fund={fund} onOpenStock={onOpenStock} />)}{children}
-    </main><aside style={s('flex:1 1 340px;min-width:0;border-left:1px solid #1d2840;background:#0a0f1a;padding:22px 20px 40px;display:flex;flex-wrap:wrap;align-content:flex-start;gap:18px;')}><Movers fund={fund} onOpenStock={onOpenStock} /><Watchlist onOpenStock={onOpenStock} /></aside></div>
+    {remote.error ? <Failure title="Coverage unavailable" error={remote.error} retry={remote.reload} /> : !remote.data ? <Loading>Loading your coverage…</Loading> : !cards.length ? <div className="coverage-panel"><strong>No coverage assigned yet</strong><p className="coverage-muted">Your sector lead assigns company coverage in the member directory.</p></div> : cards.map(card => <CoverageCard key={card.ticker} card={card} fund={fund} onOpenStock={onOpenStock} />)}{content}
+    </main><aside className="coverage-sidebar"><Movers fund={fund} onOpenStock={onOpenStock} /><Watchlist onOpenStock={onOpenStock} /></aside></div>
 }

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -10,6 +12,9 @@ from src.auth import workos_client as wc
 
 ROLE_NAMES = {"admin": "Admin", "sector-leader": "Sector Leader", "member": "Analyst"}
 SECTORS = ("TMT", "Consumer", "Financials", "Healthcare", "IME")
+_COVERAGE_CACHE_TTL_SECONDS = 60
+_coverage_cache: dict[str, tuple[float, list[dict]]] = {}
+_coverage_cache_lock = threading.Lock()
 
 
 class OrganizationError(RuntimeError):
@@ -115,6 +120,25 @@ def list_members() -> dict:
     return {"organization": {"id": org_id, "name": org.get("name") or "UOIG"}, "members": members}
 
 
+def user_coverage(user_id: str) -> list[dict]:
+    """Fetch only the signed-in user's coverage instead of the full directory.
+
+    My Coverage is a hot path, while the directory requires organization,
+    membership, and user-list requests. A short cache also avoids repeating the
+    remaining user lookup as the page's independent regions refresh.
+    """
+    now = time.monotonic()
+    with _coverage_cache_lock:
+        cached = _coverage_cache.get(user_id)
+        if cached and now - cached[0] < _COVERAGE_CACHE_TTL_SECONDS:
+            return [dict(row) for row in cached[1]]
+    user = _api("GET", "/user_management/users/" + user_id)
+    coverage = _coverage(user.get("metadata") or {})
+    with _coverage_cache_lock:
+        _coverage_cache[user_id] = (now, coverage)
+    return [dict(row) for row in coverage]
+
+
 def set_coverage(user_id: str, coverage: list[dict]) -> None:
     """Overwrite a member's company coverage. Merges into existing metadata
     (rather than replacing it outright) so mock-seed fields like `display_name`
@@ -123,6 +147,8 @@ def set_coverage(user_id: str, coverage: list[dict]) -> None:
     metadata = dict(user.get("metadata") or {})
     metadata["coverage"] = json.dumps(coverage)
     _api("PUT", "/user_management/users/" + user_id, {"metadata": metadata})
+    with _coverage_cache_lock:
+        _coverage_cache.pop(user_id, None)
 
 
 def set_lead_sectors(user_id: str, sectors: list[str]) -> None:
