@@ -7,11 +7,14 @@ can be added later by implementing the same three methods.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import time
 from typing import Protocol
 
 import pandas as pd
 import yfinance as yf
+
+log = logging.getLogger("uoig.market_data")
 
 PRICE_COLS = ["ticker", "date", "close", "adj_close"]
 DIV_COLS = ["ticker", "ex_date", "amount"]
@@ -73,21 +76,32 @@ def _nonempty(x) -> bool:
     return True
 
 
-def yf_retry(fn, *, tries: int = 3, base: float = 0.6, retry_empty: bool = True):
+def yf_retry(fn, *, tries: int = 3, base: float = 0.6, retry_empty: bool = True, label: str = ""):
     """Call fn() with exponential backoff. Retries on exception, and (when
     retry_empty) on a falsy/empty result — the common shapes a 429 takes. Returns
     the last result (None if every attempt raised); never raises."""
     last = None
+    last_exc = None
     for i in range(tries):
         try:
             last = fn()
-        except Exception:  # noqa: BLE001
+            last_exc = None
+        except Exception as exc:  # noqa: BLE001
             last = None
+            last_exc = exc
+            log.warning("yfinance call failed (attempt %d/%d)%s: %s", i + 1, tries,
+                        f" [{label}]" if label else "", exc, extra={"yf_label": label})
         else:
             if not retry_empty or _nonempty(last):
                 return last
         if i < tries - 1:
             time.sleep(base * (2 ** i))
+    if last_exc is not None:
+        log.error("yfinance call exhausted retries%s: %s", f" [{label}]" if label else "",
+                   last_exc, extra={"yf_label": label})
+    elif retry_empty:
+        log.info("yfinance call returned empty after %d attempts%s", tries,
+                  f" [{label}]" if label else "", extra={"yf_label": label})
     return last
 
 
@@ -111,6 +125,7 @@ class YFinanceProvider:
         key = (ticker, str(start), str(end))
         if key in self._cache:
             return self._cache[key]
+        last_exc = None
         for attempt in range(self.retries + 1):
             try:
                 h = yf.Ticker(to_yf(ticker)).history(
@@ -118,8 +133,13 @@ class YFinanceProvider:
                 )
                 self._cache[key] = h
                 return h
-            except Exception:
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                log.warning("yfinance history fetch failed (attempt %d/%d) for %s: %s",
+                            attempt + 1, self.retries + 1, ticker, exc, extra={"ticker": ticker})
                 time.sleep(self.pause * (attempt + 1))
+        log.error("yfinance history fetch exhausted retries for %s: %s", ticker, last_exc,
+                   extra={"ticker": ticker})
         self._cache[key] = pd.DataFrame()
         return self._cache[key]
 
