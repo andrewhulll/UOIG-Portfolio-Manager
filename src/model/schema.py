@@ -131,6 +131,13 @@ CREATE TABLE IF NOT EXISTS api_cache (
     ttl         INTEGER NOT NULL,  -- seconds this entry stays fresh
     PRIMARY KEY (namespace, key)
 );
+
+CREATE TABLE IF NOT EXISTS watchlist (
+    user_id TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, ticker)
+);
 """
 
 SCHEMA += SUBMISSIONS_SCHEMA
@@ -181,7 +188,12 @@ def create_schema(conn) -> None:
 # Columns added after the initial schema shipped. CREATE TABLE IF NOT EXISTS
 # leaves existing tables untouched, so add any missing columns idempotently.
 _ADDED_COLUMNS = [("fundamentals", "ev_ebitda", "REAL"),
-                   ("fundamentals", "div_yield_provider", "REAL")]  # #43: provider TTM yield fallback
+                   ("fundamentals", "div_yield_provider", "REAL"),
+                   ("fundamentals", "forward_pe", "REAL"),
+                   ("fundamentals", "revenue_growth", "REAL"),
+                   ("fundamentals", "exchange", "TEXT"),
+                   ("fundamentals", "volume", "REAL"),
+                   ("fundamentals", "average_volume", "REAL")]
 
 
 def _migrate(conn) -> None:

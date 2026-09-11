@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import math
 import time
+from datetime import datetime, timezone
 
 import pandas as pd
 import yfinance as yf
 
-from src.ingest.providers import yf_ticker, yf_retry, yf_session
+from src.ingest.providers import yf_ticker, yf_retry, yf_session, MarketDataUnavailable, _is_rate_limit
 from src.model import cache
 
 _SEARCH_CACHE: dict[str, tuple[float, list]] = {}
@@ -39,7 +40,7 @@ def _num(v):
 
 
 # ---------- search ----------
-def search_symbols(query: str, limit: int = 8) -> list[dict]:
+def search_symbols(query: str, limit: int = 8, *, strict: bool = False) -> list[dict]:
     """Yahoo Finance search, restricted to equities. Empty list on any failure."""
     q = (query or "").strip()
     if len(q) < 1:
@@ -62,12 +63,16 @@ def search_symbols(query: str, limit: int = 8) -> list[dict]:
         if sess is not None:
             try:
                 return yf.Search(q, max_results=max(limit * 3, 12), news_count=0, session=sess)
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                if strict and _is_rate_limit(exc):
+                    raise
                 pass
         return yf.Search(q, max_results=max(limit * 3, 12), news_count=0)
 
     try:
-        res = yf_retry(_do_search, retry_empty=False, label=f"search:{q}")
+        res = yf_retry(_do_search, retry_empty=False, label=f"search:{q}", strict=strict)
+        if res is None:
+            raise MarketDataUnavailable("Equity search is temporarily unavailable.")
         for r in ((res.quotes if res else None) or []):
             if r.get("quoteType") != "EQUITY":
                 continue
@@ -85,7 +90,9 @@ def search_symbols(query: str, limit: int = 8) -> list[dict]:
             if len(out) >= limit:
                 break
     except Exception:  # noqa: BLE001 — search is best-effort
-        out = []
+        if strict:
+            raise
+        return []  # do not cache an outage as a successful empty search
 
     _SEARCH_CACHE[key] = (now, out)
     if out:
@@ -94,7 +101,7 @@ def search_symbols(query: str, limit: int = 8) -> list[dict]:
 
 
 # ---------- quote / overview ----------
-def quote_overview(ticker: str) -> dict | None:
+def quote_overview(ticker: str, *, strict: bool = False) -> dict | None:
     """Overview fields for any equity, shaped like a holding row so the stock
     page can render off-portfolio names. Returns None if not a real equity."""
     t = ticker.upper()
@@ -109,7 +116,7 @@ def quote_overview(ticker: str) -> dict | None:
         return value
 
     tk = yf_ticker(t)
-    info = yf_retry(lambda: tk.info, label=f"quote-info:{t}") or {}
+    info = yf_retry(lambda: tk.info, label=f"quote-info:{t}", strict=strict) or {}
 
     # fast_info is chart-API-backed and stays reachable even when the heavier
     # .info/quoteSummary endpoint comes back empty (e.g. throttled in prod).
@@ -144,7 +151,8 @@ def quote_overview(ticker: str) -> dict | None:
         cache.set("quote", t, None, _TTL)   # confirmed non-equity: cache the None hit
         return None
     if px is None:
-        _QUOTE_CACHE[t] = (now, None)
+        if strict:
+            raise MarketDataUnavailable("Quote temporarily unavailable. Please try again.")
         return None
 
     prev = (_num(info.get("regularMarketPreviousClose")) or _num(info.get("previousClose"))
@@ -194,6 +202,12 @@ def quote_overview(ticker: str) -> dict | None:
         "chg": round(chg, 2) if chg is not None else None,
         "mc": round(mc / 1e9, 2) if mc is not None else None,  # billions
         "pe": round(pe, 2) if pe is not None else None,
+        "forwardPE": _num(info.get("forwardPE")),
+        "revGrowth": (_num(info.get("revenueGrowth")) * 100 if _num(info.get("revenueGrowth")) is not None else None),
+        "volume": _num(info.get("regularMarketVolume") if info.get("regularMarketVolume") is not None else info.get("volume")),
+        "averageVolume": _num(info.get("averageVolume")),
+        "nextEarnings": _next_earnings(info),
+        "asOf": _quote_stamp(info),
         "pb": round(pb, 2) if pb is not None else None,
         "evEbitda": round(ev_ebitda, 2) if ev_ebitda is not None else None,
         "dy": round(dy, 2) if dy is not None else None,
@@ -207,6 +221,29 @@ def quote_overview(ticker: str) -> dict | None:
     _QUOTE_CACHE[t] = (now, payload)
     cache.set("quote", t, payload, _TTL)
     return payload
+
+
+def _quote_stamp(info):
+    ts = _num(info.get("regularMarketTime"))
+    try:
+        return datetime.fromtimestamp(ts, timezone.utc).isoformat() if ts else datetime.now(timezone.utc).isoformat()
+    except (ValueError, OverflowError, OSError):
+        return datetime.now(timezone.utc).isoformat()
+
+
+def _next_earnings(info):
+    # Use provider dates only; no synthetic quarterly date for watchlist quotes.
+    candidates = []
+    today = datetime.now(timezone.utc).date()
+    for key in ("earningsTimestamp", "earningsTimestampStart", "earningsTimestampEnd"):
+        try:
+            ts = _num(info.get(key))
+            d = datetime.fromtimestamp(ts, timezone.utc).date() if ts else None
+            if d and d >= today:
+                candidates.append(d)
+        except (ValueError, OverflowError, OSError):
+            pass
+    return min(candidates).isoformat() if candidates else None
 
 
 # ---------- institutional holders ----------

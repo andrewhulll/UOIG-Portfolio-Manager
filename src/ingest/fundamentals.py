@@ -72,7 +72,11 @@ def pull_fundamentals(cfg: dict, conn: sqlite3.Connection | None = None,
              _f(info.get("marketCap")),
              _f(info.get("fiftyTwoWeekLow")), _f(info.get("fiftyTwoWeekHigh")),
              (info.get("longBusinessSummary") or "")[:600], today,
-             _provider_yield(info))
+             _provider_yield(info), _f(info.get("forwardPE")),
+             _f(info.get("revenueGrowth")),
+             info.get("fullExchangeName") or info.get("exchange"),
+             _f(info.get("regularMarketVolume") or info.get("volume")),
+             _f(info.get("averageVolume")))
         )
         summary["updated"] += 1
     if rows:
@@ -81,7 +85,8 @@ def pull_fundamentals(cfg: dict, conn: sqlite3.Connection | None = None,
             db.upsert_sql(conn, "fundamentals",
                           ["ticker", "gics_sector", "pe", "pb", "ev_ebitda", "market_cap",
                            "week52_low", "week52_high", "description", "updated",
-                           "div_yield_provider"], ["ticker"]),
+                           "div_yield_provider", "forward_pe", "revenue_growth",
+                           "exchange", "volume", "average_volume"], ["ticker"]),
             rows
         )
     conn.commit()

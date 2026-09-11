@@ -123,7 +123,15 @@ def _nonempty(x) -> bool:
     return True
 
 
-def yf_retry(fn, *, tries: int = 3, base: float = 0.6, retry_empty: bool = True, label: str = ""):
+class MarketDataUnavailable(RuntimeError):
+    """A transient upstream failure, not evidence of an invalid symbol."""
+
+
+class MarketDataRateLimited(MarketDataUnavailable):
+    """Yahoo throttled the lookup; callers may serve stale data or request retry."""
+
+
+def yf_retry(fn, *, tries: int = 3, base: float = 0.6, retry_empty: bool = True, label: str = "", strict: bool = False):
     """Call fn() with exponential backoff. Retries on exception, and (when
     retry_empty) on a falsy/empty result — the common shapes a 429 takes. Returns
     the last result (None if every attempt raised); never raises."""
@@ -143,6 +151,8 @@ def yf_retry(fn, *, tries: int = 3, base: float = 0.6, retry_empty: bool = True,
             if _is_rate_limit(exc):
                 # Retrying a blocked IP after 0.6s only extends the block. Let the
                 # stale-cache/fallback path answer this request instead.
+                if strict:
+                    raise MarketDataRateLimited("Market data is temporarily rate limited. Please try again later.") from exc
                 return last
         else:
             if not retry_empty or _nonempty(last):
@@ -155,6 +165,8 @@ def yf_retry(fn, *, tries: int = 3, base: float = 0.6, retry_empty: bool = True,
     elif retry_empty:
         log.error("yfinance call returned empty after %d attempts%s", tries,
                   f" [{label}]" if label else "", extra={"yf_label": label})
+    if strict and (last_exc is not None or (retry_empty and not _nonempty(last))):
+        raise MarketDataUnavailable("Market data is temporarily unavailable. Please try again.") from last_exc
     return last
 
 
