@@ -137,7 +137,8 @@ class YFinanceProvider:
                 last_exc = exc
                 log.warning("yfinance history fetch failed (attempt %d/%d) for %s: %s",
                             attempt + 1, self.retries + 1, ticker, exc, extra={"ticker": ticker})
-                time.sleep(self.pause * (attempt + 1))
+                if attempt < self.retries:
+                    time.sleep(self.pause * (attempt + 1))
         log.error("yfinance history fetch exhausted retries for %s: %s", ticker, last_exc,
                    extra={"ticker": ticker})
         self._cache[key] = pd.DataFrame()
