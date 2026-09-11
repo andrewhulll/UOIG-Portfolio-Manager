@@ -18,6 +18,7 @@ and risks rate-limiting, so the default cadence is 45s.
 """
 from __future__ import annotations
 
+import logging
 import math
 import threading
 import time
@@ -27,6 +28,8 @@ import pandas as pd
 import yfinance as yf
 
 from src.ingest.providers import to_yf
+
+log = logging.getLogger("uoig.live_prices")
 
 # ticker -> {"price": float, "prev_close": float, "ts": float (epoch seconds)}
 _LIVE: dict[str, dict] = {}
@@ -69,7 +72,8 @@ def poll_once(tickers: list[str]) -> int:
             # not (its keys are camelCase: lastPrice/previousClose), so use attrs.
             px = _num(fi.last_price)
             prev = _num(fi.previous_close)
-        except Exception:  # noqa: BLE001 — best-effort; keep the prior cached quote
+        except Exception as exc:  # noqa: BLE001 — best-effort; keep the prior cached quote
+            log.warning("live quote fetch failed for %s: %s", ticker, exc, extra={"ticker": ticker})
             return None
         if px is None or prev is None or prev == 0:
             return None
@@ -89,6 +93,8 @@ def poll_once(tickers: list[str]) -> int:
             with _LOCK:
                 _LIVE[t.upper()] = {"price": px, "prev_close": prev, "ts": now}
             updated += 1
+    if updated < len(tickers):
+        log.warning("live quote poll degraded: %d/%d tickers updated", updated, len(tickers))
     return updated
 
 
@@ -120,6 +126,7 @@ def start(get_tickers, interval: float = 45.0, idle_interval: float = 300.0) -> 
                     poll_once(get_tickers())
                     wait = interval
                 except Exception:  # noqa: BLE001 — never let the poller thread die
+                    log.exception("live-price poll cycle failed")
                     wait = interval
             _stop.wait(wait)
 

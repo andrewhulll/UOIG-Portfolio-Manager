@@ -11,11 +11,14 @@ market proxy / risk-free ticker are fetched too and mirrored into ``benchmarks``
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import sqlite3
 
 from src.config import db_path
 from src.ingest.providers import get_provider
 from src.model import db, schema
+
+log = logging.getLogger("uoig.refresh")
 
 
 def _universe(conn: sqlite3.Connection, cfg: dict) -> tuple[list[str], set[str]]:
@@ -120,4 +123,11 @@ def refresh(cfg: dict, history_years: float | None = None,
     conn.commit()
     if own:
         conn.close()
+    if summary["failed"]:
+        log.warning("nightly refresh: %d/%d tickers returned no price history: %s",
+                    len(summary["failed"]), summary["tickers"], summary["failed"],
+                    extra={"failed_tickers": summary["failed"]})
+    else:
+        log.info("nightly refresh complete: %d tickers, %d prices, %d dividends",
+                  summary["tickers"], summary["prices"], summary["dividends"])
     return summary

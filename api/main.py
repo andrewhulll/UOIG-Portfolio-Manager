@@ -20,6 +20,9 @@ from typing import Dict, List
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from src.logging_config import configure_logging  # noqa: E402
+configure_logging()
+
 log = logging.getLogger("uoig.auth")
 
 # pandas warns when read_sql gets a raw psycopg connection (vs SQLAlchemy); the

@@ -413,7 +413,7 @@ def run_screen(filters: list[dict], *, sort_field: str = "intradaymarketcap",
                 pass
         return yf.screen(query, **kwargs)
 
-    resp = yf_retry(_do, retry_empty=False) or {}
+    resp = yf_retry(_do, retry_empty=False, label="screener") or {}
     out = {
         "total": int(resp.get("total") or 0),
         "rows": [_map_quote(q) for q in (resp.get("quotes") or [])],

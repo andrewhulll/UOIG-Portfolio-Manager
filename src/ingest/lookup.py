@@ -67,7 +67,7 @@ def search_symbols(query: str, limit: int = 8) -> list[dict]:
         return yf.Search(q, max_results=max(limit * 3, 12), news_count=0)
 
     try:
-        res = yf_retry(_do_search, retry_empty=False)
+        res = yf_retry(_do_search, retry_empty=False, label=f"search:{q}")
         for r in ((res.quotes if res else None) or []):
             if r.get("quoteType") != "EQUITY":
                 continue
@@ -109,7 +109,7 @@ def quote_overview(ticker: str) -> dict | None:
         return value
 
     tk = yf_ticker(t)
-    info = yf_retry(lambda: tk.info) or {}
+    info = yf_retry(lambda: tk.info, label=f"quote-info:{t}") or {}
 
     # fast_info is chart-API-backed and stays reachable even when the heavier
     # .info/quoteSummary endpoint comes back empty (e.g. throttled in prod).
@@ -158,7 +158,7 @@ def quote_overview(ticker: str) -> dict | None:
         chg = _num(info.get("regularMarketChangePercent"))
     if chg is None and px is not None:
         try:
-            hist = yf_retry(lambda: tk.history(period="5d", auto_adjust=False))
+            hist = yf_retry(lambda: tk.history(period="5d", auto_adjust=False), label=f"quote-history:{t}")
             closes = hist["Close"].dropna() if hist is not None and not hist.empty else []
             if len(closes) >= 2 and closes.iloc[-2]:
                 chg = (closes.iloc[-1] - closes.iloc[-2]) / closes.iloc[-2] * 100
@@ -227,7 +227,7 @@ def institutional_holders(ticker: str, limit: int = 5) -> list[dict]:
         return value
 
     tk = yf_ticker(t)
-    df = yf_retry(lambda: tk.institutional_holders)
+    df = yf_retry(lambda: tk.institutional_holders, label=f"holders:{t}")
 
     out: list[dict] = []
     if df is not None and not df.empty:
@@ -284,7 +284,8 @@ def live_series(ticker: str, period: str = "YTD", points: int = 64) -> dict:
         return value
 
     tk = yf_ticker(t)
-    h = yf_retry(lambda: tk.history(period=_YF_PERIOD[per], interval="1d", auto_adjust=False))
+    h = yf_retry(lambda: tk.history(period=_YF_PERIOD[per], interval="1d", auto_adjust=False),
+                 label=f"series:{t}")
     if h is None:
         h = pd.DataFrame()
 
