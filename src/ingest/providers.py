@@ -100,7 +100,7 @@ def yf_retry(fn, *, tries: int = 3, base: float = 0.6, retry_empty: bool = True,
         log.error("yfinance call exhausted retries%s: %s", f" [{label}]" if label else "",
                    last_exc, extra={"yf_label": label})
     elif retry_empty:
-        log.info("yfinance call returned empty after %d attempts%s", tries,
+        log.error("yfinance call returned empty after %d attempts%s", tries,
                   f" [{label}]" if label else "", extra={"yf_label": label})
     return last
 
