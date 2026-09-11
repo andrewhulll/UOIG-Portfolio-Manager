@@ -936,6 +936,9 @@ export default class App extends React.Component {
       mtdStr: this._sign(h.mtd, 1) + '%', mtdColor: this._col(h.mtd),
       peStr: h.pe ? h.pe.toFixed(1) : '—',
       ctbStr: this._sign(ctb, 2), ctbColor: this._col(ctb),
+      cbStr: h.cb == null ? '—' : this._kd(h.cb),
+      unrealPnlStr: h.unrealPnl == null ? '—' : this._kd(h.unrealPnl), unrealPnlColor: this._col(h.unrealPnl),
+      unrealPnlPctStr: (h.unrealPnlPct != null ? this._sign(h.unrealPnlPct, 1) : '—') + '%', unrealPnlPctColor: this._col(h.unrealPnlPct),
       spark: h.spark || [],
       open: () => this._openStock(h.t, from),
     }
@@ -1106,7 +1109,8 @@ export default class App extends React.Component {
               </div>
             </div>
           </div>
-          <div style={s('height:184px;margin-top:10px;')}>{v.heroChartEl}</div>
+          <div style={s("display:flex;gap:15px;font:500 10px 'IBM Plex Sans';margin-top:10px;flex-wrap:wrap;")}>{v.heroLegend.map((l, i) => (<span key={i} style={{ color: l.color }}>{l.mark} {l.label}</span>))}</div>
+          <div style={s('height:184px;margin-top:6px;')}>{v.heroChartEl}</div>
           <div style={s("display:flex;justify-content:space-between;font-family:'IBM Plex Mono';font-size:9px;color:#4a5573;margin-top:6px;")}>{v.xLabels.map((x, i) => (<span key={i}>{x}</span>))}</div>
         </div>
         {/* stat tiles */}
@@ -1175,12 +1179,12 @@ export default class App extends React.Component {
           </div>
         </div>
         <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;overflow:clip;')}>
-          <div style={s("position:sticky;top:0;z-index:5;background:#0e1422;display:grid;grid-template-columns:74px 1fr 150px 64px 70px 86px 92px 72px 72px 72px 60px;gap:8px;padding:9px 14px;border-bottom:1px solid #1d2840;font:600 8.5px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;color:#6b7794;")}>
+          <div style={s("position:sticky;top:0;z-index:5;background:#0e1422;display:grid;grid-template-columns:74px 1fr 150px 64px 70px 86px 92px 72px 72px 72px 100px 100px 100px 60px;gap:8px;padding:9px 14px;border-bottom:1px solid #1d2840;font:600 8.5px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;color:#6b7794;")}>
             {v.stocksHead.map((h, i) => (<span key={i} onClick={h.on} style={{ ...s('cursor:pointer;'), textAlign: h.align, color: h.color }}>{h.label}{h.caret}</span>))}
             <span>Trend</span>
           </div>
           {v.stocksRows.map((r) => (
-            <div key={r.rk} onClick={r.open} className="dc-row" style={s('display:grid;grid-template-columns:74px 1fr 150px 64px 70px 86px 92px 72px 72px 72px 60px;gap:8px;align-items:center;padding:7.5px 14px;border-bottom:1px solid #131c2f;font-size:11px;cursor:pointer;')}>
+            <div key={r.rk} onClick={r.open} className="dc-row" style={s('display:grid;grid-template-columns:74px 1fr 150px 64px 70px 86px 92px 72px 72px 72px 100px 100px 100px 60px;gap:8px;align-items:center;padding:7.5px 14px;border-bottom:1px solid #131c2f;font-size:11px;cursor:pointer;')}>
               <span style={s("font-family:'IBM Plex Mono';font-weight:600;color:#e8edf7;")}>{r.t}</span>
               <span style={s('color:#9aa7c2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;')}>{r.n}</span>
               <span style={s('color:#6b7794;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;')}>{r.s}</span>
@@ -1191,6 +1195,9 @@ export default class App extends React.Component {
               <span>{this._sparkline(r.spark)}</span>
               <span style={{ ...s("font-family:'IBM Plex Mono';text-align:right;"), color: r.dayColor }}>{r.dayStr}</span>
               <span style={{ ...s("font-family:'IBM Plex Mono';text-align:right;"), color: r.mtdColor }}>{r.mtdStr}</span>
+              <span style={s("font-family:'IBM Plex Mono';text-align:right;color:#7e8aa6;")}>{r.cbStr}</span>
+              <span style={{ ...s("font-family:'IBM Plex Mono';text-align:right;"), color: r.unrealPnlColor }}>{r.unrealPnlStr}</span>
+              <span style={{ ...s("font-family:'IBM Plex Mono';text-align:right;"), color: r.unrealPnlPctColor }}>{r.unrealPnlPctStr}</span>
               <span style={s("font-family:'IBM Plex Mono';text-align:right;color:#7e8aa6;")}>{r.peStr}</span>
             </div>
           ))}
@@ -1209,12 +1216,12 @@ export default class App extends React.Component {
       return /[",\n\r]/.test(str) ? '"' + str.replace(/"/g, '""') + '"' : str
     }
     const num = (x, d) => (x == null || isNaN(x) ? '' : Number(x).toFixed(d))
-    const lines = [['Ticker', 'Name', 'Sector', 'Fund', 'Weight %', 'Market Value', 'Price', 'Day %', 'MTD %', 'P/E'].join(',')]
+    const lines = [['Ticker', 'Name', 'Sector', 'Fund', 'Weight %', 'Market Value', 'Price', 'Day %', 'MTD %', 'Cost Basis', 'Unreal Gain $', 'Unreal Gain %', 'P/E'].join(',')]
     for (const h of rows) {
       lines.push([
         esc(h.t), esc(h.n), esc(h.s || ''), esc((F[h.fund] || {}).name || h.fund || ''),
         num(h.w, 2), h.mv == null ? '' : Math.round(h.mv), h.px == null ? '' : h.px,
-        num(h.chg, 2), num(h.mtd, 2), num(h.pe, 2),
+        num(h.chg, 2), num(h.mtd, 2), h.cb == null ? '' : Math.round(h.cb), h.unrealPnl == null ? '' : Math.round(h.unrealPnl), num(h.unrealPnlPct, 2), num(h.pe, 2),
       ].join(','))
     }
     const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' })
@@ -2276,9 +2283,20 @@ export default class App extends React.Component {
       v.heroRetColor = this._col(r)
       v.heroRetText = (r >= 0 ? '▲' : '▼') + ' ' + this._sign(r, 1) + '% ' + per + ' · ' + this._kdSigned(gain * 1e6) + ' · blended α ' + this._sign(this._blend((f) => f.alpha), 1) + '% vs policy'
       const lines = []
-      if (fseries && fseries.multi) fseries.multi.forEach((m, i) => lines.push({ values: m.fund.values, color: F[keys[i]].color, area: i === 0, width: 2 }))
+      const benchColors = ['#5d6a85', '#6b5a3e'] // muted, distinct per fund
+      const legend = keys.map((k) => ({ mark: '●', label: F[k].name, color: F[k].color }))
+      if (fseries && fseries.multi) fseries.multi.forEach((m, i) => {
+        lines.push({ values: m.fund.values, color: F[keys[i]].color, area: i === 0, width: 2 })
+        // #41: overlay each fund's benchmark on the combined view. Both series
+        // are rebased to 100 at period start by the backend, so one axis works.
+        if (m.bench && m.bench.values && m.bench.values.length) {
+          const bc = benchColors[i % benchColors.length]
+          lines.push({ values: m.bench.values, color: bc, width: 1.2, dash: '4 4' })
+          legend.push({ mark: '┄', label: F[keys[i]].benchShort || m.bench.ticker || 'Benchmark', color: bc })
+        }
+      })
       v.heroChartEl = this._chart('heroAll' + per, lines, 184)
-      v.heroLegend = keys.map((k) => ({ mark: '●', label: F[k].name, color: F[k].color }))
+      v.heroLegend = legend
       v.heroStats = [
         { l: 'Blended α', v: this._sign(this._blend((f) => f.alpha), 1) + '%', sub: 'vs policy', c: '#21d07a', tooltip: 'Active return compared to the benchmark.' },
         { l: 'Beta', v: this._blend((f) => f.beta).toFixed(2), sub: '3Y', c: '#cdd6e8', tooltip: 'Volatility compared to the market.' },
@@ -2344,7 +2362,7 @@ export default class App extends React.Component {
     v.stocksTitle = fk === 'all' ? 'All Holdings' : F[fk].name + ' Holdings'
     v.stocksCount = rows.length + ' of ' + stockPool.length + ' holdings · ' + (fk === 'all' ? 'both funds' : F[fk].name)
     v.query = st.query || ''
-    const heads = [['t', 'Ticker', 'left'], ['n', 'Name', 'left'], ['s', 'Sector', 'left'], ['', 'Fund', 'right'], ['w', 'Wt', 'right'], ['mv', 'Mkt Val', 'right'], ['px', 'Price', 'right'], ['chg', 'Day', 'right'], ['mtd', 'MTD', 'right'], ['pe', 'P/E', 'right']]
+    const heads = [['t', 'Ticker', 'left'], ['n', 'Name', 'left'], ['s', 'Sector', 'left'], ['', 'Fund', 'right'], ['w', 'Wt', 'right'], ['mv', 'Mkt Val', 'right'], ['px', 'Price', 'right'], ['chg', 'Day', 'right'], ['mtd', 'MTD', 'right'], ['cb', 'Cost Basis', 'right'], ['unrealPnl', 'Unreal Gain $', 'right'], ['unrealPnlPct', 'Unreal Gain %', 'right'], ['pe', 'P/E', 'right']]
     v.stocksHead = heads.map(([k, label, align]) => ({ label, align, color: (k && k === st.sortKey) ? '#cdd6e8' : '#6b7794', caret: (k && k === st.sortKey) ? (st.sortDir === 'asc' ? ' ↑' : ' ↓') : '', on: k ? () => this.setState((s2) => ({ sortKey: k, sortDir: (s2.sortKey === k && s2.sortDir === 'desc') ? 'asc' : 'desc' })) : () => {} }))
 
     // sectors kanban — one column per UOIG group, in taxonomy order

@@ -124,7 +124,7 @@ def yf_retry(fn, *, tries: int = 3, base: float = 0.6, retry_empty: bool = True,
         log.error("yfinance call exhausted retries%s: %s", f" [{label}]" if label else "",
                    last_exc, extra={"yf_label": label})
     elif retry_empty:
-        log.info("yfinance call returned empty after %d attempts%s", tries,
+        log.error("yfinance call returned empty after %d attempts%s", tries,
                   f" [{label}]" if label else "", extra={"yf_label": label})
     return last
 
@@ -161,9 +161,8 @@ class YFinanceProvider:
                 last_exc = exc
                 log.warning("yfinance history fetch failed (attempt %d/%d) for %s: %s",
                             attempt + 1, self.retries + 1, ticker, exc, extra={"ticker": ticker})
-                if _is_auth_error(exc):
-                    reset_yf_auth()
-                time.sleep(self.pause * (attempt + 1))
+                if attempt < self.retries:
+                    time.sleep(self.pause * (attempt + 1))
         log.error("yfinance history fetch exhausted retries for %s: %s", ticker, last_exc,
                    extra={"ticker": ticker})
         self._cache[key] = pd.DataFrame()
