@@ -1,7 +1,7 @@
 # UOIG Investment Terminal
 
 A Bloomberg-style portfolio terminal for the **Tall Firs** and **Alumni Fund**
-portfolios: live market data, P&L, holding-period returns, 3-year daily beta,
+portfolios: nightly closing market data, P&L, holding-period returns, 3-year daily beta,
 and per-stock / per-sector research views. React frontend + FastAPI backend over
 the existing Python analytics.
 
@@ -26,11 +26,12 @@ The frontend talks to these JSON endpoints (Vite proxies `/api` to `:8000` in de
 | Endpoint | What |
 |---|---|
 | `GET /api/data` | Funds, holdings, sectors snapshot (DB-backed) |
-| `GET /api/series/{ticker}?period=` | Price series — DB for holdings, **live yfinance fallback** for any other ticker |
+| `GET /api/series/{ticker}?period=` | Price series — nightly DB closes for holdings, cached on-demand yfinance for any other ticker |
 | `GET /api/fund-series/{fund}?period=` | Synthetic fund index vs benchmark |
 | `GET /api/search?q=` | **Yahoo Finance symbol search, equities only** (powers the global search box) |
-| `GET /api/quote/{ticker}` | **Live overview for any equity** (price, P/E, sector, 52-wk, description); 404 for non-equities |
-| `GET /api/stock/{ticker}` | Financials / earnings / news / analyst research (live yfinance) |
+| `GET /api/quote/{ticker}` | Nightly DB overview for holdings; cached on-demand overview for other equities |
+| `GET /api/stock/{ticker}` | Nightly financials / earnings / analyst snapshot for holdings; full cached yfinance bundle for unowned names |
+| `GET /api/stock/{ticker}/news` | On-demand headlines with a shared 10-minute cache |
 | `GET /api/predictions/{ticker}` | Kalshi prediction-market cards |
 | `GET /api/thesis/{ticker}` | Team's written thesis |
 | `POST /api/chat` | Ask-Claude turn (Anthropic API) |
@@ -51,8 +52,8 @@ Every `/api/*` route except `/api/health` and `/api/auth/*` requires a valid ses
 
 **Search any equity.** The header search box queries Yahoo Finance live: type a name
 or ticker, pick a result, and the stock page populates for *any* equity — not just
-portfolio holdings. Held names show a "Held" badge and the full position panel; an
-off-portfolio name shows a "Not held" card with the same live price/fundamentals.
+portfolio holdings. Held names show a "Held" badge and use finalized nightly data;
+an off-portfolio name shows a "Not held" card populated on demand from yfinance.
 The search-and-lookup path (`src/ingest/lookup.py`) is yfinance only — it does **not**
 use the Anthropic API.
 
@@ -137,6 +138,7 @@ Open http://localhost:8000. (Pass the `WORKOS_*` env at run time — see **Authe
 python -m scripts.seed_db        # build data/portfolio.db from the workbook
 python -m scripts.refresh        # pull latest prices + dividends (yfinance)
 python -m scripts.fundamentals   # pull P/E, P/B, sector, 52-wk, descriptions
+python -m scripts.snapshots      # cache held-name financials/earnings/holders/research
 python -m scripts.reconcile      # verify DB == source workbook
 ```
 Tests: `python tests/test_reconcile.py && python tests/test_pnl.py && python tests/test_returns.py && python tests/test_risk.py`
@@ -151,14 +153,14 @@ Use a Supabase **pooler** URI (host `…pooler.supabase.com`), not the direct co
 # one-time copy of the local SQLite store into Supabase/Postgres
 python -m scripts.migrate_to_postgres
 ```
-All `data/` scripts (`seed_db`/`refresh`/`fundamentals`) target whichever backend is
+All data scripts (`seed_db`/`refresh`/`fundamentals`/`snapshots`) target whichever backend is
 configured, so after migrating you can run nightly refreshes straight against Supabase.
 
 ## Roadmap
 | Phase | Status | What |
 |---|---|---|
 | 0 Foundation | done | Schema, importer, reconciliation |
-| 1 Live prices & P&L | done | yfinance feed, market value, unrealized P&L |
+| 1 Closing prices & P&L | done | nightly yfinance close, market value, unrealized P&L |
 | 2 Returns | done | Holding-period returns, benchmark-relative |
 | 3 Risk | done | 3-yr daily beta vs Russell, vol, R² |
 | A Backend API | done | FastAPI + fundamentals enrichment |
@@ -173,7 +175,7 @@ configured, so after migrating you can run nightly refreshes straight against Su
 
 ## Handoff notes (for the next PM)
 - Config lives in `config.yaml` (funds, benchmarks, beta window).
-- The DB is reproducible: `seed_db` → `refresh` → `fundamentals`.
+- The DB is reproducible: `seed_db` → `refresh` → `fundamentals` → `snapshots`.
 - Frontend API base is configurable via `VITE_API_BASE` (empty = same origin).
   When the frontend later moves to Vercel, point it at the hosted backend.
 - Secrets (e.g. Kalshi keys) are git-ignored; keep them out of the repo.

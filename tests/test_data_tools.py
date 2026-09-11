@@ -14,7 +14,7 @@ def test_json():
     assert res.endswith("…[truncated]")
 
 def test_run_tool(monkeypatch):
-    monkeypatch.setattr(dt, "stock_research", lambda t: {"research": t})
+    monkeypatch.setattr(dt, "_stock_bundle", lambda t: {"research": t})
     monkeypatch.setattr(dt, "stock_predictions", lambda t: {"predictions": t})
     monkeypatch.setattr(dt, "stock_thesis", lambda t: {"thesis": t})
 
@@ -36,7 +36,7 @@ def test_run_tool_error(monkeypatch):
     def boom(t):
         raise ValueError("Boom")
 
-    monkeypatch.setattr(dt, "stock_research", boom)
+    monkeypatch.setattr(dt, "_stock_bundle", boom)
 
     res, is_err = dt.run_tool("get_stock_fundamentals", {"ticker": "aapl"})
     assert is_err

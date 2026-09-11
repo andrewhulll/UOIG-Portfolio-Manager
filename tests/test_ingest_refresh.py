@@ -9,6 +9,7 @@ def test_universe():
     schema.create_schema(conn)
     conn.execute("INSERT INTO securities (ticker, name, sec_type) VALUES ('AAPL', 'Apple', 'stock')")
     conn.execute("INSERT INTO securities (ticker, name, sec_type) VALUES ('CASH', 'Cash', 'cash')")
+    conn.execute("INSERT INTO holdings (fund, ticker, shares) VALUES ('Fund', 'AAPL', 1)")
     conn.commit()
 
     cfg = {
@@ -54,6 +55,8 @@ def test_refresh(monkeypatch):
     schema.create_schema(conn)
     conn.execute("INSERT INTO securities (ticker, name, sec_type) VALUES ('AAPL', 'Apple', 'stock')")
     conn.execute("INSERT INTO securities (ticker, name, sec_type) VALUES ('ERR', 'Error', 'stock')")
+    conn.execute("INSERT INTO holdings (fund, ticker, shares) VALUES ('Fund', 'AAPL', 1)")
+    conn.execute("INSERT INTO holdings (fund, ticker, shares) VALUES ('Fund', 'ERR', 1)")
 
     # Pre-seed a price to test incremental logic
     conn.execute("INSERT INTO prices (ticker, date, close, adj_close, source) VALUES ('AAPL', '2022-12-31', 99.0, 99.0, 'yfinance')")

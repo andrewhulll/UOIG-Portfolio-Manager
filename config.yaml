@@ -14,6 +14,7 @@ funds:
 
 market_data:
   provider: "yfinance"        # swappable adapter (Phase 1): yfinance | tiingo | fmp
+  request_pause_seconds: 0.5  # pace the once-nightly upstream refresh (no intraday polling)
 
 # Anthropic Managed Agent triggered by the "Run market analysis" button in the
 # Ask Claude dock. Created once in the Anthropic console; we reference it by id and

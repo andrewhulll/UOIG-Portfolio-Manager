@@ -20,8 +20,11 @@ import pandas as pd
 from src.ingest.providers import yf_ticker
 from src.model import cache
 
-_CACHE: dict[str, tuple[float, dict]] = {}
-_TTL = 900  # seconds
+_CACHE: dict[str, tuple[float, dict]] = {}       # unowned full-page bundles
+_NEWS_CACHE: dict[str, tuple[float, dict]] = {}
+_TTL = 900              # unowned page bundle: 15 minutes
+_NEWS_TTL = 600         # news is the only short-lived owned-ticker data
+_SNAPSHOT_TTL = 2592000  # 30-day cleanup grace; snapshot reads deliberately allow stale
 
 
 # ---------- small formatters ----------
@@ -409,7 +412,87 @@ def _research(tk):
 
 
 # ---------- public ----------
+def _fetched_at() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat()
+
+
+def _closed_payload(ticker: str, tk=None) -> dict:
+    """Fetch the non-news stock tabs once (used by the nightly job and unowned pages)."""
+    tk = tk or yf_ticker(ticker)
+    financials, rev_summary = _financials(tk)
+    return {
+        "ticker": ticker,
+        "financials": financials,
+        "earnings": _earnings(tk, rev_summary),
+        "research": _research(tk),
+        "fetchedAt": _fetched_at(),
+    }
+
+
+def refresh_closed_snapshot(ticker: str) -> dict:
+    """Refresh a current holding's nightly, last-known-good research snapshot.
+
+    An all-empty response is treated as an upstream failure and never overwrites
+    the prior snapshot.
+    """
+    t = ticker.upper()
+    payload = _closed_payload(t)
+    if any(payload.get(k) for k in ("financials", "earnings", "research")):
+        cache.set("stock_closed", t, payload, _SNAPSHOT_TTL)
+    return payload
+
+
+def closed_snapshot(ticker: str) -> dict:
+    """Read a holding snapshot without ever contacting yfinance."""
+    t = ticker.upper()
+    cached = cache.peek("stock_closed", t)
+    if cached is not cache.MISS:
+        value, _age = cached
+        return {**value, "ticker": t, "news": None, "snapshotPending": False}
+    return {
+        "ticker": t,
+        "financials": None,
+        "earnings": None,
+        "news": None,
+        "research": None,
+        "fetchedAt": None,
+        "snapshotPending": True,
+    }
+
+
+def stock_news(ticker: str, *, force: bool = False) -> dict:
+    """Short-TTL news with stale-on-error behavior for owned and unowned names."""
+    t = ticker.upper()
+    now = time.time()
+    hit = _NEWS_CACHE.get(t)
+    if not force and hit and (now - hit[0]) < _NEWS_TTL:
+        return {**hit[1], "ticker": t, "cached": True}
+    if not force:
+        cached = cache.get("stock_news", t)
+        if cached is not cache.MISS:
+            value, age = cached
+            _NEWS_CACHE[t] = (now - age, value)
+            return {**value, "ticker": t, "cached": True}
+
+    payload = {"ticker": t, "news": _news(yf_ticker(t)) or [],
+               "fetchedAt": _fetched_at(), "cached": False}
+    if payload["news"]:
+        _NEWS_CACHE[t] = (now, payload)
+        cache.set("stock_news", t, payload, _NEWS_TTL)
+        return payload
+
+    # Yahoo errors and genuinely empty feeds look the same through yfinance.
+    # Prefer the last successful headlines to a blank tab.
+    stale = cache.peek("stock_news", t)
+    if stale is not cache.MISS:
+        value, _age = stale
+        return {**value, "ticker": t, "cached": True, "stale": True}
+    return payload
+
+
 def stock_research(ticker: str) -> dict:
+    """Full on-demand yfinance bundle for a ticker that is not currently owned."""
+    ticker = ticker.upper()
     now = time.time()
     hit = _CACHE.get(ticker)
     if hit and (now - hit[0]) < _TTL:
@@ -421,17 +504,22 @@ def stock_research(ticker: str) -> dict:
         return value
 
     tk = yf_ticker(ticker)
-    financials, rev_summary = _financials(tk)
-    payload = {
-        "ticker": ticker,
-        "financials": financials,
-        "earnings": _earnings(tk, rev_summary),
-        "news": _news(tk),
-        "research": _research(tk),
-    }
+    payload = _closed_payload(ticker, tk)
+    news = _news(tk) or []
+    payload["news"] = news
+    if not any(payload.get(k) for k in ("financials", "earnings", "news", "research")):
+        stale = cache.peek("research", ticker)
+        if stale is not cache.MISS:
+            value, _age = stale
+            return {**value, "ticker": ticker, "stale": True}
     _CACHE[ticker] = (now, payload)
     # Persist only when a section actually resolved, so a transient yfinance
     # failure (every section empty) doesn't poison the shared cache for 15 min.
     if any(payload[k] for k in ("financials", "earnings", "news", "research")):
         cache.set("research", ticker, payload, _TTL)
+    if news:
+        news_payload = {"ticker": ticker, "news": news,
+                        "fetchedAt": payload["fetchedAt"], "cached": False}
+        _NEWS_CACHE[ticker] = (now, news_payload)
+        cache.set("stock_news", ticker, news_payload, _NEWS_TTL)
     return payload

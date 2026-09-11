@@ -1,11 +1,19 @@
 import pytest
 import pandas as pd
 from src.ingest import providers as providers_mod
-from src.ingest.providers import YFinanceProvider, get_provider, to_yf, yf_session, yf_ticker, _nonempty, yf_retry
+from src.ingest.providers import (YFinanceProvider, get_provider, to_yf, yf_session,
+                                  yf_ticker, _nonempty, yf_retry,
+                                  last_closed_session_date, _is_rate_limit)
 
 def test_to_yf():
     assert to_yf("AAPL") == "AAPL"
     assert to_yf("BRK.B") == "BRK-B"
+
+
+def test_last_closed_session_date():
+    assert str(last_closed_session_date(pd.Timestamp("2026-09-10 16:30", tz="America/New_York"))) == "2026-09-10"
+    assert str(last_closed_session_date(pd.Timestamp("2026-09-10 10:00", tz="America/New_York"))) == "2026-09-09"
+    assert str(last_closed_session_date(pd.Timestamp("2026-09-13 12:00", tz="America/New_York"))) == "2026-09-11"
 
 def test_yf_session_fallback():
     # Calling this directly should return None if curl_cffi isn't there, or session object
@@ -60,6 +68,23 @@ def test_yf_retry():
         return [1]
 
     assert yf_retry(empty_once, tries=2, base=0.01) == [1]
+
+
+def test_yf_retry_stops_immediately_when_rate_limited():
+    class YFRateLimitError(Exception):
+        pass
+
+    rate_calls = 0
+
+    def rate_limited():
+        nonlocal rate_calls
+        rate_calls += 1
+        raise YFRateLimitError("Too Many Requests")
+
+    assert _is_rate_limit(YFRateLimitError("Too Many Requests"))
+    assert yf_retry(rate_limited, tries=3, base=0.01) is None
+    assert rate_calls == 1
+
 
 @pytest.mark.parametrize("message", ["Invalid Crumb", "HTTP Error 401"])
 def test_yf_retry_resets_auth_on_auth_errors(monkeypatch, message):
@@ -154,3 +179,23 @@ def test_yfinance_provider_history(monkeypatch):
     assert lp["AAPL"] == 101.0
 
     assert p.get_latest_prices(["ERR.B"]) == {}
+
+
+def test_provider_excludes_current_unfinalized_bar(monkeypatch):
+    class MockTicker:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def history(self, **_kwargs):
+            return pd.DataFrame({
+                "Close": [100.0, 999.0], "Adj Close": [100.0, 999.0],
+                "Dividends": [0.0, 1.0], "Stock Splits": [0.0, 2.0],
+            }, index=pd.DatetimeIndex(["2026-09-09", "2026-09-10"]))
+
+    monkeypatch.setattr("src.ingest.providers.yf.Ticker", MockTicker)
+    monkeypatch.setattr("src.ingest.providers.last_closed_session_date",
+                        lambda now=None: pd.Timestamp("2026-09-09").date())
+    provider = YFinanceProvider(retries=0)
+    assert provider.get_price_history(["AAPL"], start="2026-09-01")["close"].tolist() == [100.0]
+    assert provider.get_dividends(["AAPL"], start="2026-09-01").empty
+    assert provider.get_splits(["AAPL"], start="2026-09-01").empty

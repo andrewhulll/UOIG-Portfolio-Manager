@@ -1,6 +1,6 @@
 import React from 'react'
 import { Analytics } from '@vercel/analytics/react'
-import { getData, getSeries, getFundSeries, getSectorSeries, getStock, getPredictions, getThesis, postChat, runAgent, getAgentRun, searchTickers, getQuote, getHolders, getOptimizeDiagnostics, getOptimizeWhatif, postOptimizeSolve, getMe, logout } from './api.js'
+import { getData, getSeries, getFundSeries, getSectorSeries, getStock, getStockNews, getPredictions, getThesis, postChat, runAgent, getAgentRun, searchTickers, getQuote, getHolders, getOptimizeDiagnostics, getOptimizeWhatif, postOptimizeSolve, getMe, logout } from './api.js'
 import AuthScreen from './auth/AuthScreen.jsx'
 import { LoadingScreen, ErrorScreen } from './StatusScreens.jsx'
 import { ProfilePage, PreferencesPage, OrganizationPage } from './profile/SettingsPages.jsx'
@@ -160,6 +160,7 @@ export default class App extends React.Component {
       sectorSeries: {},  // cache: `${group}:${period}` -> {sector, benchmarks, movers} | 'loading' | 'error'
       sectorPeriod: '1M',  // sector comparison chart window (independent of the global period)
       stkDetail: {},  // cache: ticker -> {financials, earnings, news, research} | 'loading' | 'error'
+      stockNews: {},  // ticker -> {news, loadedAt} | 'loading' | 'error'
       predictions: {},  // cache: ticker -> {cards} | 'loading' | 'error'
       theses: {},  // cache: ticker -> {thesis} | 'loading' | 'error'
       quotes: {},  // cache: ticker -> overview {t,n,s,px,...} | 'loading' | 'error' (off-portfolio names)
@@ -197,23 +198,11 @@ export default class App extends React.Component {
       .catch(() => this.setState({ auth: null }))
     // Re-render once a minute so the markets-open badge and date stay current.
     this._clock = setInterval(() => this.forceUpdate(), 30000)
-    // Poll live prices while the market is open (backend refreshes quotes on a
-    // background thread; everything else is nightly). No-op when closed.
-    this._dataPoll = setInterval(() => {
-      if (this.state.auth && this.state.data && this._marketStatus().open) this._refreshData()
-    }, 45000)
   }
 
   componentWillUnmount() {
     if (this._clock) clearInterval(this._clock)
-    if (this._dataPoll) clearInterval(this._dataPoll)
     try { window.removeEventListener('popstate', this._onPopState) } catch (e) { /* ignore */ }
-  }
-
-  // Refetch portfolio data in place (live prices) without resetting the view —
-  // only the `data` slice changes, so the selected fund/tab/series are preserved.
-  _refreshData() {
-    getData().then((data) => this.setState({ data })).catch(() => {})
   }
 
   // Live market status in US Eastern time (handles EST/EDT). NYSE regular
@@ -303,7 +292,7 @@ export default class App extends React.Component {
     if (prev.view !== this.state.view || prev.fund !== this.state.fund ||
         prev.period !== this.state.period || prev.ticker !== this.state.ticker) this._ensureSeries()
     if (prev.stkTab !== this.state.stkTab || prev.view !== this.state.view ||
-        prev.ticker !== this.state.ticker) { this._ensurePredictions(); this._ensureThesis() }
+        prev.ticker !== this.state.ticker) { this._ensurePredictions(); this._ensureThesis(); this._ensureNews() }
     if (this.state.view === 'stock' &&
         (prev.view !== 'stock' || prev.ticker !== this.state.ticker)) this._ensureHolders()
     if (this.state.view === 'sector' &&
@@ -658,6 +647,21 @@ export default class App extends React.Component {
     getStock(ticker)
       .then((res) => this.setState((st) => ({ stkDetail: { ...st.stkDetail, [ticker]: res } })))
       .catch(() => this.setState((st) => ({ stkDetail: { ...st.stkDetail, [ticker]: 'error' } })))
+  }
+
+  // News is the only short-lived holding datum. Fetch it only when its tab is
+  // opened; revisiting after ten minutes lets the backend refresh its shared cache.
+  _ensureNews() {
+    const { view, ticker, stkTab } = this.state
+    if (view !== 'stock' || stkTab !== 'news' || !ticker) return
+    const hit = this.state.stockNews[ticker]
+    if (hit === 'loading') return
+    if (hit && hit !== 'error' && (Date.now() - hit.loadedAt) < 600000) return
+    this.setState((st) => ({ stockNews: { ...st.stockNews, [ticker]: 'loading' } }))
+    getStockNews(ticker)
+      .then((res) => this.setState((st) => ({ stockNews: { ...st.stockNews,
+        [ticker]: { ...res, loadedAt: Date.now() } } })))
+      .catch(() => this.setState((st) => ({ stockNews: { ...st.stockNews, [ticker]: 'error' } })))
   }
 
   // Predictions are a separate, heavier Kalshi pull — fetch only when that tab is opened.
@@ -1294,11 +1298,20 @@ export default class App extends React.Component {
       return (p.cards && p.cards.length) ? this._renderPredictions(p.cards) : this._stkStub('Predictions', 'Kalshi', 'No prediction markets are mapped for this holding yet. Add up to five in PREDICTION_MARKETS.md.')
     }
     const d = v.stkDetail
-    if (d === 'loading' || d === undefined) return this._stkStub(v.stkTab, 'fetching live data…', 'Pulling the latest from yfinance — one moment.')
+    if (d === 'loading' || d === undefined) return v.stk && v.stk.held
+      ? this._stkStub(v.stkTab, 'loading nightly snapshot…', 'Reading the latest finalized holding data from the portfolio store.')
+      : this._stkStub(v.stkTab, 'fetching live data…', 'Pulling the latest from yfinance — one moment.')
     if (d === 'error') return this._stkStub(v.stkTab, 'fetch failed', 'Could not reach the research feed. The backend may be offline or Yahoo rate-limited the request — reopen the stock to retry.')
+    if (d.snapshotPending && tab !== 'news') return this._stkStub(v.stkTab, 'nightly snapshot pending', 'Run the nightly refresh once to populate this holding. This page will not fall through to a live Yahoo request.')
     if (tab === 'financials') return d.financials ? this._renderFinancials(d.financials) : this._stkStub('Financials', 'quarterly_income_stmt', 'No quarterly financials are available for this security from yfinance.')
     if (tab === 'earnings') return d.earnings ? this._renderEarnings(d.earnings) : this._stkStub('Most Recent Earnings', 'get_earnings_dates', 'No earnings history is available for this security from yfinance.')
-    if (tab === 'news') return (d.news && d.news.length) ? this._renderNews(d.news) : this._stkStub('Recent News', 'ticker.news', 'No recent news is available for this security from yfinance.')
+    if (tab === 'news') {
+      const ns = v.stkNews
+      if (ns === 'loading') return this._stkStub('News', 'fetching current headlines…', 'News is refreshed on demand and cached for ten minutes.')
+      const items = (ns && ns !== 'error' ? ns.news : null) || d.news || []
+      if (ns === 'error' && !items.length) return this._stkStub('News', 'fetch failed', 'Could not refresh headlines; try reopening the tab shortly.')
+      return items.length ? this._renderNews(items) : this._stkStub('Recent News', 'ticker.news', 'No recent news is available for this security from yfinance.')
+    }
     if (tab === 'research') return d.research ? this._renderResearch(d.research) : this._stkStub('Analyst Research', 'upgrades_downgrades', 'No analyst coverage is available for this security from yfinance.')
     return null
   }
@@ -1580,7 +1593,7 @@ export default class App extends React.Component {
           </div>
           <div style={s('text-align:right;')}>
             <div style={s("font-family:'IBM Plex Mono';font-size:28px;font-weight:500;color:#e8edf7;")}>{stk.pxStr}</div>
-            <div style={{ ...s("font-family:'IBM Plex Mono';font-size:13px;margin-top:2px;"), color: stk.dayColor }}>{stk.dayArrow} {stk.dayStr} {stk.dayAbs} today</div>
+            <div style={{ ...s("font-family:'IBM Plex Mono';font-size:13px;margin-top:2px;"), color: stk.dayColor }}>{stk.dayArrow} {stk.dayStr} {stk.dayAbs} {stk.held ? 'latest session' : 'today'}</div>
             <div style={s("font-family:'IBM Plex Mono';font-size:10px;color:#5d6a85;margin-top:3px;")}>{stk.asof}</div>
           </div>
         </div>
@@ -2414,12 +2427,12 @@ export default class App extends React.Component {
         v.stk = {
           t: h.t, n: h.n, s: h.s || '—', industry: (held ? h.s : (h.industry || h.s)) || '—',
           held, fundLabel: held ? f.name : (h.exchange || 'Yahoo Finance'), fundColor: accent,
-          benchShort: f ? f.benchShort : 'Live quote',
+          benchShort: f ? f.benchShort : 'On-demand quote',
           pxStr: '$' + this._num(h.px),
           dayStr: hasChg ? this._sign(h.chg) + '%' : '—',
           dayAbs: hasChg ? '(' + this._sign(dayAbs, 2).replace('+', '+$').replace('-', '-$') + ')' : '',
           dayColor: hasChg ? this._col(h.chg) : '#9aa7c2', dayArrow: hasChg ? (h.chg >= 0 ? '▲' : '▼') : '',
-          asof: held ? 'As of ' + String(st.data.asOf).slice(0, 10) : 'Live · Yahoo Finance',
+          asof: held ? 'As of ' + String(st.data.asOf).slice(0, 10) + ' close' : 'On demand · Yahoo Finance',
           descr: h.desc || 'No company description available from Yahoo Finance.',
           loStr: h.lo != null ? '$' + h.lo : '—', hiStr: h.hi != null ? '$' + h.hi : '—',
           rangePos: (h.lo != null && h.hi != null) ? Math.max(0, Math.min(100, (h.px - h.lo) / ((h.hi - h.lo) || 1) * 100)).toFixed(0) + '%' : '50%',
@@ -2455,6 +2468,7 @@ export default class App extends React.Component {
         const tabKey = st.stkTab || 'overview'
         v.stkTab = tabKey
         v.stkDetail = st.stkDetail[st.ticker]
+        v.stkNews = st.stockNews[st.ticker]
         v.predDetail = st.predictions[st.ticker]
         v.thesisDetail = st.theses[st.ticker]
         v.stkTabs = [['overview', 'Overview'], ['thesis', 'Thesis'], ['financials', 'Financials'], ['earnings', 'Earnings'], ['news', 'News'], ['research', 'Research'], ['predictions', 'Predictions']]

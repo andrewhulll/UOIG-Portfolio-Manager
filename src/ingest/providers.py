@@ -29,6 +29,24 @@ def _days_ago(n: int) -> str:
     return (dt.date.today() - dt.timedelta(days=n)).isoformat()
 
 
+def last_closed_session_date(now: pd.Timestamp | None = None) -> dt.date:
+    """Latest weekday whose regular US session is safely finalized.
+
+    Yahoo simply omits exchange holidays, so a weekday-only cutoff is sufficient
+    to prevent an intraday bar from entering the close-price store.  A small
+    fifteen-minute settlement buffer also protects manual refreshes launched at
+    the closing bell.
+    """
+    current = now or pd.Timestamp.now(tz="America/New_York")
+    day = current.date()
+    if current.weekday() < 5 and (current.hour, current.minute) >= (16, 15):
+        return day
+    day -= dt.timedelta(days=1)
+    while day.weekday() >= 5:
+        day -= dt.timedelta(days=1)
+    return day
+
+
 # ---- yfinance resilience: a shared browser-impersonating session + retry ------
 # Yahoo aggressively rate-limits (HTTP 429) plain datacenter requests. A curl_cffi
 # session with a real Chrome TLS fingerprint is far less likely to be blocked, and
@@ -70,6 +88,13 @@ def _is_auth_error(exc: Exception) -> bool:
     call fails identically until something clears it."""
     msg = str(exc)
     return "Invalid Crumb" in msg or "401" in msg
+
+
+def _is_rate_limit(exc: Exception) -> bool:
+    """Recognize yfinance's typed error and older string-only 429 failures."""
+    msg = str(exc)
+    return (type(exc).__name__ == "YFRateLimitError" or "Too Many Requests" in msg
+            or "Rate limited" in msg or "429" in msg)
 
 
 def reset_yf_auth() -> None:
@@ -115,6 +140,10 @@ def yf_retry(fn, *, tries: int = 3, base: float = 0.6, retry_empty: bool = True,
                         f" [{label}]" if label else "", exc, extra={"yf_label": label})
             if _is_auth_error(exc):
                 reset_yf_auth()
+            if _is_rate_limit(exc):
+                # Retrying a blocked IP after 0.6s only extends the block. Let the
+                # stale-cache/fallback path answer this request instead.
+                return last
         else:
             if not retry_empty or _nonempty(last):
                 return last
@@ -161,6 +190,10 @@ class YFinanceProvider:
                 last_exc = exc
                 log.warning("yfinance history fetch failed (attempt %d/%d) for %s: %s",
                             attempt + 1, self.retries + 1, ticker, exc, extra={"ticker": ticker})
+                if _is_auth_error(exc):
+                    reset_yf_auth()
+                if _is_rate_limit(exc):
+                    break
                 if attempt < self.retries:
                     time.sleep(self.pause * (attempt + 1))
         log.error("yfinance history fetch exhausted retries for %s: %s", ticker, last_exc,
@@ -174,7 +207,9 @@ class YFinanceProvider:
             h = self._history(t, start, end)
             if h.empty or "Close" not in h:
                 continue
-            sub = h.dropna(subset=["Close"])  # drop the unfinalized current-day bar
+            sub = h.dropna(subset=["Close"])
+            cutoff = last_closed_session_date()
+            sub = sub[[pd.Timestamp(d).date() <= cutoff for d in sub.index]]
             if sub.empty:
                 continue
             adj = sub["Adj Close"] if "Adj Close" in sub else sub["Close"]
@@ -192,6 +227,8 @@ class YFinanceProvider:
             h = self._history(t, start, end)
             if h.empty or "Dividends" not in h:
                 continue
+            cutoff = last_closed_session_date()
+            h = h[[pd.Timestamp(x).date() <= cutoff for x in h.index]]
             d = h[h["Dividends"] > 0]
             if d.empty:
                 continue
@@ -208,6 +245,8 @@ class YFinanceProvider:
             h = self._history(t, start, end)
             if h.empty or "Stock Splits" not in h:
                 continue
+            cutoff = last_closed_session_date()
+            h = h[[pd.Timestamp(x).date() <= cutoff for x in h.index]]
             s = h[h["Stock Splits"] > 0]
             if s.empty:
                 continue

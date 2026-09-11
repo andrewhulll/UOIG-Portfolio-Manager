@@ -13,7 +13,6 @@ import threading
 import time
 import uuid
 import warnings
-from contextlib import asynccontextmanager
 from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List
@@ -45,9 +44,12 @@ from workos._errors import (AuthenticationError, BadRequestError, ConflictError,
                             EmailVerificationRequiredError,
                             UnprocessableEntityError, WorkOSError)
 from src.analytics.pnl import load_positions  # noqa: E402
-from src.ingest.research import stock_research  # noqa: E402
+from src.ingest.research import (closed_snapshot, stock_news,  # noqa: E402
+                                 stock_research)
 from src.ingest.lookup import (search_symbols, quote_overview,  # noqa: E402
-                               live_series, institutional_holders)
+                               live_series, institutional_holders,
+                               holders_snapshot)
+from src.ingest.universe import is_owned  # noqa: E402
 from src.ingest.screener import screener_fields, run_screen  # noqa: E402
 from src.ingest.predictions import stock_predictions  # noqa: E402
 from src.ingest.thesis import stock_thesis  # noqa: E402
@@ -62,30 +64,7 @@ from src.model.schema import get_connection  # noqa: E402
 
 CFG = load_config()
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Refresh held-ticker quotes on a background thread (market hours only), so
-    /api/data serves live spot prices while everything else stays nightly."""
-    from src.ingest.live_prices import start as _start_poller
-
-    def _get_held_tickers() -> list[str]:
-        """Current non-cash holdings — the universe the live-price poller refreshes."""
-        conn = _conn()
-        try:
-            return [r[0] for r in conn.execute(
-                "SELECT ticker FROM securities WHERE sec_type != 'cash'")]
-        finally:
-            conn.close()
-
-    interval = float((CFG.get("market_data") or {}).get("live_interval_seconds", 45))
-    try:
-        _start_poller(_get_held_tickers, interval=interval)
-        log.info("live-price poller started (interval=%ss)", interval)
-    except Exception:  # noqa: BLE001 — never block startup on the poller
-        log.exception("live-price poller failed to start")
-    yield
-
-app = FastAPI(title="UOIG Investment Terminal API", lifespan=lifespan)
+app = FastAPI(title="UOIG Investment Terminal API")
 # Same-origin dev: wildcard CORS, no credentials. Split deploy (Vercel frontend +
 # separate backend): set CORS_ORIGINS to the exact frontend origin(s) so cookies
 # can ride cross-site (credentials require a non-wildcard origin). The middleware
@@ -678,14 +657,17 @@ def data():
 def series(ticker: str, period: str = "YTD"):
     conn = _conn()
     try:
+        owned = is_owned(conn, ticker)
         pf = price_frame(conn)
         s = ticker_series(pf, ticker, period)
-        if s["close"]:
+        if owned and s["close"]:
             return {"ticker": ticker, "period": period,
                     "ret": period_return(pf, ticker, period), **s}
     finally:
         conn.close()
-    # Not a portfolio holding — pull a live series straight from yfinance.
+    if owned:
+        raise HTTPException(503, f"{ticker.upper()} is awaiting its nightly close-price refresh")
+    # Unowned research name: fetch on demand, then use the shared TTL cache.
     try:
         live = live_series(ticker, period)
     except Exception as exc:  # noqa: BLE001
@@ -713,8 +695,18 @@ def search(q: str = "", limit: int = 8):
 
 @app.get("/api/quote/{ticker}")
 def quote(ticker: str):
-    """Live overview for any equity, so off-portfolio tickers can open a stock
-    page. Returns 404 for non-equities / unknown symbols."""
+    """DB-backed holding overview, or cached on-demand lookup for an unowned name."""
+    conn = _conn()
+    try:
+        if is_owned(conn, ticker):
+            terminal = build_terminal_data(CFG, conn)
+            ov = next((h for h in terminal.get("holdings", [])
+                       if h.get("t", "").upper() == ticker.upper()), None)
+            if ov is None:
+                raise HTTPException(503, f"{ticker.upper()} is awaiting its nightly refresh")
+            return {**ov, "held": True, "asOf": terminal.get("asOf")}
+    finally:
+        conn.close()
     try:
         ov = quote_overview(ticker)
     except Exception as exc:  # noqa: BLE001
@@ -728,10 +720,15 @@ def quote(ticker: str):
 
 @app.get("/api/holders/{ticker}")
 def holders(ticker: str):
-    """Top institutional shareholders (13F) for any equity, for the stock page
-    overview. Returns an empty list when Yahoo has no holder data."""
+    """Nightly holder snapshot for holdings; cached live lookup for other names."""
     try:
-        return {"ticker": ticker.upper(), "holders": institutional_holders(ticker)}
+        conn = _conn()
+        try:
+            owned = is_owned(conn, ticker)
+        finally:
+            conn.close()
+        value = holders_snapshot(ticker) if owned else institutional_holders(ticker)
+        return {"ticker": ticker.upper(), "holders": value, "owned": owned}
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(502, f"holders fetch failed: {exc}")
 
@@ -790,18 +787,23 @@ def _relevant_news(ticker: str, name: str | None, items: list[dict] | None) -> l
     return out
 
 
-def _coverage_price_bundle(pf, ticker: str) -> dict:
+def _coverage_price_bundle(pf, ticker: str, owned_meta: dict | None = None) -> dict:
     """Name + price + day/MTD change + a 1M sparkline for a covered ticker: the
     portfolio price store when it's a holding (same source as /api/series), a
-    live yfinance quote otherwise. Name always comes from the live quote (cheap,
-    TTL-cached) since it's needed either way for news-relevance filtering."""
-    try:
-        q = quote_overview(ticker)
-    except Exception:  # noqa: BLE001
-        q = None
-    name = q.get("n") if q else None
-    mc = q.get("mc") if q else None
-    pe = q.get("pe") if q else None
+    cached live yfinance quote otherwise."""
+    q = None
+    if owned_meta:
+        name = owned_meta.get("name")
+        mc = owned_meta.get("marketCap")
+        pe = owned_meta.get("forwardPE")
+    else:
+        try:
+            q = quote_overview(ticker)
+        except Exception:  # noqa: BLE001
+            q = None
+        name = q.get("n") if q else None
+        mc = q.get("mc") if q else None
+        pe = q.get("pe") if q else None
 
     s = pf[pf.ticker == ticker]
     if len(s) >= 2:
@@ -815,23 +817,24 @@ def _coverage_price_bundle(pf, ticker: str) -> dict:
             "series": [round(float(v), 2) for v in s["close"].tail(22)],
             "marketCap": mc,
             "forwardPE": pe,
-            "held": True,
+            "held": bool(owned_meta),
         }
 
     mtd_pct = None
     closes = []
-    try:
-        live = live_series(ticker, "1M")
-        closes, dates = live.get("close") or [], live.get("dates") or []
-        if closes:
-            month_start = date.today().replace(day=1)
-            idx = next((i for i, d in enumerate(dates)
-                       if date.fromisoformat(d) >= month_start), 0)
-            base = closes[idx]
-            if base:
-                mtd_pct = round((closes[-1] / base - 1) * 100, 2)
-    except Exception:  # noqa: BLE001
-        pass
+    if not owned_meta:
+        try:
+            live = live_series(ticker, "1M")
+            closes, dates = live.get("close") or [], live.get("dates") or []
+            if closes:
+                month_start = date.today().replace(day=1)
+                idx = next((i for i, d in enumerate(dates)
+                           if date.fromisoformat(d) >= month_start), 0)
+                base = closes[idx]
+                if base:
+                    mtd_pct = round((closes[-1] / base - 1) * 100, 2)
+        except Exception:  # noqa: BLE001
+            pass
     return {
         "name": name,
         "price": q.get("px") if q else None,
@@ -840,7 +843,7 @@ def _coverage_price_bundle(pf, ticker: str) -> dict:
         "series": closes,
         "marketCap": mc,
         "forwardPE": pe,
-        "held": False,
+        "held": bool(owned_meta),
     }
 
 
@@ -863,6 +866,18 @@ def coverage_me(request: Request):
     conn = _conn()
     try:
         pf = price_frame(conn)
+        rows = conn.execute(
+            "SELECT DISTINCT h.ticker, s.name, f.market_cap, f.pe "
+            "FROM holdings h JOIN securities s ON s.ticker = h.ticker "
+            "LEFT JOIN fundamentals f ON f.ticker = h.ticker "
+            "WHERE COALESCE(h.shares, 0) > 0 AND s.sec_type != 'cash'"
+        ).fetchall()
+        owned_meta = {
+            r[0].upper(): {"name": r[1],
+                           "marketCap": (float(r[2]) / 1e9 if r[2] is not None else None),
+                           "forwardPE": (float(r[3]) if r[3] is not None else None)}
+            for r in rows
+        }
     finally:
         conn.close()
 
@@ -870,11 +885,16 @@ def coverage_me(request: Request):
     earnings_this_week = []
     for row in coverage:
         ticker = row["ticker"]
-        bundle = _coverage_price_bundle(pf, ticker)
+        meta = owned_meta.get(ticker.upper())
+        bundle = _coverage_price_bundle(pf, ticker, meta)
         try:
-            research = stock_research(ticker)
+            research = closed_snapshot(ticker) if meta else stock_research(ticker)
         except Exception:  # noqa: BLE001
             research = {}
+        try:
+            news_items = stock_news(ticker).get("news") or []
+        except Exception:  # noqa: BLE001
+            news_items = research.get("news") or []
         earnings = research.get("earnings") or {}
         next_earnings = earnings.get("next")
         if next_earnings == "—":
@@ -886,7 +906,7 @@ def coverage_me(request: Request):
             except ValueError:
                 days_until = None
         name = bundle.pop("name", None) or ticker
-        news = _relevant_news(ticker, name, research.get("news"))[:5]
+        news = _relevant_news(ticker, name, news_items)[:5]
         tickers.append({
             "ticker": ticker,
             "name": name,
@@ -1042,12 +1062,26 @@ def sector_series(group: str, period: str = "1M"):
 
 @app.get("/api/stock/{ticker}")
 def stock_detail(ticker: str):
-    """Live yfinance research for the stock-detail tabs (financials, earnings,
-    news, analysts). Cached in-process; see src/ingest/research.py."""
+    """Nightly holding snapshot or full cached live bundle for an unowned name."""
     try:
-        return stock_research(ticker.upper())
+        conn = _conn()
+        try:
+            owned = is_owned(conn, ticker)
+        finally:
+            conn.close()
+        payload = closed_snapshot(ticker) if owned else stock_research(ticker.upper())
+        return {**payload, "owned": owned}
     except Exception as exc:  # noqa: BLE001 — surface upstream failure as 502
         raise HTTPException(502, f"research fetch failed: {exc}")
+
+
+@app.get("/api/stock/{ticker}/news")
+def stock_news_route(ticker: str):
+    """The only short-lived stock data: fetched on News-tab demand and cached."""
+    try:
+        return stock_news(ticker.upper())
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"news fetch failed: {exc}")
 
 
 @app.get("/api/predictions/{ticker}")

@@ -176,6 +176,7 @@ def test_stock_research(monkeypatch):
 
     monkeypatch.setattr(res_mod, "yf_ticker", lambda t: MockTicker())
     monkeypatch.setattr(cache, "get", lambda *args: cache.MISS)
+    monkeypatch.setattr(cache, "peek", lambda *args: cache.MISS)
     monkeypatch.setattr(cache, "set", lambda *args: None)
 
     res_mod._CACHE.clear()
@@ -184,3 +185,19 @@ def test_stock_research(monkeypatch):
     assert data["ticker"] == "AAPL"
     assert data["financials"] is None
     assert data["earnings"] is None
+
+
+def test_closed_snapshot_never_fetches(monkeypatch):
+    monkeypatch.setattr(cache, "peek", lambda *args: ({"financials": {"rows": []}}, 42))
+    monkeypatch.setattr(res_mod, "yf_ticker", lambda _t: pytest.fail("must not fetch"))
+    data = res_mod.closed_snapshot("aapl")
+    assert data["ticker"] == "AAPL"
+    assert data["snapshotPending"] is False
+
+
+def test_stock_news_uses_fresh_shared_cache(monkeypatch):
+    res_mod._NEWS_CACHE.clear()
+    cached = {"ticker": "AAPL", "news": [{"title": "Cached"}], "fetchedAt": "now"}
+    monkeypatch.setattr(cache, "get", lambda *args: (cached, 1))
+    monkeypatch.setattr(res_mod, "yf_ticker", lambda _t: pytest.fail("must not fetch"))
+    assert res_mod.stock_news("aapl")["news"][0]["title"] == "Cached"

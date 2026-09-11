@@ -96,6 +96,40 @@ def get(namespace: str, key: str):
             pass
 
 
+def peek(namespace: str, key: str):
+    """Return ``(value, age_seconds)`` even when a row's TTL has expired.
+
+    Nightly-owned snapshots are last-known-good data rather than ordinary API
+    cache entries: if tonight's upstream refresh fails, the application should
+    keep serving yesterday's snapshot instead of falling through to a live
+    request.  ``peek`` supports that read path while ``get`` retains normal TTL
+    semantics for on-demand lookups and news.
+    """
+    try:
+        conn = get_connection(_path())
+    except Exception:  # noqa: BLE001
+        return MISS
+    try:
+        _ensure(conn)
+        row = conn.execute(
+            _db.q(conn, "SELECT payload, fetched_at FROM api_cache "
+                        "WHERE namespace = ? AND key = ?"),
+            (namespace, key),
+        ).fetchone()
+        if not row:
+            return MISS
+        age = (dt.datetime.now(dt.timezone.utc)
+               - dt.datetime.fromisoformat(row[1])).total_seconds()
+        return json.loads(row[0]), age
+    except Exception:  # noqa: BLE001
+        return MISS
+    finally:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def set(namespace: str, key: str, value, ttl: int) -> None:
     """Upsert a cache row. Never raises — a non-serializable value or a DB error
     just skips the write (the caller keeps the live result + its memory cache)."""
@@ -124,24 +158,41 @@ def set(namespace: str, key: str, value, ttl: int) -> None:
             pass
 
 
-def purge_expired(horizon_seconds: int = 3600) -> int:
-    """Delete rows older than ``horizon_seconds`` (>= any TTL in use) to bound the
-    table's growth — expired rows are skipped on read anyway; this reclaims them.
-    Compares lexicographically on the ISO-8601 UTC ``fetched_at`` (every row shares
-    the +00:00 offset, so string order == chronological order), which is portable
-    across SQLite and Postgres. Returns rows deleted; never raises."""
+def purge_expired(horizon_seconds: int = 0) -> int:
+    """Delete rows after their own TTL plus an optional retention horizon.
+
+    The previous implementation used one fixed one-hour cutoff, which could
+    remove a valid entry whose TTL was longer than an hour.  Evaluating each
+    row's stored TTL keeps cleanup correct for both ten-minute News entries and
+    multi-day last-known-good snapshots, without database-specific date SQL.
+    Returns rows deleted; never raises.
+    """
     try:
         conn = get_connection(_path())
     except Exception:  # noqa: BLE001
         return 0
     try:
         _ensure(conn)
-        cutoff = (dt.datetime.now(dt.timezone.utc)
-                  - dt.timedelta(seconds=horizon_seconds)).isoformat()
-        cur = conn.execute(
-            _db.q(conn, "DELETE FROM api_cache WHERE fetched_at < ?"), (cutoff,))
+        now = dt.datetime.now(dt.timezone.utc)
+        rows = conn.execute(
+            "SELECT namespace, key, fetched_at, ttl FROM api_cache"
+        ).fetchall()
+        expired = []
+        for namespace, key, fetched_at, ttl in rows:
+            try:
+                age = (now - dt.datetime.fromisoformat(fetched_at)).total_seconds()
+                if age > float(ttl) + max(0, int(horizon_seconds)):
+                    expired.append((namespace, key))
+            except (TypeError, ValueError):
+                expired.append((namespace, key))
+        if expired:
+            _db.executemany(
+                conn,
+                "DELETE FROM api_cache WHERE namespace = ? AND key = ?",
+                expired,
+            )
         conn.commit()
-        return cur.rowcount if (cur.rowcount and cur.rowcount > 0) else 0
+        return len(expired)
     except Exception:  # noqa: BLE001
         return 0
     finally:

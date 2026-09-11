@@ -23,6 +23,8 @@ def test_fundamentals(monkeypatch):
     schema.create_schema(conn)
     conn.execute("INSERT INTO securities (ticker, name, sec_type) VALUES ('AAPL', 'Apple', 'stock')")
     conn.execute("INSERT INTO securities (ticker, name, sec_type) VALUES ('MSFT', 'Microsoft', 'stock')")
+    conn.execute("INSERT INTO holdings (fund, ticker, shares) VALUES ('Fund', 'AAPL', 1)")
+    conn.execute("INSERT INTO holdings (fund, ticker, shares) VALUES ('Fund', 'MSFT', 1)")
     conn.commit()
 
     cfg = {}

@@ -9,11 +9,26 @@ from __future__ import annotations
 
 import json
 
+from src.config import db_path, load_config
 from src.ingest.predictions import stock_predictions
-from src.ingest.research import stock_research
+from src.ingest.research import closed_snapshot, stock_news, stock_research
 from src.ingest.thesis import stock_thesis
+from src.ingest.universe import is_owned
+from src.model.schema import get_connection
 
 _LIMIT = 9000
+
+
+def _stock_bundle(ticker: str) -> dict:
+    conn = get_connection(db_path(load_config()))
+    try:
+        owned = is_owned(conn, ticker)
+    finally:
+        conn.close()
+    payload = closed_snapshot(ticker) if owned else stock_research(ticker)
+    # News is deliberately the only short-lived holding datum.
+    news = stock_news(ticker)
+    return {**payload, "news": news.get("news") or [], "owned": owned}
 
 
 def _json(obj) -> str:
@@ -23,7 +38,7 @@ def _json(obj) -> str:
 
 TOOLS = [
     {"name": "get_stock_fundamentals",
-     "description": "Live yfinance data for a holding: quarterly financials (revenue, "
+     "description": "Latest stored data for a holding: quarterly financials (revenue, "
                     "margins, net income, FCF, EPS), the most recent earnings report "
                     "(actual vs estimate, surprise, next date), recent news headlines, and "
                     "analyst research (consensus rating, price-target low/mean/high, forward "
@@ -51,7 +66,7 @@ def run_tool(name: str, inp: dict):
     ticker = str((inp or {}).get("ticker", "")).upper().strip()
     try:
         if name == "get_stock_fundamentals":
-            return (_json(stock_research(ticker)), False)
+            return (_json(_stock_bundle(ticker)), False)
         if name == "get_predictions":
             return (_json(stock_predictions(ticker)), False)
         if name == "get_thesis":

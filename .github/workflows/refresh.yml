@@ -1,10 +1,9 @@
 name: nightly-refresh
 
 # Pulls the nightly market data into the shared Postgres store: daily price
-# history + dividends (scripts.refresh) and company fundamentals
-# (scripts.fundamentals). Intraday spot prices are handled separately by the
-# backend's live-price poller (src/ingest/live_prices.py) — this job is only the
-# nightly historical backbone.
+# history + dividends (scripts.refresh), company fundamentals
+# (scripts.fundamentals), and last-known-good stock-tab snapshots
+# (scripts.snapshots). Owned holdings are entirely database-backed except News.
 #
 # Requires a DATABASE_URL repo secret pointing at the SAME Postgres (Supabase)
 # the deployed backend reads; without it the scripts would write to an ephemeral
@@ -75,3 +74,12 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           python -m scripts.fundamentals
+
+      - name: Refresh owned stock snapshots
+        # Non-fatal and section-isolated: yesterday's last-known-good snapshot
+        # remains available if Yahoo throttles part of tonight's refresh.
+        continue-on-error: true
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python -m scripts.snapshots
