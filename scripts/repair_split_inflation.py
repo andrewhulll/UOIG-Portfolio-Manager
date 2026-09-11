@@ -3,8 +3,8 @@
 The source workbook is a current-position snapshot, so its shares and entry
 prices already include historical splits. An older refresh implementation
 replayed those splits into the holdings table once more. This guarded repair
-only restores rows whose shares changed by a whole-number factor while their
-cost basis stayed exactly equal to the workbook baseline.
+only restores rows whose shares changed by an approximate whole-number factor
+while their cost basis stayed materially equal to the workbook baseline.
 
 Dry-run by default::
 
@@ -26,7 +26,14 @@ from src.io.import_xlsx import parse_fund
 from src.model import db, schema
 
 
-REPAIR_KEY = "repair_split_inflation_v1"
+REPAIR_KEY = "repair_split_inflation_v2"
+RATIO_REL_TOL = 0.005
+COST_BASIS_REL_TOL = 0.01
+
+
+def _position_key(fund: str, ticker: str) -> tuple[str, str]:
+    """Normalize legacy DB labels so harmless casing/whitespace cannot hide a row."""
+    return str(fund).strip().casefold(), str(ticker).strip().upper()
 
 
 def _baseline_positions(cfg: dict) -> dict[tuple[str, str], dict]:
@@ -36,7 +43,7 @@ def _baseline_positions(cfg: dict) -> dict[tuple[str, str], dict]:
     wb = openpyxl.load_workbook(workbook_path(cfg), data_only=True)
     try:
         return {
-            (fund["name"], p["ticker"]): p
+            _position_key(fund["name"], p["ticker"]): p
             for fund in cfg["funds"]
             for p in parse_fund(wb[fund["sheet"]], fund["name"], fund["benchmark"])
             if p["sec_type"] == "stock"
@@ -50,14 +57,26 @@ def repair_split_inflation(cfg: dict, conn: sqlite3.Connection, *, apply: bool =
     marker = conn.execute(
         db.q(conn, "SELECT value FROM import_meta WHERE key = ?"), (REPAIR_KEY,)
     ).fetchone()
+    repaired_before: set[tuple[str, str]] = set()
     if marker:
-        return {"status": "already-applied", "repaired": []}
+        try:
+            saved = json.loads(marker[0])
+            repaired_before = {
+                _position_key(item["fund"], item["ticker"])
+                for item in saved.get("positions", [])
+                if isinstance(item, dict) and item.get("fund") and item.get("ticker")
+            }
+        except (TypeError, ValueError):
+            repaired_before = set()
 
     baseline = _baseline_positions(cfg)
     rows = conn.execute("SELECT fund, ticker, shares, entry_price FROM holdings").fetchall()
     repairs = []
     for fund, ticker, shares, entry_price in rows:
-        original = baseline.get((fund, ticker))
+        key = _position_key(fund, ticker)
+        if key in repaired_before:
+            continue
+        original = baseline.get(key)
         if not original or not original["shares"] or not original["entry_price"]:
             continue
         if shares is None or entry_price is None:
@@ -65,16 +84,21 @@ def repair_split_inflation(cfg: dict, conn: sqlite3.Connection, *, apply: bool =
 
         share_ratio = float(shares) / float(original["shares"])
         whole_ratio = round(share_ratio)
-        # The faulty path only created forward-split inflation. Requiring a
-        # whole-number share multiplier and invariant cost basis makes this
-        # safe around ordinary buys, sells, and entry-price edits.
-        if whole_ratio < 2 or not math.isclose(share_ratio, whole_ratio, rel_tol=1e-6):
+        # The faulty path only created forward-split inflation. Provider and DB
+        # values can differ slightly through rounding, so use narrow tolerances
+        # around the whole-number share multiplier and invariant total basis.
+        # The combination remains selective around ordinary buys and sells.
+        if whole_ratio < 2 or not math.isclose(
+            share_ratio, whole_ratio, rel_tol=RATIO_REL_TOL
+        ):
             continue
+        current_basis = float(entry_price) * float(shares)
+        original_basis = float(original["entry_price"]) * float(original["shares"])
         if not math.isclose(
-            float(entry_price) * share_ratio,
-            float(original["entry_price"]),
-            rel_tol=1e-6,
-            abs_tol=1e-6,
+            current_basis,
+            original_basis,
+            rel_tol=COST_BASIS_REL_TOL,
+            abs_tol=1.0,
         ):
             continue
 
@@ -88,15 +112,21 @@ def repair_split_inflation(cfg: dict, conn: sqlite3.Connection, *, apply: bool =
             "entryPriceAfter": float(original["entry_price"]),
         })
 
-    if apply:
+    if apply and repairs:
         for item in repairs:
             conn.execute(
                 db.q(conn, "UPDATE holdings SET shares = ?, entry_price = ? WHERE fund = ? AND ticker = ?"),
                 (item["sharesAfter"], item["entryPriceAfter"], item["fund"], item["ticker"]),
             )
+        repaired_positions = repaired_before | {
+            _position_key(item["fund"], item["ticker"]) for item in repairs
+        }
         marker_value = json.dumps({
             "appliedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
-            "tickers": [item["ticker"] for item in repairs],
+            "positions": [
+                {"fund": fund, "ticker": ticker}
+                for fund, ticker in sorted(repaired_positions)
+            ],
         })
         conn.execute(
             db.upsert_sql(conn, "import_meta", ["key", "value"], ["key"]),
@@ -104,7 +134,13 @@ def repair_split_inflation(cfg: dict, conn: sqlite3.Connection, *, apply: bool =
         )
         conn.commit()
 
-    return {"status": "applied" if apply else "dry-run", "repaired": repairs}
+    if not repairs and marker:
+        status = "already-applied"
+    elif not repairs:
+        status = "no-match" if apply else "dry-run"
+    else:
+        status = "applied" if apply else "dry-run"
+    return {"status": status, "repaired": repairs}
 
 
 def main() -> None:
