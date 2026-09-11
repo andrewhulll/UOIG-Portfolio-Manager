@@ -100,6 +100,9 @@ def build_terminal_data(cfg: dict, conn: sqlite3.Connection) -> dict:
             "sh": _clean(r.shares),
             "chg": _clean((r.day_chg_pct or 0) * 100),
             "mtd": _clean((mtd_return(pf, r.ticker) or 0) * 100),
+            "cb": _clean(r.cost_basis),     # cost basis (shares × entry price)
+            "unrealPnl": _clean(r.unreal_pnl),     # unrealized gain/loss ($)
+            "unrealPnlPct": _clean((r.unreal_pnl_pct or 0) * 100),  # unrealized gain/loss (%)
             "pe": _clean(fd[2]) if fd else None,
             "pb": _clean(fd[3]) if fd else None,
             "evEbitda": _clean(fd[8]) if fd else None,
