@@ -145,6 +145,14 @@ The frontend needs a public backend URL, so host the backend before Vercel. Your
    The frontend already sends `credentials:'include'` on every call (`web/src/api.js`).
    Local dev needs none of these — defaults stay same-origin (`SameSite=lax`, wildcard CORS).
    - **Alternative (custom domain):** put both on one parent domain (`app.uoig.org` + `api.uoig.org`); then you can leave `UOIG_COOKIE_SAMESITE` at `lax`.
+   - **Known failure mode (2025-26 browsers):** `SameSite=None` cookies sent by a plain
+     cross-origin `fetch()` are third-party cookies from the browser's point of view —
+     Safari ITP and Chrome's third-party-cookie phase-out silently drop them even
+     though CORS and `SameSite=None; Secure` are configured correctly. Symptom: sign-in
+     (or accept-invite) succeeds, but the very next call — `getMe()` — comes back 401
+     and the UI shows "Signed in, but the session could not be loaded." The `web/vercel.json`
+     rewrite added below (proxying `/api/*` to the backend at the Vercel edge) fixes this
+     by making the session cookie first-party to the frontend's own domain.
 
 ---
 
@@ -156,9 +164,15 @@ Hosts the React app in `web/`. The client already supports a remote backend via
 1. **Import the project.** https://vercel.com → Add New → Project → import this Git repo.
 2. **Set the Root Directory** to `web/` (so Vercel builds the Vite app, not the repo root).
 3. **Framework preset:** Vite (auto-detected). Build command `npm run build`, output `dist` — matches `web/package.json`.
-4. **Environment variable:**
-   - `VITE_API_BASE = https://<your-backend-host>` (from §3.4). This makes every `fetch` in `api.js` hit the remote backend. Leave it blank only if frontend and backend are same-origin (they won't be on Vercel).
-   - Set it for **Production** and **Preview** (preview deploys can point at the same backend or a staging one).
+4. **Environment variable (recommended: leave unset).** `web/vercel.json` rewrites
+   `/api/*` to the Render backend at the edge, so the browser only ever talks to the
+   Vercel domain and the session cookie is first-party — this avoids third-party-cookie
+   blocking (see §3.5). Leaving `VITE_API_BASE` unset makes every `fetch` in `api.js`
+   use relative paths, which the rewrite then forwards server-side.
+   - Only set `VITE_API_BASE = https://<your-backend-host>` if you're bypassing the
+     rewrite (e.g. a preview deploy pointed at a different backend than the one
+     hardcoded in `web/vercel.json`) — this reintroduces the third-party-cookie risk
+     above, so prefer updating the rewrite's destination instead.
 5. **Deploy.** Vercel gives you a `https://<project>.vercel.app` URL (and you can add a custom domain).
 6. **Wire the URL back into WorkOS + backend CORS:**
    - Add the Vercel origin to the backend CORS allowlist (§3.5).
@@ -185,7 +199,9 @@ UOIG_COOKIE_SAMESITE=none                   # cross-site cookie (auto-forces Sec
 
 **Vercel (frontend):**
 ```
-VITE_API_BASE=https://<backend-host>
+# VITE_API_BASE — leave unset. web/vercel.json rewrites /api/* to the backend
+# at the edge, so the browser stays same-origin (avoids third-party-cookie
+# blocking; see §3.5). Only set this to bypass that rewrite.
 ```
 
 ## Suggested sequencing
