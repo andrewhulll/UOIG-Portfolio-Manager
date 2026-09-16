@@ -39,12 +39,20 @@ def _clean(x):
 
 
 def _port_daily(rets: pd.DataFrame, weights: dict) -> pd.Series:
+    """Current-weights daily portfolio return series.
+
+    Weights are renormalized each day over the constituents that actually have
+    a return that day (#125) — the same rule as synthetic_index — so a holding
+    with missing history doesn't drag the series toward flat. Days on which no
+    constituent has data are dropped."""
     cols = [t for t in weights if t in rets.columns]
     if not cols:
         return pd.Series(dtype=float)
     w = pd.Series({t: weights[t] for t in cols})
     w = w / w.sum()
-    return rets[cols].mul(w, axis=1).sum(axis=1, min_count=1).dropna()
+    wsum = rets[cols].notna().mul(w, axis=1).sum(axis=1)
+    port = (rets[cols].mul(w, axis=1).sum(axis=1, min_count=1) / wsum).where(wsum > 0)
+    return port.dropna()
 
 
 def _synth_period_ret(rets: pd.DataFrame, weights: dict, period: str):
@@ -150,7 +158,11 @@ def build_terminal_data(cfg: dict, conn: sqlite3.Connection) -> dict:
         port = _port_daily(rets, weights)
         b, a_daily, r2, _ = _beta(port, rets[bench]) if bench in rets.columns else (None, None, None, 0)
         ann_vol = frisk.loc[name, "ann_vol"] if name in frisk.index else None
-        wbeta = frisk.loc[name, "beta"] if name in frisk.index else b
+        # #134: the Beta tile uses the invested-sleeve (ex-cash) beta so all four
+        # tiles — Return, Vol, Sharpe, Beta — describe the same book. (fund_risk_table
+        # also computes a cash-diluted total-fund `beta`; the tile deliberately uses
+        # `active_beta` instead.)
+        wbeta = frisk.loc[name, "active_beta"] if name in frisk.index else b
         ann_ret = ret.get("1Y")
         sharpe = ((ann_ret - rf) / ann_vol) if (ann_ret is not None and ann_vol) else None
 

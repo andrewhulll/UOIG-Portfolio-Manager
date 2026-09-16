@@ -79,6 +79,10 @@ def refresh(cfg: dict, history_years: float | None = None,
             continue
 
         sp = provider.get_splits([t], start=start)
+        # #131: splits whose price adjustment must run AFTER the price upsert
+        # below (the upsert writes raw auto_adjust=False closes over the same
+        # window, so adjusting before it would be overwritten).
+        new_splits: list[tuple[float, str]] = []
         if not sp.empty:
             for r in sp.itertuples():
                 ratio = float(r.ratio)
@@ -96,6 +100,7 @@ def refresh(cfg: dict, history_years: float | None = None,
                             db.q(conn, "UPDATE holdings SET bench_entry_price = bench_entry_price / ? WHERE bench_ticker = ? AND (entry_date IS NULL OR entry_date < ?)"),
                             (ratio, t, r.date)
                         )
+                    new_splits.append((ratio, r.date))
 
         db.executemany(
             conn,
@@ -103,6 +108,15 @@ def refresh(cfg: dict, history_years: float | None = None,
             [(r.ticker, r.date, float(r.close), float(r.adj_close), "yfinance") for r in ph.itertuples()],
         )
         summary["prices"] += len(ph)
+
+        # #131: bring pre-split closes onto the post-split scale. Only `close`
+        # needs it — `adj_close` is already split-adjusted by the provider.
+        # Guarded by the split_boundary check above, so each split adjusts once.
+        for ratio, sdate in new_splits:
+            conn.execute(
+                db.q(conn, "UPDATE prices SET close = close / ? WHERE ticker = ? AND date < ?"),
+                (ratio, t, sdate),
+            )
 
         if t in bench_tickers:
             db.executemany(

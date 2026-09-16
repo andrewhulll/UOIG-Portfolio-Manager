@@ -88,9 +88,13 @@ def fund_risk_table(positions: pd.DataFrame, rets: pd.DataFrame, cfg: dict) -> p
         if cols and bench in rets.columns:
             w = g.set_index("ticker").loc[cols, "port_w"]
             w = w / w.sum()
-            port = rets[cols].mul(w, axis=1).sum(axis=1, min_count=1)
-            syn_beta, _, syn_r2, _ = _beta(port, rets[bench])
-            ann_vol = float(port.dropna().std(ddof=1) * np.sqrt(TRADING_DAYS))
+            # #125: renormalize daily over the names with data (same rule as
+            # synthetic_index) so a missing name doesn't drag beta/vol toward flat.
+            wsum = rets[cols].notna().mul(w, axis=1).sum(axis=1)
+            port = ((rets[cols].mul(w, axis=1).sum(axis=1, min_count=1) / wsum)
+                    .where(wsum > 0).dropna())
+            syn_beta, _, syn_r2, _ = _beta(port, rets[bench]) if len(port) else (np.nan, np.nan, np.nan, 0)
+            ann_vol = float(port.std(ddof=1) * np.sqrt(TRADING_DAYS)) if len(port) else np.nan
 
         out.append({"fund": fund, "benchmark": bench, "beta": wbeta,
                     "active_beta": abeta, "syn_beta": syn_beta,

@@ -127,14 +127,22 @@ def test_refresh_applies_only_post_import_splits_once(monkeypatch):
     refresh.refresh(cfg, conn=conn)
 
     # The 4:1 split predates the current-position snapshot and is ignored; only
-    # the genuinely new 2:1 split adjusts the holding. Provider price/dividend
-    # history is already split-aware and must not be divided a second time.
+    # the genuinely new 2:1 split adjusts the holding. #131: the new split also
+    # brings pre-split closes onto the post-split scale — the price upsert runs
+    # first and the adjustment after, so the raw upserted closes can't overwrite
+    # it. adj_close is already split-adjusted by the provider and is never
+    # divided; dividends are untouched.
     assert conn.execute("SELECT shares, entry_price FROM holdings").fetchone() == (20.0, 50.0)
     assert conn.execute(
         "SELECT close, adj_close FROM prices WHERE ticker='AAPL' AND date='2022-06-30'"
-    ).fetchone() == (400.0, 100.0)
+    ).fetchone() == (200.0, 100.0)
     assert conn.execute("SELECT amount FROM dividends WHERE ticker='AAPL'").fetchone() == (4.0,)
 
     refresh.refresh(cfg, conn=conn)
 
     assert conn.execute("SELECT shares, entry_price FROM holdings").fetchone() == (20.0, 50.0)
+    # Second run: the split is no longer new (split_boundary moved past it), so
+    # neither holdings nor prices adjust again.
+    assert conn.execute(
+        "SELECT close FROM prices WHERE ticker='AAPL' AND date='2022-06-30'"
+    ).fetchone() == (200.0,)

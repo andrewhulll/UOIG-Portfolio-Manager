@@ -59,6 +59,25 @@ def test_fund_daily():
     assert len(fd) == 2
     assert fd.iloc[0] == pytest.approx(0.6*0.01 + 0.4*0.02)
 
+def test_fund_daily_renormalizes_partial_days():
+    # #125: a holding with missing history must not drag the series toward
+    # flat — weights renormalize each day over the names that have data
+    # (same rule as synthetic_index). All-NaN days are dropped, not zero-filled.
+    rets = pd.DataFrame({
+        "AAPL": [0.01, float("nan")],
+        "MSFT": [0.02, 0.01],
+    }, index=pd.DatetimeIndex(["2023-01-01", "2023-01-02"]))
+    fd = _fund_daily(rets, {"AAPL": 0.6, "MSFT": 0.4})
+    assert len(fd) == 2
+    assert fd.iloc[0] == pytest.approx(0.6 * 0.01 + 0.4 * 0.02)
+    assert fd.iloc[1] == pytest.approx(0.01)  # MSFT renormalized to 1.0
+
+    fd_empty = _fund_daily(
+        pd.DataFrame({"AAPL": [float("nan")], "MSFT": [float("nan")]},
+                     index=pd.DatetimeIndex(["2023-01-01"])),
+        {"AAPL": 0.6, "MSFT": 0.4})
+    assert fd_empty.empty
+
 def test_fund_diagnostics(monkeypatch):
     import src.analytics.optimize as opt
     import src.analytics.pnl as pnl

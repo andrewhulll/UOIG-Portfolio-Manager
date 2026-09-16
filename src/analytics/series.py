@@ -34,8 +34,10 @@ def _window(pf: pd.DataFrame, ticker: str, period: str) -> pd.DataFrame:
     if s.empty:
         return s
     start = pd.Timestamp(period_start(s["date"].max().date(), period))
-    w = s[s["date"] >= start]
-    return w if len(w) >= 2 else s.tail(2)
+    # #130: no tail(2) fallback — when fewer than 2 observations fall inside the
+    # period, return the (short) in-period window so callers render "—" instead
+    # of a multi-year move mislabeled "1M".
+    return s[s["date"] >= start]
 
 
 def ticker_series(pf: pd.DataFrame, ticker: str, period: str, points: int = 64) -> dict:
@@ -65,7 +67,9 @@ def trailing_return(pf: pd.DataFrame, ticker: str, days: int):
     last = s["date"].max()
     w = s[s["date"] >= last - pd.Timedelta(days=days)]
     if len(w) < 2:
-        w = s.tail(2)
+        # #130: no tail(2) fallback — too little in-window history means the
+        # trailing return is unknown (None), not a multi-year move.
+        return None
     base = w["close"].iloc[0]
     return float(w["close"].iloc[-1] / base - 1) if base else None
 

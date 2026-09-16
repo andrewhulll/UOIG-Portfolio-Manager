@@ -81,13 +81,20 @@ def _bench_sector_groups(conn, index_ticker: str) -> dict[str, float]:
 
 
 def _fund_daily(rets: pd.DataFrame, weights: dict[str, float]) -> pd.Series:
-    """Current-weights daily return series over names we have returns for."""
+    """Current-weights daily return series over names we have returns for.
+
+    Weights are renormalized each day over the constituents that actually have
+    a return that day (#125) — the same rule as synthetic_index — so a holding
+    with missing history doesn't drag TE/vol/beta toward flat. Days on which
+    no constituent has data are dropped."""
     cols = [t for t in weights if t in rets.columns]
     if not cols:
         return pd.Series(dtype=float)
     w = pd.Series({t: weights[t] for t in cols})
     w = w / w.sum()
-    return rets[cols].mul(w, axis=1).sum(axis=1, min_count=1)
+    wsum = rets[cols].notna().mul(w, axis=1).sum(axis=1)
+    return ((rets[cols].mul(w, axis=1).sum(axis=1, min_count=1) / wsum)
+            .where(wsum > 0).dropna())
 
 
 def fund_diagnostics(cfg: dict, conn: sqlite3.Connection, fund_name: str) -> dict:
