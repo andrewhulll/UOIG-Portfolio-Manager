@@ -278,6 +278,10 @@ def acknowledge(submission_id: str, user=Depends(identity)):
         submission = found[0]
         if allowed is not None and submission['sector'] not in allowed:
             raise HTTPException(403, 'This sector is outside your assignments')
+        if submission['user_id'] == user['id']:
+            # #133: acknowledging your own digest defeats the review the ack
+            # is meant to signal -- no self-approval, for leaders or admins.
+            raise HTTPException(403, 'You cannot acknowledge your own submission')
         if submission['status'] == 'draft':
             raise HTTPException(409, 'This draft has not been submitted')
         timestamp = store.now().isoformat()
