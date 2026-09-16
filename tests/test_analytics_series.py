@@ -149,9 +149,11 @@ def test_synthetic_index():
 
     idx = series.synthetic_index(rets, weights, "1M")
     assert len(idx["values"]) == 3
-    assert idx["values"][0] == pytest.approx(100.0 * (1 + 0.6*0.01 + 0.4*0.02))
-    # use a tolerance for float comparison or approx
-    assert idx["ret"] == pytest.approx(idx["values"][-1] / 100.0 - 1, abs=1e-3)
+    # #129: rebased to exactly 100 at period start (was 100*(1+r1) = 101.4)
+    assert idx["values"][0] == pytest.approx(100.0)
+    # ret drops the extra pre-period day: compounds day-2 and day-3 returns only
+    assert idx["ret"] == pytest.approx(
+        (1 + 0.6*0.02 + 0.4*0.01) * (1 + 0.6*-0.01 + 0.4*0.01) - 1, abs=1e-6)
 
     empty_idx = series.synthetic_index(rets, {"UNKNOWN": 1.0}, "1M")
     assert empty_idx["values"] == []

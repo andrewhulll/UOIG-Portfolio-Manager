@@ -42,7 +42,10 @@ def _latest_two(conn: sqlite3.Connection) -> pd.DataFrame:
             .groupby("ticker").tail(1).set_index("ticker")["close"])
     for tk, close in snap.items():
         if tk not in res.index:
-            res.loc[tk] = {"price": close, "prev_close": close}
+            # #124: snapshot-only tickers get a price but no prev_close -- an
+            # unknown day change must stay unknown, not fabricate +0.00%.
+            # (Cash is pinned back to price == prev_close in load_positions.)
+            res.loc[tk] = {"price": close, "prev_close": np.nan}
 
     return res.reset_index()
 
@@ -81,6 +84,12 @@ def load_positions(cfg: dict, conn: sqlite3.Connection | None = None) -> pd.Data
 
     df = df.merge(px, on="ticker", how="left")
 
+    # #124: cash has no live prices, but its day change is genuinely zero --
+    # pin prev_close to price so fund-level day-change math stays intact.
+    # (Other snapshot-only tickers keep prev_close null: unknown, not zero.)
+    _is_cash = df["sec_type"] == "cash"
+    df.loc[_is_cash, "prev_close"] = df.loc[_is_cash, "price"]
+
     # dividends per share accumulated since each holding's entry date
     def div_ps(row):
         if not row["entry_date"] or divs.empty:
@@ -118,14 +127,18 @@ def fund_summary(df: pd.DataFrame) -> pd.DataFrame:
     for fund, g in df.groupby("fund"):
         stocks = g[g["sec_type"] == "stock"]
         mv = g["market_value"].sum()
-        prev_mv = (g["prev_close"] * g["shares"]).sum()
+        # #124: day change is only defined over names with a known prev close;
+        # unknown names are excluded from both sides so the ratio stays honest.
+        known = g[g["prev_close"].notna()]
+        prev_mv = (known["prev_close"] * known["shares"]).sum()
+        known_mv = known["market_value"].sum()
         active_mv = stocks["market_value"].sum()
         active_cost = stocks["cost_basis"].sum()
         rows.append({
             "fund": fund,
             "market_value": mv,
             "day_chg": g["day_chg"].sum(),
-            "day_chg_pct": (mv / prev_mv - 1) if prev_mv else np.nan,
+            "day_chg_pct": (known_mv / prev_mv - 1) if prev_mv else np.nan,
             "active_mv": active_mv,
             "active_cost": active_cost,
             "unreal_pnl": active_mv - active_cost,
