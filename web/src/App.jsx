@@ -363,12 +363,15 @@ export default class App extends React.Component {
     pool.forEach((h) => {
       const g = SECTOR_OF[h.s]
       if (!g) return  // ETFs / unmapped sectors are not part of the five groups
-      const a = agg[g.name] || (agg[g.name] = { name: g.name, color: g.color, members: g.members, count: 0, holdings: [], wSum: 0, wret: 0, wByFund: {} })
-      a.count++; a.holdings.push(h); a.wSum += h.w; a.wret += h.w * h.mtd
+      const a = agg[g.name] || (agg[g.name] = { name: g.name, color: g.color, members: g.members, count: 0, holdings: [], wSum: 0, wret: 0, wretW: 0, wByFund: {} })
+      a.count++; a.holdings.push(h); a.wSum += h.w
+      // #124: sector MTD blends only holdings with a known MTD -- an unknown
+      // month-to-date stays unknown instead of dragging the average toward 0.
+      if (h.mtd != null) { a.wret += h.w * h.mtd; a.wretW += h.w }
       a.wByFund[h.fund] = (a.wByFund[h.fund] || 0) + h.w
     })
     Object.values(agg).forEach((a) => {
-      a.ret = a.wSum ? a.wret / a.wSum : 0
+      a.ret = a.wretW ? a.wret / a.wretW : null
       if (all) {
         // blended share of the whole endowment by dollars
         a.dollar = this.fundKeys.reduce((s2, k) => s2 + (a.wByFund[k] || 0) / 100 * this.funds[k].aum, 0)
@@ -938,7 +941,7 @@ export default class App extends React.Component {
   }
 
   _rowVM(h, from) {
-    const ctb = (h.w / 100) * h.mtd
+    const ctb = (h.w != null && h.mtd != null) ? (h.w / 100) * h.mtd : null // #124: unknown MTD -> unknown contribution, never a fabricated 0
     const fund = this.funds[h.fund] || {}
     return {
       t: h.t, rk: (h.fund || '') + ':' + h.t, n: h.n, s: h.s, fundTag: fund.tag || h.fund, fundColor: fund.color || '#5a93f9',
@@ -949,7 +952,7 @@ export default class App extends React.Component {
       ctbStr: this._sign(ctb, 2), ctbColor: this._col(ctb),
       cbStr: h.cb == null ? '—' : this._kd(h.cb),
       unrealPnlStr: h.unrealPnl == null ? '—' : this._kd(h.unrealPnl), unrealPnlColor: this._col(h.unrealPnl),
-      unrealPnlPctStr: (h.unrealPnlPct != null ? this._sign(h.unrealPnlPct, 1) : '—') + '%', unrealPnlPctColor: this._col(h.unrealPnlPct),
+      unrealPnlPctStr: h.unrealPnlPct != null ? this._sign(h.unrealPnlPct, 1) + '%' : '—', unrealPnlPctColor: this._col(h.unrealPnlPct),
       spark: h.spark || [],
       open: () => this._openStock(h.t, from),
     }
@@ -2301,7 +2304,7 @@ export default class App extends React.Component {
       const gain = r == null ? null : this.total - this.total / (1 + r / 100)
       v.heroRetColor = this._col(r)
       const rTxt = r == null ? '—' : (r >= 0 ? '▲' : '▼') + ' ' + this._sign(r, 1) + '%'
-      v.heroRetText = rTxt + ' ' + per + (gain == null ? '' : ' · ' + this._kdSigned(gain * 1e6)) + ' · blended α ' + this._sign(this._blend((f) => f.alpha), 1) + '% vs policy'
+      v.heroRetText = rTxt + ' ' + per + (gain == null ? '' : ' · ' + this._kdSigned(gain * 1e6)) + ' · blended α ' + this._fx(this._blend((f) => f.alpha), 1, '%') + ' vs policy'
       const lines = []
       const benchColors = ['#5d6a85', '#6b5a3e'] // muted, distinct per fund
       const legend = keys.map((k) => ({ mark: '●', label: F[k].name, color: F[k].color }))
@@ -2318,7 +2321,7 @@ export default class App extends React.Component {
       v.heroChartEl = this._chart('heroAll' + per, lines, 184)
       v.heroLegend = legend
       v.heroStats = [
-        { l: 'Blended α', v: this._sign(this._blend((f) => f.alpha), 1) + '%', sub: 'vs policy', c: '#21d07a', tooltip: 'Active return compared to the benchmark.' },
+        { l: 'Blended α', v: this._fx(this._blend((f) => f.alpha), 1, '%'), sub: 'vs policy', c: '#21d07a', tooltip: 'Active return compared to the benchmark.' },
         { l: 'Beta', v: this._fx(this._blend((f) => f.beta), 2), sub: '3Y', c: '#cdd6e8', tooltip: 'Volatility compared to the market.' },
         { l: 'Sharpe', v: this._fx(this._blend((f) => f.sharpe), 2), sub: 'risk-adj', c: '#cdd6e8', tooltip: 'Risk-adjusted return.' },
         { l: 'Volatility', v: this._fx(this._blend((f) => f.vol), 1, '%'), sub: 'ann σ', c: '#cdd6e8', tooltip: 'Annualized standard deviation of returns.' },
@@ -2331,7 +2334,7 @@ export default class App extends React.Component {
       const r = f.ret[per], gain = r == null ? null : f.aum - f.aum / (1 + r / 100)
       v.heroRetColor = this._col(r)
       const rTxt = r == null ? '—' : (r >= 0 ? '▲' : '▼') + ' ' + this._sign(r, 1) + '%'
-      v.heroRetText = rTxt + ' ' + per + (gain == null ? '' : ' · ' + this._kdSigned(gain * 1e6)) + ' · α ' + this._sign(f.alpha, 1) + '% vs ' + f.benchShort
+      v.heroRetText = rTxt + ' ' + per + (gain == null ? '' : ' · ' + this._kdSigned(gain * 1e6)) + ' · α ' + this._fx(f.alpha, 1, '%') + ' vs ' + f.benchShort
       const lines = []
       if (fseries && fseries.fund) {
         lines.push({ values: fseries.fund.values, color: f.color, area: true })
@@ -2340,7 +2343,7 @@ export default class App extends React.Component {
       v.heroChartEl = this._chart('hero' + fk + per, lines, 184)
       v.heroLegend = [{ mark: '●', label: f.name, color: f.color }, { mark: '┄', label: f.benchShort, color: '#5d6a85' }]
       v.heroStats = [
-        { l: 'Alpha', v: this._sign(f.alpha, 1) + '%', sub: 'vs ' + f.benchShort, c: '#21d07a', tooltip: 'Active return compared to the benchmark.' },
+        { l: 'Alpha', v: this._fx(f.alpha, 1, '%'), sub: 'vs ' + f.benchShort, c: '#21d07a', tooltip: 'Active return compared to the benchmark.' },
         { l: 'Beta', v: this._fx(f.beta, 2), sub: '3Y daily', c: '#cdd6e8', tooltip: 'Measure of volatility relative to the market.' },
         { l: 'Sharpe', v: this._fx(f.sharpe, 2), sub: 'risk-adj', c: '#cdd6e8', tooltip: 'Risk-adjusted return.' },
         { l: 'Volatility', v: this._fx(f.vol, 1, '%'), sub: 'ann σ', c: '#cdd6e8', tooltip: 'Annualized standard deviation of returns.' },
@@ -2364,7 +2367,8 @@ export default class App extends React.Component {
     v.donutEl = this._donut(fsec)
     v.donutLegend = fsec.slice(0, 5).map((x) => ({ name: x.name, pct: x.pct.toFixed(0) + '%', color: x.color, on: () => this._openSector(x.name, 'dashboard') }))
 
-    const contribs = dashSrc.map((h) => ({ t: h.t, c: (h.w / 100) * h.mtd })).sort((a, b) => b.c - a.c)
+    // #124: contribution needs a known MTD -- unknown names are excluded, never a fabricated 0.
+    const contribs = dashSrc.map((h) => ({ t: h.t, c: (h.w != null && h.mtd != null) ? (h.w / 100) * h.mtd : null })).filter((x) => x.c != null).sort((a, b) => b.c - a.c)
     const pick = contribs.slice(0, 3).concat(contribs.slice(-1))
     const maxAbs = Math.max.apply(null, pick.map((p) => Math.abs(p.c))) || 1
     v.contribTitle = 'Contributors · MTD'
@@ -2410,7 +2414,7 @@ export default class App extends React.Component {
         shareStr: a.share.toFixed(1) + '%',
         shareBase: singleFund ? 'of ' + F[fk].name : 'of endowment',
         count: a.count,
-        retStr: this._sign(a.ret, 1) + '%', retColor: this._col(a.ret),
+        retStr: a.ret != null ? this._sign(a.ret, 1) + '%' : '—', retColor: this._col(a.ret),
         gPct: (gd / tot * 100).toFixed(0) + '%', vPct: (vd / tot * 100).toFixed(0) + '%',
         cards, singleFund,
         on: () => this._openSector(g.name, 'sectors'),
@@ -2466,8 +2470,8 @@ export default class App extends React.Component {
           { l: 'Fund', v: f.name, color: '#cdd6e8' },
           { l: 'Portfolio Weight', v: h.w.toFixed(1) + '%', color: '#cdd6e8' },
           { l: 'Beta (3Y)', v: h.beta != null ? h.beta.toFixed(2) : '—', color: '#cdd6e8' },
-          { l: 'Day Change', v: this._sign(h.chg) + '%', color: this._col(h.chg) },
-          { l: 'MTD Return', v: this._sign(h.mtd, 1) + '%', color: this._col(h.mtd) },
+          { l: 'Day Change', v: hasChg ? this._sign(h.chg) + '%' : '—', color: hasChg ? this._col(h.chg) : '#cdd6e8' },
+          { l: 'MTD Return', v: h.mtd != null ? this._sign(h.mtd, 1) + '%' : '—', color: h.mtd != null ? this._col(h.mtd) : '#cdd6e8' },
         ] : [
           { l: 'Sector', v: h.s || '—', color: '#cdd6e8' },
           { l: 'Industry', v: h.industry || '—', color: '#cdd6e8' },
@@ -2490,8 +2494,8 @@ export default class App extends React.Component {
             border: k === tabKey ? '2px solid #5a93f9' : '2px solid transparent',
           }))
         if (held) {
-          const ctb = (h.w / 100) * h.mtd
-          v.stkPos = { weightStr: h.w.toFixed(1) + '%', valueStr: this._kd(h.mv), sharesStr: (h.sh != null ? Math.round(h.sh).toLocaleString('en-US') : '—'), contribStr: this._sign(ctb, 2) + ' pp', contribColor: this._col(ctb) }
+          const ctb = (h.w != null && h.mtd != null) ? (h.w / 100) * h.mtd : null // #124: unknown MTD -> unknown contribution
+          v.stkPos = { weightStr: h.w.toFixed(1) + '%', valueStr: this._kd(h.mv), sharesStr: (h.sh != null ? Math.round(h.sh).toLocaleString('en-US') : '—'), contribStr: ctb == null ? '—' : this._sign(ctb, 2) + ' pp', contribColor: this._col(ctb) }
         } else {
           v.stkPos = null
         }
@@ -2514,7 +2518,7 @@ export default class App extends React.Component {
       const wTiles = []
       if (fk === 'all' || fk === fundA) wTiles.push({ label: F[fundA].name + ' Wt', color: '#5a93f9', val: (a.wByFund[fundA] || 0).toFixed(1) + '%' })
       if (fk === 'all' || fk === fundB) wTiles.push({ label: F[fundB].name + ' Wt', color: '#f4a531', val: (a.wByFund[fundB] || 0).toFixed(1) + '%' })
-      v.sec = { name: a.name, shareStr: a.share.toFixed(1) + '%', count: a.count, ret: this._sign(a.ret, 1) + '%', retColor: this._col(a.ret), wTiles, color: a.color }
+      v.sec = { name: a.name, shareStr: a.share.toFixed(1) + '%', count: a.count, ret: a.ret != null ? this._sign(a.ret, 1) + '%' : '—', retColor: this._col(a.ret), wTiles, color: a.color }
       v.secRows = a.holdings.slice().sort((x, y) => y.w - x.w).map((h) => this._rowVM(h, 'sector'))
 
       // Comparison chart (this sector vs iShares benchmarks) + weekly movers.
