@@ -11,6 +11,7 @@ market proxy / risk-free ticker are fetched too and mirrored into ``benchmarks``
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import sqlite3
 import time
@@ -119,9 +120,23 @@ def refresh(cfg: dict, history_years: float | None = None,
             )
             summary["dividends"] += len(dv)
 
+    # #135: last_refresh marks the last FULLY successful run — the AS OF header
+    # reads this key, so stamping it on a partial run would claim freshness over
+    # stale tickers. The latest attempt and its failures are always recorded for
+    # the partial-refresh flag surfaced in the UI.
+    now = dt.datetime.now().isoformat(timespec="seconds")
+    if not summary["failed"]:
+        conn.execute(
+            db.upsert_sql(conn, "import_meta", ["key", "value"], ["key"]),
+            ("last_refresh", now),
+        )
     conn.execute(
         db.upsert_sql(conn, "import_meta", ["key", "value"], ["key"]),
-        ("last_refresh", dt.datetime.now().isoformat(timespec="seconds")),
+        ("last_refresh_attempt", now),
+    )
+    conn.execute(
+        db.upsert_sql(conn, "import_meta", ["key", "value"], ["key"]),
+        ("last_refresh_failed", json.dumps(summary["failed"])),
     )
     conn.commit()
     if own:

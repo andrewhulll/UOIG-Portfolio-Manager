@@ -450,11 +450,15 @@ def solve_optimizer(cfg: dict, conn: sqlite3.Connection, fund_name: str,
 
     # QP in sleeve space: maximize k mu's - delta/2 [k^2 s'Sig s + 2ko s'sig_sb + ...]
     cap_sleeve = min(1.0, max_pos / k)
+    # #132: _solve_qp silently raises an infeasible per-name cap to 1/n — compute
+    # the ACTUAL cap enforced here and report it in the payload (in % of book),
+    # so the reported cap can never contradict the proposed positions.
+    cap_sleeve_eff = max(cap_sleeve, 1.0 / n + 1e-9)
 
     def solve_for(delta: float) -> np.ndarray:
         a = k * mu - delta * k * o * sig_sb
         H = delta * (k * k) * sig_ss
-        return _solve_qp(a, H, cap_sleeve)
+        return _solve_qp(a, H, cap_sleeve_eff)
 
     frontier, best = [], None
     for delta in np.geomspace(0.8, 60.0, 16):
@@ -467,7 +471,7 @@ def solve_optimizer(cfg: dict, conn: sqlite3.Connection, fund_name: str,
     _, s_prop, st_prop = best
 
     # Min-variance (full-book) for the frontier chart's low end.
-    s_mv = _solve_qp(-1.0 * k * o * sig_sb, (k * k) * sig_ss, cap_sleeve)
+    s_mv = _solve_qp(-1.0 * k * o * sig_sb, (k * k) * sig_ss, cap_sleeve_eff)
     st_mv = full_stats(s_mv)
 
     s_cur = np.array([b["stock_w"][t] for t in tradable]) / k
@@ -497,7 +501,9 @@ def solve_optimizer(cfg: dict, conn: sqlite3.Connection, fund_name: str,
     return {
         "fund": fund_name, "benchmark": b["bench"],
         "rf": round(rf * 100, 2), "erp": round(erp * 100, 2),
-        "cap": round(max_pos * 100, 1), "overlay": round(o * 100, 1),
+        "cap": round(cap_sleeve_eff * k * 100, 1),  # effective per-name cap, % of book (#132)
+        "cap_requested": round(max_pos * 100, 1),   # what the user asked for
+        "overlay": round(o * 100, 1),
         "n_views": len([v for v in (views or []) if v.get("t") in set(tradable)]),
         "rows": rows,
         "stats": {"before": pub(st_cur), "after": pub(st_prop)},

@@ -7,6 +7,7 @@ history); per-stock figures and benchmark returns use real price history.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import math
 import sqlite3
 
@@ -172,10 +173,22 @@ def build_terminal_data(cfg: dict, conn: sqlite3.Connection) -> dict:
                                 for r in stocks.itertuples()])),
         }
 
+    meta = {r[0]: r[1] for r in
+            conn.execute("SELECT key, value FROM import_meta").fetchall()}
+    try:
+        asof_failed = json.loads(meta.get("last_refresh_failed") or "[]")
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        asof_failed = []
+    if not isinstance(asof_failed, list):
+        asof_failed = []
+
     return {
         "funds": funds, "holdings": holdings,
-        "asOf": (conn.execute("SELECT value FROM import_meta WHERE key='last_refresh'").fetchone()
-                 or [dt.date.today().isoformat()])[0],
+        "asOf": meta.get("last_refresh") or dt.date.today().isoformat(),
+        # #135: the latest refresh attempt had failures → some tickers hold stale
+        # data; the UI flags this instead of the AS OF header claiming freshness.
+        "asOfPartial": bool(asof_failed),
+        "asOfFailed": asof_failed,
         "note": "Fund period returns are reconstructed from current holdings (no NAV history).",
     }
 
