@@ -117,7 +117,12 @@ def synthetic_index(rets: pd.DataFrame, weights: dict, period: str) -> dict:
     port = (win.mul(w, axis=1).sum(axis=1, min_count=1) / wsum).where(wsum > 0).dropna()
     if port.empty:
         return {"dates": [], "values": [], "ret": None}
-    idx = (1 + port).cumprod() * 100
+    # Rebase to exactly 100 at period start (#129): the first return in the
+    # window spans (day-before-start -> start), so a raw cumprod starts at
+    # 100*(1+r1). Dividing it out drops that extra pre-period day, matching
+    # the benchmark overlay (v / v[0] * 100) and _synth_period_ret.
+    idx = (1 + port).cumprod()
+    idx = idx / idx.iloc[0] * 100
     return {"dates": [d.strftime("%Y-%m-%d") for d in idx.index],
             "values": [round(float(v), 3) for v in idx.values],
             "ret": float(idx.iloc[-1] / 100 - 1)}

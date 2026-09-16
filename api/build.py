@@ -47,11 +47,18 @@ def _port_daily(rets: pd.DataFrame, weights: dict) -> pd.Series:
 
 
 def _synth_period_ret(rets: pd.DataFrame, weights: dict, period: str):
-    """Reconstructed current-weights fund total return over the period."""
+    """Reconstructed current-weights fund total return over the period.
+
+    ``rets`` is indexed on each return's *end* date, so the first row at or
+    after ``start`` is the return spanning (day-before-start -> start) -- one
+    extra pre-period day. Drop it so fund returns use the same convention as
+    ``period_return`` (close[end] / close[first >= start] - 1). (#129)
+    """
     if rets.empty:
         return None
     start = pd.Timestamp(_pstart(rets, period))
     s = _port_daily(rets.loc[rets.index >= start, :], weights)
+    s = s.iloc[1:]
     return ((1 + s).prod() - 1) if len(s) else None
 
 
@@ -92,17 +99,18 @@ def build_terminal_data(cfg: dict, conn: sqlite3.Connection) -> dict:
         fd = funda.get(r.ticker)
         px = _clean(r.price)
         sector = (fd[1] if fd and fd[1] else ("Index ETF" if r.sec_type == "etf" else r.sector))
+        mtd = mtd_return(pf, r.ticker)  # None when unknown (#124: never a fabricated 0.0)
         holdings.append({
             "t": r.ticker, "n": r.name, "s": sector, "fund": meta.get("key", r.fund),
             "w": _clean((r.port_w or 0) * 100),
             "px": px,
             "mv": _clean(r.market_value),   # shares × price, USD
             "sh": _clean(r.shares),
-            "chg": _clean((r.day_chg_pct or 0) * 100),
-            "mtd": _clean((mtd_return(pf, r.ticker) or 0) * 100),
+            "chg": _clean(r.day_chg_pct * 100 if pd.notna(r.day_chg_pct) else None),
+            "mtd": _clean(mtd * 100 if mtd is not None else None),
             "cb": _clean(r.cost_basis),     # cost basis (shares × entry price)
             "unrealPnl": _clean(r.unreal_pnl),     # unrealized gain/loss ($)
-            "unrealPnlPct": _clean((r.unreal_pnl_pct or 0) * 100),  # unrealized gain/loss (%)
+            "unrealPnlPct": _clean(r.unreal_pnl_pct * 100 if pd.notna(r.unreal_pnl_pct) else None),  # unrealized gain/loss (%)
             "pe": _clean(fd[2]) if fd else None,
             "pb": _clean(fd[3]) if fd else None,
             "evEbitda": _clean(fd[8]) if fd else None,
@@ -118,9 +126,11 @@ def build_terminal_data(cfg: dict, conn: sqlite3.Connection) -> dict:
 
     # Total-portfolio weight for the All Funds view (#28): port_w above is
     # fund-relative, so the combined view showed each fund's internal weight.
-    total_mv = sum(h["mv"] for h in holdings if h["mv"])
+    # #128: the denominator is total portfolio NAV *including* cash, so the
+    # column sums to 100% as documented (App.jsx: "vs total portfolio NAV").
+    total_nav = float(pos["market_value"].fillna(0).sum())
     for h in holdings:
-        h["wAll"] = round(h["mv"] / total_mv * 100, 2) if total_mv and h["mv"] else 0.0
+        h["wAll"] = round(h["mv"] / total_nav * 100, 2) if total_nav and h["mv"] else 0.0
 
     # ---- funds ----
     funds = {}
@@ -151,9 +161,9 @@ def build_terminal_data(cfg: dict, conn: sqlite3.Connection) -> dict:
             "benchTicker": bench, "color": meta.get("color", "#5a93f9"),
             "aum": _clean(fpos["market_value"].sum() / 1e6),   # $M
             "ret": ret, "bret": bret,
-            "alpha": _clean((a_daily or 0) * 252 * 100),
+            "alpha": _clean(a_daily * 252 * 100 if pd.notna(a_daily) else None),
             "beta": _clean(wbeta), "sharpe": _clean(sharpe),
-            "vol": _clean((ann_vol or 0) * 100),
+            "vol": _clean(ann_vol * 100 if pd.notna(ann_vol) else None),
             "pe": _clean(_wavg([(r.port_w, funda.get(r.ticker, [None]*3)[2] if funda.get(r.ticker) else None)
                                 for r in stocks.itertuples()])),
             "pb": _clean(_wavg([(r.port_w, funda.get(r.ticker, [None]*4)[3] if funda.get(r.ticker) else None)

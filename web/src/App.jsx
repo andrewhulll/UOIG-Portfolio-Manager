@@ -338,8 +338,14 @@ export default class App extends React.Component {
   get total() { return this.fundKeys.reduce((s2, k) => s2 + (this.funds[k].aum || 0), 0) }
 
   _blend(getter) {
-    const t = this.total || 1
-    return this.fundKeys.reduce((s2, k) => s2 + (getter(this.funds[k]) || 0) * (this.funds[k].aum || 0), 0) / t
+    // AUM-weighted average over funds with a known value; null when unknown
+    // everywhere (#124) so missing stats render as — instead of a false 0.
+    let num = 0, den = 0
+    this.fundKeys.forEach((k) => {
+      const v = getter(this.funds[k]), w = this.funds[k].aum || 0
+      if (v != null) { num += v * w; den += w }
+    })
+    return den ? num / den : null
   }
   // Map a yfinance GICS sector to its UOIG group name (null for ETFs/unmapped).
   _group(sector) { return (SECTOR_OF[sector] || {}).name || null }
@@ -401,8 +407,9 @@ export default class App extends React.Component {
     if (a >= 1e6) return sign + '$' + (a / 1e6).toFixed(2) + 'M'
     return sign + '$' + Math.round(a / 1000).toLocaleString('en-US') + 'K'
   }
-  _sign(x, d) { return (x >= 0 ? '+' : '') + Number(x).toFixed(d === undefined ? 2 : d) }
-  _col(x) { return x >= 0 ? '#21d07a' : '#ff5666' }
+  _sign(x, d) { if (x == null) return '—'; return (x >= 0 ? '+' : '') + Number(x).toFixed(d === undefined ? 2 : d) }
+  _col(x) { if (x == null) return '#7e8aa6'; return x >= 0 ? '#21d07a' : '#ff5666' }
+  _fx(v, d, suffix) { if (v == null) return '—'; return v.toFixed(d) + (suffix || '') } // #124: null-safe fixed-decimal stat
 
   // ---------- navigation ----------
   _go(view) { this._navigate({ view, profileOpen: false }) }  // #40: via router
@@ -936,8 +943,8 @@ export default class App extends React.Component {
     return {
       t: h.t, rk: (h.fund || '') + ':' + h.t, n: h.n, s: h.s, fundTag: fund.tag || h.fund, fundColor: fund.color || '#5a93f9',
       wStr: h.w.toFixed(1) + '%', pxStr: this._num(h.px), mvStr: this._kd(h.mv),
-      dayStr: this._sign(h.chg) + '%', dayColor: this._col(h.chg),
-      mtdStr: this._sign(h.mtd, 1) + '%', mtdColor: this._col(h.mtd),
+      dayStr: h.chg != null ? this._sign(h.chg) + '%' : '—', dayColor: this._col(h.chg),
+      mtdStr: h.mtd != null ? this._sign(h.mtd, 1) + '%' : '—', mtdColor: this._col(h.mtd),
       peStr: h.pe ? h.pe.toFixed(1) : '—',
       ctbStr: this._sign(ctb, 2), ctbColor: this._col(ctb),
       cbStr: h.cb == null ? '—' : this._kd(h.cb),
@@ -2291,9 +2298,10 @@ export default class App extends React.Component {
       v.heroTitle = 'Total Endowment · Net Asset Value'
       v.heroValue = this._kd(this.total * 1e6)
       const r = this._blend((f) => f.ret[per])
-      const gain = this.total - this.total / (1 + r / 100)
+      const gain = r == null ? null : this.total - this.total / (1 + r / 100)
       v.heroRetColor = this._col(r)
-      v.heroRetText = (r >= 0 ? '▲' : '▼') + ' ' + this._sign(r, 1) + '% ' + per + ' · ' + this._kdSigned(gain * 1e6) + ' · blended α ' + this._sign(this._blend((f) => f.alpha), 1) + '% vs policy'
+      const rTxt = r == null ? '—' : (r >= 0 ? '▲' : '▼') + ' ' + this._sign(r, 1) + '%'
+      v.heroRetText = rTxt + ' ' + per + (gain == null ? '' : ' · ' + this._kdSigned(gain * 1e6)) + ' · blended α ' + this._sign(this._blend((f) => f.alpha), 1) + '% vs policy'
       const lines = []
       const benchColors = ['#5d6a85', '#6b5a3e'] // muted, distinct per fund
       const legend = keys.map((k) => ({ mark: '●', label: F[k].name, color: F[k].color }))
@@ -2311,18 +2319,19 @@ export default class App extends React.Component {
       v.heroLegend = legend
       v.heroStats = [
         { l: 'Blended α', v: this._sign(this._blend((f) => f.alpha), 1) + '%', sub: 'vs policy', c: '#21d07a', tooltip: 'Active return compared to the benchmark.' },
-        { l: 'Beta', v: this._blend((f) => f.beta).toFixed(2), sub: '3Y', c: '#cdd6e8', tooltip: 'Volatility compared to the market.' },
-        { l: 'Sharpe', v: this._blend((f) => f.sharpe).toFixed(2), sub: 'risk-adj', c: '#cdd6e8', tooltip: 'Risk-adjusted return.' },
-        { l: 'Volatility', v: this._blend((f) => f.vol).toFixed(1) + '%', sub: 'ann σ', c: '#cdd6e8', tooltip: 'Annualized standard deviation of returns.' },
-        { l: 'Fwd P/E', v: this._blend((f) => f.pe).toFixed(1), sub: 'wtd', c: '#cdd6e8', tooltip: 'Forward Price-to-Earnings ratio.' },
-        { l: 'Div Yield', v: this._blend((f) => f.dy).toFixed(1) + '%', sub: 'ttm', c: '#cdd6e8', tooltip: 'Dividend yield.' },
+        { l: 'Beta', v: this._fx(this._blend((f) => f.beta), 2), sub: '3Y', c: '#cdd6e8', tooltip: 'Volatility compared to the market.' },
+        { l: 'Sharpe', v: this._fx(this._blend((f) => f.sharpe), 2), sub: 'risk-adj', c: '#cdd6e8', tooltip: 'Risk-adjusted return.' },
+        { l: 'Volatility', v: this._fx(this._blend((f) => f.vol), 1, '%'), sub: 'ann σ', c: '#cdd6e8', tooltip: 'Annualized standard deviation of returns.' },
+        { l: 'Fwd P/E', v: this._fx(this._blend((f) => f.pe), 1), sub: 'wtd', c: '#cdd6e8', tooltip: 'Forward Price-to-Earnings ratio.' },
+        { l: 'Div Yield', v: this._fx(this._blend((f) => f.dy), 1, '%'), sub: 'ttm', c: '#cdd6e8', tooltip: 'Dividend yield.' },
       ]
     } else {
       const f = F[fk]
       v.heroTitle = f.long; v.heroValue = this._kd(f.aum * 1e6)
-      const r = f.ret[per] || 0, gain = f.aum - f.aum / (1 + r / 100)
+      const r = f.ret[per], gain = r == null ? null : f.aum - f.aum / (1 + r / 100)
       v.heroRetColor = this._col(r)
-      v.heroRetText = (r >= 0 ? '▲' : '▼') + ' ' + this._sign(r, 1) + '% ' + per + ' · ' + this._kdSigned(gain * 1e6) + ' · α ' + this._sign(f.alpha, 1) + '% vs ' + f.benchShort
+      const rTxt = r == null ? '—' : (r >= 0 ? '▲' : '▼') + ' ' + this._sign(r, 1) + '%'
+      v.heroRetText = rTxt + ' ' + per + (gain == null ? '' : ' · ' + this._kdSigned(gain * 1e6)) + ' · α ' + this._sign(f.alpha, 1) + '% vs ' + f.benchShort
       const lines = []
       if (fseries && fseries.fund) {
         lines.push({ values: fseries.fund.values, color: f.color, area: true })
@@ -2332,11 +2341,11 @@ export default class App extends React.Component {
       v.heroLegend = [{ mark: '●', label: f.name, color: f.color }, { mark: '┄', label: f.benchShort, color: '#5d6a85' }]
       v.heroStats = [
         { l: 'Alpha', v: this._sign(f.alpha, 1) + '%', sub: 'vs ' + f.benchShort, c: '#21d07a', tooltip: 'Active return compared to the benchmark.' },
-        { l: 'Beta', v: (f.beta || 0).toFixed(2), sub: '3Y daily', c: '#cdd6e8', tooltip: 'Measure of volatility relative to the market.' },
-        { l: 'Sharpe', v: (f.sharpe || 0).toFixed(2), sub: 'risk-adj', c: '#cdd6e8', tooltip: 'Risk-adjusted return.' },
-        { l: 'Volatility', v: (f.vol || 0).toFixed(1) + '%', sub: 'ann σ', c: '#cdd6e8', tooltip: 'Annualized standard deviation of returns.' },
-        { l: 'Fwd P/E', v: (f.pe || 0).toFixed(1), sub: 'wtd avg', c: '#cdd6e8', tooltip: 'Forward Price-to-Earnings ratio.' },
-        { l: 'Div Yield', v: (f.dy || 0).toFixed(1) + '%', sub: 'ttm', c: '#cdd6e8', tooltip: 'Dividend yield.' },
+        { l: 'Beta', v: this._fx(f.beta, 2), sub: '3Y daily', c: '#cdd6e8', tooltip: 'Measure of volatility relative to the market.' },
+        { l: 'Sharpe', v: this._fx(f.sharpe, 2), sub: 'risk-adj', c: '#cdd6e8', tooltip: 'Risk-adjusted return.' },
+        { l: 'Volatility', v: this._fx(f.vol, 1, '%'), sub: 'ann σ', c: '#cdd6e8', tooltip: 'Annualized standard deviation of returns.' },
+        { l: 'Fwd P/E', v: this._fx(f.pe, 1), sub: 'wtd avg', c: '#cdd6e8', tooltip: 'Forward Price-to-Earnings ratio.' },
+        { l: 'Div Yield', v: this._fx(f.dy, 1, '%'), sub: 'ttm', c: '#cdd6e8', tooltip: 'Dividend yield.' },
       ]
     }
 
@@ -2391,8 +2400,8 @@ export default class App extends React.Component {
       const tot = gd + vd || 1
       const cards = a.holdings.map(wAll).sort((x, y) => y.w - x.w).map((h) => ({
         t: h.t, n: h.n, wStr: h.w.toFixed(1) + '%',
-        dayStr: this._sign(h.chg) + '%', dayColor: this._col(h.chg),
-        mtdStr: this._sign(h.mtd, 1) + '%', mtdColor: this._col(h.mtd),
+        dayStr: h.chg != null ? this._sign(h.chg) + '%' : '—', dayColor: this._col(h.chg),
+        mtdStr: h.mtd != null ? this._sign(h.mtd, 1) + '%' : '—', mtdColor: this._col(h.mtd),
         fundColor: (F[h.fund] || {}).color || '#5a93f9', fundTag: (F[h.fund] || {}).tag || h.fund,
         open: () => this._openStock(h.t, 'sectors'),
       }))
