@@ -31,10 +31,12 @@ def test_window():
         "close": [100.0, 110.0, 120.0]
     })
 
-    # 1M window from 2023-10-01 is 2023-09-01
+    # 1M window from 2023-10-01 is 2023-09-01: only the last row falls inside.
+    # #130: no tail(2) fallback — the short in-period window is returned as-is
+    # so callers render "—" instead of a multi-year move mislabeled "1M".
     w = series._window(pf, "AAPL", "1M")
-    assert len(w) == 2 # Forces at least 2 points
-    assert w["date"].iloc[0].strftime("%Y-%m-%d") == "2023-06-01"
+    assert len(w) == 1
+    assert w["date"].iloc[0].strftime("%Y-%m-%d") == "2023-10-01"
 
     w2 = series._window(pf, "AAPL", "1Y")
     assert len(w2) == 3
@@ -75,6 +77,16 @@ def test_period_return():
     })
     assert series.period_return(pf_zero, "AAPL", "1Y") is None
 
+    # #130: a single in-period observation means the period return is unknown,
+    # not a multi-year move mislabeled with the period.
+    pf_short = pd.DataFrame({
+        "ticker": ["AAPL"],
+        "date": pd.to_datetime(["2023-10-01"]),
+        "close": [120.0],
+        "adj_close": [110.0]
+    })
+    assert series.period_return(pf_short, "AAPL", "1M") is None
+
 def test_trailing_return():
     pf = pd.DataFrame({
         "ticker": ["AAPL", "AAPL", "AAPL"],
@@ -86,6 +98,15 @@ def test_trailing_return():
     assert series.trailing_return(pf, "AAPL", 7) == pytest.approx((120.0 / 110.0) - 1)
 
     assert series.trailing_return(pf, "UNKNOWN", 7) is None
+
+    # #130: only one observation inside the trailing window -> unknown (None),
+    # not the old tail(2) multi-year move.
+    pf_short = pd.DataFrame({
+        "ticker": ["AAPL", "AAPL"],
+        "date": pd.to_datetime(["2023-01-01", "2023-10-01"]),
+        "close": [100.0, 120.0]
+    })
+    assert series.trailing_return(pf_short, "AAPL", 7) is None
 
 def test_mtd_return():
     pf = pd.DataFrame({
