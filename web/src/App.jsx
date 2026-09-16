@@ -363,14 +363,16 @@ export default class App extends React.Component {
     })
     Object.values(agg).forEach((a) => {
       a.ret = a.wSum ? a.wret / a.wSum : 0
+      // #136: dollar allocation summed directly from holding market values (USD) —
+      // never (ex-cash weight) × (cash-inclusive AUM), which overstated every share.
+      a.dollar = a.holdings.reduce((s2, h) => s2 + (h.mv || 0), 0)
       if (all) {
-        // blended share of the whole endowment by dollars
-        a.dollar = this.fundKeys.reduce((s2, k) => s2 + (a.wByFund[k] || 0) / 100 * this.funds[k].aum, 0)
-        a.share = this.total ? a.dollar / this.total * 100 : 0
+        // share of the whole endowment (cash-inclusive); this.total is in $M
+        a.share = this.total ? a.dollar / (this.total * 1e6) * 100 : 0
       } else {
-        // share relative to the selected fund (its weight within that fund)
-        a.dollar = (a.wByFund[fk] || 0) / 100 * this.funds[fk].aum
-        a.share = a.wSum
+        // share of the selected fund's cash-inclusive AUM (this.funds[].aum is $M)
+        const fundAumUsd = (this.funds[fk].aum || 0) * 1e6
+        a.share = fundAumUsd ? a.dollar / fundAumUsd * 100 : 0
       }
     })
     return agg
@@ -760,9 +762,17 @@ export default class App extends React.Component {
     let heldAbs = 0, heldBench = 0
     for (let i = 0; i < n; i++) { heldAbs += Math.abs(w[i] - (1 - o) * d.stocks[i].bench_w); heldBench += d.stocks[i].bench_w }
     const as = 0.5 * (heldAbs + (1 - o) * Math.max((d.bench_total || 1) - heldBench, 0) + Math.max(cash, 0)) * 100
-    // Per-stock share of active variance (signed; bench row omitted)
+    // Per-stock share of active variance: MCTR over held stocks only — the same
+    // definition as fund_diagnostics' risk_contribution (#137), so Diagnostics
+    // and What-if agree. (a = active weights; the benchmark leg is excluded
+    // from this decomposition, though it still counts in TE² above.)
+    const a = w.map((wi, i) => wi - (1 - o) * d.stocks[i].bench_w)
+    const sa = new Array(n).fill(0)
+    for (let i = 0; i < n; i++) { let s2 = 0; for (let j = 0; j < n; j++) s2 += cov[i][j] * a[j]; sa[i] = s2 }
+    let varA = 0
+    for (let i = 0; i < n; i++) varA += a[i] * sa[i]
     const rc = []
-    for (let i = 0; i < n; i++) rc.push(te2 > 0 ? (x[i] * sx[i]) / te2 * 100 : 0)
+    for (let i = 0; i < n; i++) rc.push(varA > 0 ? (a[i] * sa[i]) / varA * 100 : 0)
     return { te: Math.sqrt(Math.max(te2, 0)) * 100, vol: Math.sqrt(Math.max(v2, 0)) * 100, beta, as, rc }
   }
 
@@ -1978,6 +1988,10 @@ export default class App extends React.Component {
             </label>
           ))}
           {res && res !== 'loading' && res !== 'error' && <span style={s("font-family:'IBM Plex Mono';font-size:10px;color:#5d6a85;")}>rf {res.rf}% · τ 0.05 · long-only · overlay fixed at {res.overlay}%</span>}
+          {/* #132: flag when the solver had to raise an infeasible per-name cap */}
+          {res && res !== 'loading' && res !== 'error' && res.cap > (res.cap_requested || 0) + 0.05 && (
+            <span style={s("font-family:'IBM Plex Mono';font-size:10px;color:#f4a531;")} title="The requested per-name cap was infeasible with this many names, so the solver raised it to keep the problem feasible.">⚠ max position raised to {res.cap}% (requested {res.cap_requested}%)</span>
+          )}
         </div>
         <span onClick={() => this._runSolve(key)} style={s("font:600 10.5px 'IBM Plex Sans';color:#0a0f1a;background:#5a93f9;border-radius:6px;padding:6px 16px;cursor:pointer;")}>{res === 'loading' ? 'Solving…' : 'Solve'}</span>
       </div>
@@ -2259,6 +2273,12 @@ export default class App extends React.Component {
     // page), not today's calendar date — otherwise they disagree whenever
     // the bundle was built on an earlier date.
     v.asOf = 'AS OF ' + (st.data && st.data.asOf ? String(st.data.asOf).slice(0, 10) : mkt.date)
+    // #135: surface partial-refresh staleness in the header instead of claiming
+    // full freshness when the latest attempt had ticker failures.
+    if (st.data && st.data.asOfPartial) {
+      const nf = (st.data.asOfFailed || []).length
+      v.asOf += ' · PARTIAL' + (nf ? ' (' + nf + ' ticker' + (nf === 1 ? '' : 's') + ' stale)' : '')
+    }
     v.isDashboard = st.view === 'dashboard'; v.isStocks = st.view === 'stocks'
     v.isSectors = st.view === 'sectors'; v.isStock = st.view === 'stock'; v.isSector = st.view === 'sector'
     v.isOptimize = st.view === 'optimize'; v.isScreener = st.view === 'screener'; v.isAssistant = st.view === 'assistant'
@@ -2387,7 +2407,9 @@ export default class App extends React.Component {
     v.sectorCols = SECTOR_GROUPS.map((g) => {
       const a = agg[g.name]
       if (!a) return { name: g.name, color: g.color, members: g.members.join(' · '), shareStr: '0.0%', shareBase: '', count: 0, cards: [], singleFund, on: () => {} }
-      const gd = (a.wByFund[fundA] || 0) / 100 * F[fundA].aum, vd = (a.wByFund[fundB] || 0) / 100 * F[fundB].aum
+      // #136: per-fund dollar splits summed from holding MVs, not (weight × AUM)
+      const gd = a.holdings.filter((h) => h.fund === fundA).reduce((s2, h) => s2 + (h.mv || 0), 0)
+      const vd = a.holdings.filter((h) => h.fund === fundB).reduce((s2, h) => s2 + (h.mv || 0), 0)
       const tot = gd + vd || 1
       const cards = a.holdings.map(wAll).sort((x, y) => y.w - x.w).map((h) => ({
         t: h.t, n: h.n, wStr: h.w.toFixed(1) + '%',

@@ -57,7 +57,7 @@ from src.ingest.thesis import stock_thesis  # noqa: E402
 from src.assistant import answer as llm_answer, api_key as llm_key, cost_usd as llm_cost  # noqa: E402
 from src.analytics.risk import daily_returns_matrix  # noqa: E402
 from src.analytics.optimize import (fund_diagnostics, solve_optimizer,  # noqa: E402
-                                    whatif_payload)
+                                    whatif_payload, _bench_weights)
 from src.analytics.series import (price_frame, period_return, synthetic_index,  # noqa: E402
                                   ticker_series, trailing_return, mtd_return)
 from src.config import db_path, load_config  # noqa: E402
@@ -1162,9 +1162,26 @@ def _chat_system(conn, context: str) -> str:
             f"· beta {f.get('beta')} vs {f.get('benchShort')} · α {f.get('alpha')}%"
         )
     lines.append("")
-    lines.append("HOLDINGS (ticker · sector · fund · weight% · MTD%):")
+    # #45: benchmark index weights — the chat previously claimed it had no index
+    # weightings while Diagnostics shows per-name BENCH weights. Same source table
+    # (benchmark_holdings) so the two can never disagree.
+    bench_by_fund = {}
+    for f in data["funds"].values():
+        bt = f.get("benchTicker")
+        bw = _bench_weights(conn, bt) if bt else {}
+        bench_by_fund[f.get("key")] = bw
+    lines.append("BENCHMARK INDEX WEIGHTS (top 15 constituents, % of index):")
+    for f in data["funds"].values():
+        bw = bench_by_fund.get(f.get("key"), {})
+        top = sorted(bw.items(), key=lambda kv: -kv[1])[:15]
+        det = ", ".join(f"{t} {w * 100:.2f}%" for t, w in top) or "—"
+        lines.append(f"- {f['name']} benchmark {bt} ({f.get('benchShort')}): {det}")
+    lines.append("")
+    lines.append("HOLDINGS (ticker · sector · fund · weight% · MTD% · bench wt%):")
     for h in sorted(data["holdings"], key=lambda x: -(x.get("w") or 0)):
-        lines.append(f"- {h['t']} · {h.get('s')} · {h['fund']} · {h.get('w')}% · {h.get('mtd')}%")
+        bw = bench_by_fund.get(h.get("fund"), {}).get(h["t"])
+        bws = f" · bench {bw * 100:.2f}%" if bw else ""
+        lines.append(f"- {h['t']} · {h.get('s')} · {h['fund']} · {h.get('w')}% · {h.get('mtd')}%{bws}")
     if context:
         lines += ["", f"The user is currently viewing: {context}. "
                       "Resolve 'this'/'it'/'here' to that context when ambiguous."]
