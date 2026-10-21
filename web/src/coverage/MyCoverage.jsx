@@ -2,6 +2,7 @@ import React from 'react'
 import { getMyCoverage, getMovers, getStockNews, getWatchlist, addWatchlistTicker, removeWatchlistTicker } from '../api.js'
 import { s, SECTOR_COLORS } from '../ui.js'
 import { smoothPath } from '../charts/PriceChart.jsx'
+import { NewsAssessment, NewsSort, sortNews, useNewsAssessments } from '../news/NewsAssessment.jsx'
 import './coverage.css'
 
 const color = v => v == null ? '#7e8aa6' : v >= 0 ? '#21d07a' : '#ff5666'
@@ -92,6 +93,9 @@ function CoverageCard({ card, onOpenStock, fund }) {
   const sectorColor = SECTOR_COLORS[card.sector] || '#7e8aa6'
   const values = (card.series || []).filter(Number.isFinite)
   const headlines = useLazyNews(card.ticker, card.name)
+  const [newsSort, setNewsSort] = React.useState('date')
+  const assessedNews = useNewsAssessments(card.ticker, headlines.items || [])
+  const sortedNews = sortNews(assessedNews, newsSort)
   return <article className="coverage-card" role="link" tabIndex={0} aria-label={`Open ${card.ticker} research`}
     onClick={() => onOpenStock(card.ticker)} onKeyDown={e => { if (e.target === e.currentTarget && e.key === 'Enter') onOpenStock(card.ticker) }}
     style={s('background:#111a2e;border:1px solid #1d2840;border-radius:10px;padding:18px 20px;cursor:pointer;min-width:0;')}>
@@ -115,7 +119,8 @@ function CoverageCard({ card, onOpenStock, fund }) {
       {points.length ? <ol className="coverage-thesis">{points.map((p, i) => <li key={i}><span>{i + 1}</span><div>{p}</div></li>)}</ol> : <p className="coverage-muted">No thesis on file yet.</p>}
     </div>
     <div className="coverage-rule" ref={headlines.target}><div className="coverage-label" style={s('margin-bottom:12px;')}>HEADLINES</div>
-      {headlines.status === 'idle' || headlines.status === 'loading' ? <Loading>Loading headlines…</Loading> : headlines.status === 'error' ? <p className="coverage-muted">Headlines unavailable. <button onClick={e => { e.stopPropagation(); headlines.retry() }}>Retry</button></p> : headlines.items.length ? headlines.items.map((n, i) => <a className="coverage-headline" key={n.link || i} href={n.link} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>{n.title}<span>{n.publisher} · {n.ago}</span></a>) : <p className="coverage-muted">No recent headlines available.</p>}
+      {!!sortedNews.length && <NewsSort value={newsSort} onChange={setNewsSort} />}
+      {headlines.status === 'idle' || headlines.status === 'loading' ? <Loading>Loading headlines…</Loading> : headlines.status === 'error' ? <p className="coverage-muted">Headlines unavailable. <button onClick={e => { e.stopPropagation(); headlines.retry() }}>Retry</button></p> : sortedNews.length ? sortedNews.map((n, i) => <div key={n.articleKey || n.link || i}><a className="coverage-headline" href={n.link} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>{n.title}<span>{n.publisher} · {n.ago}</span></a><NewsAssessment analysis={n.analysis} /></div>) : <p className="coverage-muted">No recent headlines available.</p>}
     </div>
   </article>
 }

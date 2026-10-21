@@ -292,11 +292,47 @@ Important deployed variables:
 | `CORS_ORIGINS`, `UOIG_COOKIE_SAMESITE`, `UOIG_COOKIE_SECURE` | Cross-origin session configuration for Vercel → Render. |
 | `ANTHROPIC_API_KEY` | Claude chat and managed-agent access. |
 | `ANTHROPIC_AGENT_ID` | Optional override for the managed market-analysis agent. |
+| `TYPESAFE_API_KEY` | Optional backend-only Jev key for persistent news thesis/company assessments. |
+| `TYPESAFE_MODEL` | Optional pinned Jev model override; defaults to `jev-1.13.0`. Changing it creates new assessments. |
 | `ALPHAVANTAGE_API_KEY` | Optional benchmark-constituent refresh used by optimization. |
 | `VITE_API_BASE` | Public Render backend URL embedded in the Vercel frontend build. |
 
 Local secret-file fallbacks are supported and git-ignored. Do not commit API keys,
 database credentials, or WorkOS secrets.
+
+### Jev news assessments
+
+Install the backend requirements and set `TYPESAFE_API_KEY` on the backend (Render
+environment variables in production), then restart it. Never use a `VITE_` variable
+for this key. Without the key, ordinary news continues to work.
+
+Stock News and My Coverage assess up to the ten newest distinct Yahoo articles.
+The UI shows whether news supports, detracts from, or is neutral to the recorded
+thesis, plus estimated business impact and the impact assessment's confidence.
+Mixed or insufficient evidence is marked Unclear. Without a thesis, direction
+describes company implications instead. Assessments use Yahoo's title and available
+summary; headline-only inputs are labeled. Impact describes business significance
+over twelve months, not a predicted stock-price move. Confidence is model certainty,
+not investment-return probability; thesis classification confidence is in its tooltip.
+
+Date sorting is the default, with Confidence and Impact alternatives. Missing scores
+sort last. Sorting makes no API calls. Pending results refresh through
+`/api/stock/{ticker}/news-analysis`, which reads the saved feed without fetching Yahoo.
+
+The `news_analysis` table is automatically created in the existing SQLite/Postgres
+store. Completed results never expire and survive market-data reseeding; they are
+independent of the ten-minute Yahoo feed cache. Assessments are shared across users
+and keyed by ticker, article identity/content, thesis points, rubric, and pinned model.
+Changed article text or thesis points create new assessments while old ones remain.
+Database claims prevent concurrent duplicate calls. Workers are bounded to four,
+with a queue cap of forty; failures retry on subsequent requests after five minutes,
+up to three attempts per assessment. Abandoned claims recover after ten minutes.
+A crash after a remote response but before saving can require a repeated call.
+Database or Jev failures leave headlines usable and show assessment unavailable.
+
+Validate with `python -m pytest -q`, `node tests/test_news_sort.mjs`, and
+`npm --prefix web run build`. Tests mock Jev and use temporary databases; no live
+key or billable call is required.
 
 ## API overview
 

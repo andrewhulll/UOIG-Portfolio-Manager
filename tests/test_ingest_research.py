@@ -201,3 +201,62 @@ def test_stock_news_uses_fresh_shared_cache(monkeypatch):
     monkeypatch.setattr(cache, "get", lambda *args: (cached, 1))
     monkeypatch.setattr(res_mod, "yf_ticker", lambda _t: pytest.fail("must not fetch"))
     assert res_mod.stock_news("aapl")["news"][0]["title"] == "Cached"
+
+
+def test_coverage_snapshot_is_slim_and_cached(monkeypatch):
+    calls = []
+
+    class MockTicker:
+        calendar = {"Earnings Date": [dt.date(2026, 10, 28)]}
+        recommendations = pd.DataFrame([{"strongBuy": 5, "buy": 10, "hold": 3, "sell": 0, "strongSell": 0}])
+        analyst_price_targets = {"mean": 150.0, "low": 100.0, "high": 200.0, "current": 120.0}
+
+        @property
+        def news(self): calls.append("news"); return []
+        @property
+        def quarterly_income_stmt(self): calls.append("income"); return None
+        @property
+        def earnings_dates(self): calls.append("earnings_dates"); return None
+
+    store = {}
+    monkeypatch.setattr(res_mod, "yf_ticker", lambda t: MockTicker())
+    monkeypatch.setattr(cache, "get", lambda ns, k: store.get((ns, k), cache.MISS))
+    monkeypatch.setattr(cache, "set", lambda ns, k, v, ttl: store.__setitem__((ns, k), (v, 0)))
+    res_mod._COVERAGE_CACHE.clear()
+
+    data = res_mod.coverage_snapshot("aapl")
+    assert data["earnings"] == {"next": "Oct 28, 2026", "nextEstimated": False}
+    assert data["research"]["consensus"]["label"] == "Buy"
+    assert data["research"]["consensus"]["mean"] == 150.0
+    assert calls == []  # no news, financials, or earnings_dates when the calendar resolves
+
+    monkeypatch.setattr(res_mod, "yf_ticker", lambda t: pytest.fail("second read must be cached"))
+    assert res_mod.coverage_snapshot("AAPL") is data
+
+
+def test_coverage_snapshot_estimates_next_from_last_report_and_skips_empty_cache(monkeypatch):
+    class Estimated:
+        calendar = {}
+        recommendations = None
+        earnings_dates = pd.DataFrame({"Reported EPS": [1.0, None]},
+                                      index=pd.DatetimeIndex(["2026-07-30", "2026-10-29"]))
+
+    class Empty:
+        calendar = {}
+        recommendations = None
+        earnings_dates = None
+
+    written = []
+    monkeypatch.setattr(cache, "get", lambda *a: cache.MISS)
+    monkeypatch.setattr(cache, "set", lambda *a: written.append(a))
+    res_mod._COVERAGE_CACHE.clear()
+
+    monkeypatch.setattr(res_mod, "yf_ticker", lambda t: Estimated())
+    data = res_mod.coverage_snapshot("EST")
+    assert data["earnings"] == {"next": "Oct 30, 2026", "nextEstimated": True}
+    assert data["research"] is None and len(written) == 1
+
+    monkeypatch.setattr(res_mod, "yf_ticker", lambda t: Empty())
+    data = res_mod.coverage_snapshot("NONE")
+    assert data["earnings"] is None and data["research"] is None
+    assert len(written) == 1  # an all-empty (failed) fetch is not cached

@@ -2,6 +2,7 @@ import React from 'react'
 import { acknowledge, addComment, getFlags, getInbox, getQueue, markRead, removeFlag, saveFlag, submitDraft } from './api.js'
 import { getQuote, getSeries } from '../api.js'
 import { PriceChart } from '../charts/PriceChart.jsx'
+import { NewsAssessment, NewsSort, sortNews, useNewsAssessments } from '../news/NewsAssessment.jsx'
 import { SECTOR_COLORS } from '../ui.js'
 import './submissions.css'
 
@@ -224,13 +225,16 @@ function FlagAction({ item, ticker, data, reload }) {
 function AnalystNews({ news, ticker }) {
   const remote = useRemote(getFlags, [ticker])
   return <div className="submissions"><ErrorNotice error={remote.error} />{remote.error && <button onClick={remote.reload}>Retry flag status</button>}
-    {news.map((item, i) => <article className="submission-news" key={item.link || i}><a href={/^https?:\/\//i.test(item.link || '') ? item.link : undefined} target="_blank" rel="noreferrer">{item.title}</a><p className="submission-muted">{item.publisher} · {item.ago}</p>{remote.data && /^https?:\/\//i.test(item.link || '') && <FlagAction item={item} ticker={ticker} data={remote.data} reload={remote.reload} />}</article>)}
+    {news.map((item, i) => <article className="submission-news" key={item.articleKey || item.link || i}><a href={/^https?:\/\//i.test(item.link || '') ? item.link : undefined} target="_blank" rel="noreferrer">{item.title}</a><p className="submission-muted">{item.publisher} · {item.ago}</p><NewsAssessment analysis={item.analysis} />{remote.data && /^https?:\/\//i.test(item.link || '') && <FlagAction item={item} ticker={ticker} data={remote.data} reload={remote.reload} />}</article>)}
   </div>
 }
 
 export function NewsList({ auth, news, ticker }) {
-  if (isAnalyst(auth)) return <AnalystNews news={news} ticker={ticker} />
-  return <div className="submissions">{news.map((item, i) => <article className="submission-news" key={item.link || i}><a href={/^https?:\/\//i.test(item.link || '') ? item.link : undefined} target="_blank" rel="noreferrer">{item.title}</a><p className="submission-muted">{item.publisher} · {item.ago}</p></article>)}</div>
+  const [sort, setSort] = React.useState('date')
+  const assessed = useNewsAssessments(ticker, news)
+  const sorted = sortNews(assessed, sort)
+  React.useEffect(() => setSort('date'), [ticker])
+  return <div className="submissions"><NewsSort value={sort} onChange={setSort} />{isAnalyst(auth) ? <AnalystNews news={sorted} ticker={ticker} /> : sorted.map((item, i) => <article className="submission-news" key={item.articleKey || item.link || i}><a href={/^https?:\/\//i.test(item.link || '') ? item.link : undefined} target="_blank" rel="noreferrer">{item.title}</a><p className="submission-muted">{item.publisher} · {item.ago}</p><NewsAssessment analysis={item.analysis} /></article>)}</div>
 }
 
 function DigestCard({ submission, auth, onAck, onComment, busy, children }) {

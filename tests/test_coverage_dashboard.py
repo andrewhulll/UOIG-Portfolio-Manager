@@ -173,6 +173,23 @@ def test_coverage_route_enriched_without_changing_thesis(api, monkeypatch):
     assert api.call('GET', '/coverage/me?fund=bogus').status_code == 422
 
 
+def test_coverage_route_unheld_names_use_slim_fetch_in_roster_order(api, monkeypatch):
+    roster = [{'ticker': x, 'sector': 'TMT'} for x in ('EXT1', 'EXT2', 'EXT3')]
+    monkeypatch.setattr(main.auth_organization, 'user_coverage', lambda uid: roster)
+    monkeypatch.setattr(main, 'stock_research', lambda t: pytest.fail('full research bundle must not load for the coverage tab'))
+    monkeypatch.setattr(main, 'coverage_snapshot', lambda t: {
+        'earnings': {'next': 'Oct 28, 2026', 'nextEstimated': True},
+        'research': {'consensus': {'label': 'Buy', 'mean': 150.0, 'total': 9}}})
+    monkeypatch.setattr(main, 'quote_overview', lambda t: {'n': t + ' Inc', 'px': 100, 'chg': 1.5, 'mc': 10, 'forwardPE': 25})
+    monkeypatch.setattr(main, 'live_series', lambda t, p: {'dates': ['2026-09-09', '2026-09-10'], 'close': [98.0, 100.0]})
+    response = api.call('GET', '/coverage/me')
+    assert response.status_code == 200, response.text
+    cards = response.json()['tickers']
+    assert [c['ticker'] for c in cards] == ['EXT1', 'EXT2', 'EXT3']
+    assert all(not c['held'] and c['consensus']['label'] == 'Buy' for c in cards)
+    assert all(c['nextEarnings'] == 'Oct 28, 2026' and c['nextEarningsEstimated'] for c in cards)
+
+
 def test_refresh_stores_true_forward_separately(monkeypatch, conn):
     monkeypatch.setattr(fundamentals, '_info', lambda t: {'trailingPE': 35, 'revenueGrowth': .2, 'volume': 100, 'averageVolume': 200})
     fundamentals.pull_fundamentals({}, conn, ['A'])

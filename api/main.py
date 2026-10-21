@@ -13,6 +13,7 @@ import threading
 import time
 import uuid
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List
@@ -23,6 +24,7 @@ from src.logging_config import configure_logging  # noqa: E402
 configure_logging()
 
 log = logging.getLogger("uoig.auth")
+perf_log = logging.getLogger("uoig.coverage")
 
 # pandas warns when read_sql gets a raw psycopg connection (vs SQLAlchemy); the
 # queries work fine on both backends, so quiet the cosmetic noise.
@@ -45,8 +47,8 @@ from workos._errors import (AuthenticationError, BadRequestError, ConflictError,
                             UnprocessableEntityError, WorkOSError)
 from src.analytics.pnl import load_positions  # noqa: E402
 from src.analytics.coverage import context as coverage_context, position_facts  # noqa: E402
-from src.ingest.research import (closed_snapshot, stock_news,  # noqa: E402
-                                 stock_research)
+from src.ingest.research import (closed_snapshot, coverage_snapshot,  # noqa: E402
+                                 stock_news, stock_research)
 from src.ingest.lookup import (search_symbols, quote_overview,  # noqa: E402
                                live_series, institutional_holders,
                                holders_snapshot)
@@ -54,6 +56,8 @@ from src.ingest.universe import is_owned  # noqa: E402
 from src.ingest.screener import screener_fields, run_screen  # noqa: E402
 from src.ingest.predictions import stock_predictions  # noqa: E402
 from src.ingest.thesis import stock_thesis  # noqa: E402
+from src.ingest.news_analysis import enrich_news  # noqa: E402
+from src.model import cache as api_cache  # noqa: E402
 from src.assistant import answer as llm_answer, api_key as llm_key, cost_usd as llm_cost  # noqa: E402
 from src.analytics.risk import daily_returns_matrix  # noqa: E402
 from src.analytics.optimize import (fund_diagnostics, solve_optimizer,  # noqa: E402
@@ -844,6 +848,7 @@ def coverage_me(request: Request, fund: str = "all"):
     earnings date (+ countdown), and portfolio facts for each covered ticker.
     Headlines are intentionally fetched lazily by the client so slow market-data
     calls never block the initial page."""
+    request_started = time.perf_counter()
     uid = _current_user_id(request)
     if uid is None:
         raise HTTPException(401, "not authenticated")
@@ -863,7 +868,9 @@ def coverage_me(request: Request, fund: str = "all"):
     try:
         create_schema(conn)
         ctx = coverage_context(CFG, conn, fund)
+        t_db = time.perf_counter()
         pf = price_frame(conn)
+        perf_log.info("coverage/me price_frame=%.2fs rows=%d", time.perf_counter() - t_db, len(pf))
         rows = conn.execute(
             "SELECT DISTINCT h.ticker, s.name, f.market_cap, f.forward_pe "
             "FROM holdings h JOIN securities s ON s.ticker = h.ticker "
@@ -882,16 +889,19 @@ def coverage_me(request: Request, fund: str = "all"):
     finally:
         conn.close()
 
-    tickers = []
-    earnings_this_week = []
-    for row in coverage:
+    def build_card(row):
+        t0 = time.perf_counter()
         ticker = row["ticker"].upper()
-        meta = owned_meta.get(ticker.upper())
+        meta = owned_meta.get(ticker)
         bundle = _coverage_price_bundle(pf, ticker, meta)
+        t1 = time.perf_counter()
         try:
-            research = closed_snapshot(ticker) if meta else stock_research(ticker)
+            # Held names read the nightly snapshot; others get the slim
+            # earnings+consensus fetch rather than the full research bundle.
+            research = closed_snapshot(ticker) if meta else coverage_snapshot(ticker)
         except Exception:  # noqa: BLE001
             research = {}
+        t2 = time.perf_counter()
         earnings = research.get("earnings") or {}
         next_earnings = earnings.get("next")
         if next_earnings == "—":
@@ -903,7 +913,7 @@ def coverage_me(request: Request, fund: str = "all"):
             except ValueError:
                 days_until = None
         name = bundle.pop("name", None) or ticker
-        tickers.append({
+        card = {
             "ticker": ticker,
             "name": name,
             "sector": row.get("sector"),
@@ -915,9 +925,24 @@ def coverage_me(request: Request, fund: str = "all"):
             "news": [],
             "thesis": stock_thesis(ticker).get("thesis"),
             "consensus": (research.get("research") or {}).get("consensus"),
-        })
-        if days_until is not None and 0 <= days_until <= 5:
-            earnings_this_week.append(ticker)
+        }
+        perf_log.info("coverage/me %s held=%s price_bundle=%.2fs research=%.2fs",
+                 ticker, bool(meta), t1 - t0, t2 - t1)
+        return card
+
+    # Per-ticker work is dominated by yfinance network I/O, so fan it out the way
+    # /api/watchlist does. map() preserves the roster order.
+    started = time.perf_counter()
+    if len(coverage) > 1:
+        with ThreadPoolExecutor(max_workers=min(8, len(coverage))) as pool:
+            tickers = list(pool.map(build_card, coverage))
+    else:
+        tickers = [build_card(row) for row in coverage]
+    earnings_this_week = [c["ticker"] for c in tickers
+                          if c["earningsInDays"] is not None and 0 <= c["earningsInDays"] <= 5]
+    perf_log.info("coverage/me fund=%s tickers=%d setup=%.2fs cards=%.2fs total=%.2fs",
+             fund, len(coverage), started - request_started,
+             time.perf_counter() - started, time.perf_counter() - request_started)
 
     return {"tickers": tickers, "earningsThisWeek": earnings_this_week, "fund": fund}
 
@@ -1076,9 +1101,18 @@ def stock_detail(ticker: str):
 def stock_news_route(ticker: str):
     """The only short-lived stock data: fetched on News-tab demand and cached."""
     try:
-        return stock_news(ticker.upper())
+        return enrich_news(ticker.upper(), stock_news(ticker.upper()))
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(502, f"news fetch failed: {exc}")
+
+
+@app.get("/api/stock/{ticker}/news-analysis")
+def stock_news_analysis_route(ticker: str):
+    """Poll persisted assessments without fetching Yahoo news."""
+    t = ticker.upper()
+    saved = api_cache.peek("stock_news", t)
+    payload = saved[0] if saved is not api_cache.MISS else {"ticker": t, "news": []}
+    return enrich_news(t, payload)
 
 
 @app.get("/api/predictions/{ticker}")
