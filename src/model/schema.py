@@ -138,6 +138,19 @@ CREATE TABLE IF NOT EXISTS watchlist (
     created_at TEXT NOT NULL,
     PRIMARY KEY (user_id, ticker)
 );
+
+CREATE TABLE IF NOT EXISTS news_analysis (
+    analysis_key TEXT PRIMARY KEY,
+    ticker TEXT NOT NULL,
+    metadata TEXT NOT NULL,
+    status TEXT NOT NULL,
+    claim_token TEXT,
+    lease_until DOUBLE PRECISION NOT NULL,
+    retry_after DOUBLE PRECISION NOT NULL,
+    attempts INTEGER NOT NULL,
+    payload TEXT,
+    analyzed_at DOUBLE PRECISION
+);
 """
 
 SCHEMA += SUBMISSIONS_SCHEMA

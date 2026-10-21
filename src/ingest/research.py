@@ -309,8 +309,12 @@ def _news(tk):
         raw = []
     now = dt.datetime.now(dt.timezone.utc)
     out = []
-    for item in raw[:8]:
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
         c = item.get("content", item) if isinstance(item, dict) else {}
+        if not isinstance(c, dict):
+            continue
         title = c.get("title")
         if not title:
             continue
@@ -323,8 +327,27 @@ def _news(tk):
                 break
         url = url or c.get("link") or "#"
         ts = c.get("pubDate") or c.get("displayTime") or item.get("providerPublishTime")
-        out.append({"title": title, "publisher": publisher or "—", "ago": _ago(ts, now), "link": url})
-    return out or None
+        try:
+            when = (dt.datetime.fromtimestamp(float(ts), dt.timezone.utc)
+                    if isinstance(ts, (int, float)) else pd.Timestamp(ts).to_pydatetime())
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=dt.timezone.utc)
+            published = when.astimezone(dt.timezone.utc).isoformat() if ts else None
+        except (TypeError, ValueError, OverflowError, AttributeError):
+            published = None
+        out.append({"id": item.get("id") or c.get("id") or item.get("uuid"),
+                    "title": title, "summary": c.get("summary") or c.get("description") or "",
+                    "publishedAt": published, "publisher": publisher or "—",
+                    "ago": _ago(ts, now), "link": url})
+    out.sort(key=lambda article: article["publishedAt"] or "", reverse=True)
+    # Keep distinct articles; identifiers/URLs are stable across feed refreshes.
+    seen, distinct = set(), []
+    for article in out:
+        identity = article["id"] or (article["link"] if article["link"] != "#" else article["title"])
+        if identity not in seen:
+            seen.add(identity)
+            distinct.append(article)
+    return distinct[:10] or None
 
 
 _ACTION = {"up": "Upgrade", "down": "Downgrade", "main": "Maintain",
@@ -332,9 +355,8 @@ _ACTION = {"up": "Upgrade", "down": "Downgrade", "main": "Maintain",
 _CONS_LABEL = [(1.5, "Strong Buy"), (2.5, "Buy"), (3.5, "Hold"), (4.5, "Sell"), (99, "Strong Sell")]
 
 
-def _research(tk):
-    out = {}
-
+def _consensus(tk):
+    """Analyst consensus + price targets (2 yfinance calls), or None."""
     consensus = None
     try:
         rec = tk.recommendations
@@ -360,6 +382,13 @@ def _research(tk):
                               "high": _num(pt.get("high")), "current": _num(pt.get("current"))})
     except Exception:
         pass
+    return consensus
+
+
+def _research(tk):
+    out = {}
+
+    consensus = _consensus(tk)
     if consensus is not None:
         out["consensus"] = consensus
 
@@ -522,4 +551,60 @@ def stock_research(ticker: str) -> dict:
                         "fetchedAt": payload["fetchedAt"], "cached": False}
         _NEWS_CACHE[ticker] = (now, news_payload)
         cache.set("stock_news", ticker, news_payload, _NEWS_TTL)
+    return payload
+
+
+_COVERAGE_CACHE: dict[str, tuple[float, dict]] = {}
+_COVERAGE_TTL = 21600  # earnings dates and consensus barely move intraday: 6 hours
+
+
+def _next_earnings(tk):
+    """(date string, estimated?) from the calendar, else last report + 1 quarter."""
+    try:
+        edates = (tk.calendar or {}).get("Earnings Date")
+    except Exception:
+        edates = None
+    if edates:
+        try:
+            return pd.Timestamp(edates[0]).strftime("%b %d, %Y"), False
+        except Exception:
+            pass
+    try:
+        ed = tk.earnings_dates
+        if ed is not None and not ed.empty and "Reported EPS" in ed.columns:
+            past = ed[ed["Reported EPS"].notna()]
+            if not past.empty:
+                last = pd.Timestamp(past.index.max())
+                return (last + pd.DateOffset(months=3)).strftime("%b %d, %Y"), True
+    except Exception:
+        pass
+    return None, False
+
+
+def coverage_snapshot(ticker: str) -> dict:
+    """Slim research bundle for My Coverage cards of names we don't hold: just the
+    next earnings date and analyst consensus (~3 yfinance calls instead of the
+    ~10 plus news that stock_research makes), shaped like stock_research's
+    "earnings" / "research" sections."""
+    t = ticker.upper()
+    now = time.time()
+    hit = _COVERAGE_CACHE.get(t)
+    if hit and (now - hit[0]) < _COVERAGE_TTL:
+        return hit[1]
+    cached = cache.get("coverage_snapshot", t)
+    if cached is not cache.MISS:
+        value, age = cached
+        _COVERAGE_CACHE[t] = (now - age, value)
+        return value
+
+    tk = yf_ticker(t)
+    nxt, estimated = _next_earnings(tk)
+    consensus = _consensus(tk)
+    payload = {"ticker": t,
+               "earnings": {"next": nxt, "nextEstimated": estimated} if nxt else None,
+               "research": {"consensus": consensus} if consensus else None}
+    if payload["earnings"] or payload["research"]:
+        # A fully empty result is treated as an upstream failure, not cached.
+        _COVERAGE_CACHE[t] = (now, payload)
+        cache.set("coverage_snapshot", t, payload, _COVERAGE_TTL)
     return payload
