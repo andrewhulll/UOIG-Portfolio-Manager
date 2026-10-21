@@ -413,7 +413,11 @@ def run_screen(filters: list[dict], *, sort_field: str = "intradaymarketcap",
                 pass
         return yf.screen(query, **kwargs)
 
-    resp = yf_retry(_do, retry_empty=False, label="screener") or {}
+    # strict: a failed/rate-limited fetch must surface as an error, not as an
+    # empty "0 matches" result that then gets cached for the TTL.
+    resp = yf_retry(_do, retry_empty=False, label="screener", strict=True) or {}
+    if "quotes" not in resp:
+        raise RuntimeError("Yahoo returned no screener data. Please try again.")
     out = {
         "total": int(resp.get("total") or 0),
         "rows": [_map_quote(q) for q in (resp.get("quotes") or [])],
