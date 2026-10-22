@@ -111,7 +111,7 @@ def build_terminal_data(cfg: dict, conn: sqlite3.Connection) -> dict:
         mtd = mtd_return(pf, r.ticker)  # None when unknown (#124: never a fabricated 0.0)
         holdings.append({
             "t": r.ticker, "n": r.name, "s": sector, "fund": meta.get("key", r.fund),
-            "w": _clean((r.port_w or 0) * 100),
+            "w": _clean(r.port_w * 100) if pd.notna(r.port_w) else 0.0,  # unpriced holding -> 0, matching wAll (a NaN weight serialised to null and crashed the single-fund views)
             "px": px,
             "mv": _clean(r.market_value),   # shares × price, USD
             "sh": _clean(r.shares),

@@ -963,7 +963,7 @@ export default class App extends React.Component {
     const fund = this.funds[h.fund] || {}
     return {
       t: h.t, rk: (h.fund || '') + ':' + h.t, n: h.n, s: h.s, fundTag: fund.tag || h.fund, fundColor: fund.color || '#5a93f9',
-      wStr: h.w.toFixed(1) + '%', pxStr: this._num(h.px), mvStr: this._kd(h.mv),
+      wStr: (h.w ?? 0).toFixed(1) + '%', pxStr: this._num(h.px), mvStr: this._kd(h.mv),
       dayStr: h.chg != null ? this._sign(h.chg) + '%' : '—', dayColor: this._col(h.chg),
       mtdStr: h.mtd != null ? this._sign(h.mtd, 1) + '%' : '—', mtdColor: this._col(h.mtd),
       peStr: h.pe ? h.pe.toFixed(1) : '—',
@@ -2462,7 +2462,7 @@ export default class App extends React.Component {
       const vd = a.holdings.filter((h) => h.fund === fundB).reduce((s2, h) => s2 + (h.mv || 0), 0)
       const tot = gd + vd || 1
       const cards = a.holdings.map(wAll).sort((x, y) => y.w - x.w).map((h) => ({
-        t: h.t, n: h.n, wStr: h.w.toFixed(1) + '%',
+        t: h.t, n: h.n, wStr: (h.w ?? 0).toFixed(1) + '%',
         dayStr: h.chg != null ? this._sign(h.chg) + '%' : '—', dayColor: this._col(h.chg),
         mtdStr: h.mtd != null ? this._sign(h.mtd, 1) + '%' : '—', mtdColor: this._col(h.mtd),
         fundColor: (F[h.fund] || {}).color || '#5a93f9', fundTag: (F[h.fund] || {}).tag || h.fund,
@@ -2527,7 +2527,7 @@ export default class App extends React.Component {
         v.stkFacts = held ? [
           { l: 'Sector', v: h.s || '—', color: '#cdd6e8' },
           { l: 'Fund', v: f.name, color: '#cdd6e8' },
-          { l: 'Portfolio Weight', v: h.w.toFixed(1) + '%', color: '#cdd6e8' },
+          { l: 'Portfolio Weight', v: (h.w ?? 0).toFixed(1) + '%', color: '#cdd6e8' },
           { l: 'Beta (3Y)', v: h.beta != null ? h.beta.toFixed(2) : '—', color: '#cdd6e8' },
           { l: 'Day Change', v: hasChg ? this._sign(h.chg) + '%' : '—', color: hasChg ? this._col(h.chg) : '#cdd6e8' },
           { l: 'MTD Return', v: h.mtd != null ? this._sign(h.mtd, 1) + '%' : '—', color: h.mtd != null ? this._col(h.mtd) : '#cdd6e8' },
@@ -2554,7 +2554,7 @@ export default class App extends React.Component {
           }))
         if (held) {
           const ctb = (h.w != null && h.mtd != null) ? (h.w / 100) * h.mtd : null // #124: unknown MTD -> unknown contribution
-          v.stkPos = { weightStr: h.w.toFixed(1) + '%', valueStr: this._kd(h.mv), sharesStr: (h.sh != null ? Math.round(h.sh).toLocaleString('en-US') : '—'), contribStr: ctb == null ? '—' : this._sign(ctb, 2) + ' pp', contribColor: this._col(ctb) }
+          v.stkPos = { weightStr: (h.w ?? 0).toFixed(1) + '%', valueStr: this._kd(h.mv), sharesStr: (h.sh != null ? Math.round(h.sh).toLocaleString('en-US') : '—'), contribStr: ctb == null ? '—' : this._sign(ctb, 2) + ' pp', contribColor: this._col(ctb) }
         } else {
           v.stkPos = null
         }
