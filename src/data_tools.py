@@ -58,6 +58,28 @@ TOOLS = [
                     "or what the pitch is.",
      "input_schema": {"type": "object", "properties": {
          "ticker": {"type": "string"}}, "required": ["ticker"]}},
+    {"name": "search_thesis_points",
+     "description": "Semantic search over UOIG's archive of historical student equity-research "
+                    "theses (651 reports, ~396 tickers, 2013-2026). Use for thematic or "
+                    "comparative questions ('moat plays in healthcare', 'who argued margin "
+                    "expansion since 2024'). Results are historical analysis, not current fact: "
+                    "cite ticker, report_date and version_rank, and flag views with "
+                    "version_rank > 1 as superseded. Older rows have a null title.",
+     "input_schema": {"type": "object", "properties": {
+         "query": {"type": "string", "description": "Natural-language description of the thesis."},
+         "k": {"type": "integer", "description": "Results to return (default 8, max 20)."},
+         "ticker": {"type": "string", "description": "Restrict to one ticker."},
+         "since": {"type": "string", "description": "Earliest report date, YYYY-MM-DD (excludes undated reports)."},
+         "until": {"type": "string", "description": "Latest report date, YYYY-MM-DD (excludes undated reports)."},
+         "latest_only": {"type": "boolean", "description": "Only each ticker's most recent report (use for 'current view')."}},
+         "required": ["query"]}},
+    {"name": "get_ticker_history",
+     "description": "Every archived UOIG thesis point for a ticker across all pitches and "
+                    "updates, oldest to newest. Use when asked what UOIG thought of a company "
+                    "or how the view changed. Returns nothing for tickers UOIG never covered; "
+                    "say so rather than inventing a thesis.",
+     "input_schema": {"type": "object", "properties": {
+         "ticker": {"type": "string"}}, "required": ["ticker"]}},
 ]
 
 
@@ -65,6 +87,14 @@ def run_tool(name: str, inp: dict):
     """Execute a data tool. Returns (content, is_error), or None if not handled here."""
     ticker = str((inp or {}).get("ticker", "")).upper().strip()
     try:
+        if name == "search_thesis_points":
+            from src.ingest import thesis_rag
+            return (_json(thesis_rag.search_thesis_points(
+                str(inp.get("query", "")), inp.get("k", 8), ticker or None,
+                inp.get("since"), inp.get("until"), bool(inp.get("latest_only")))), False)
+        if name == "get_ticker_history":
+            from src.ingest import thesis_rag
+            return (_json(thesis_rag.ticker_history(ticker)), False)
         if name == "get_stock_fundamentals":
             return (_json(_stock_bundle(ticker)), False)
         if name == "get_predictions":
