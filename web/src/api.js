@@ -52,6 +52,7 @@ export const getOptimizeWhatif = (fund) => get(`/api/optimize/whatif/${encodeURI
 export const postOptimizeSolve = (fund, body) => post(`/api/optimize/solve/${encodeURIComponent(fund)}`, body)
 export const getPredictions = (ticker) => get(`/api/predictions/${encodeURIComponent(ticker)}`)
 export const getThesis = (ticker) => get(`/api/thesis/${encodeURIComponent(ticker)}`)
+export const getThesisHistory = (ticker) => get(`/api/thesis-history/${encodeURIComponent(ticker)}`)
 export const getMyCoverage = (fund = 'all') => get(`/api/coverage/me?fund=${encodeURIComponent(fund)}`)
 export const getMovers = (fund = 'all', window = 'MTD') => get(`/api/movers?fund=${encodeURIComponent(fund)}&window=${encodeURIComponent(window)}`)
 export const getWatchlist = () => get('/api/watchlist')

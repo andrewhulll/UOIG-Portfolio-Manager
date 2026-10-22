@@ -1,6 +1,6 @@
 import React from 'react'
 import { Analytics } from '@vercel/analytics/react'
-import { getData, getSeries, getFundSeries, getSectorSeries, getStock, getStockNews, getPredictions, getThesis, postChat, runAgent, getAgentRun, searchTickers, getQuote, getHolders, getOptimizeDiagnostics, getOptimizeWhatif, postOptimizeSolve, getMe, logout } from './api.js'
+import { getData, getSeries, getFundSeries, getSectorSeries, getStock, getStockNews, getPredictions, getThesis, getThesisHistory, postChat, runAgent, getAgentRun, searchTickers, getQuote, getHolders, getOptimizeDiagnostics, getOptimizeWhatif, postOptimizeSolve, getMe, logout } from './api.js'
 import AuthScreen from './auth/AuthScreen.jsx'
 import { LoadingScreen, ErrorScreen } from './StatusScreens.jsx'
 import { ProfilePage, PreferencesPage, OrganizationPage } from './profile/SettingsPages.jsx'
@@ -163,6 +163,7 @@ export default class App extends React.Component {
       stockNews: {},  // ticker -> {news, loadedAt} | 'loading' | 'error'
       predictions: {},  // cache: ticker -> {cards} | 'loading' | 'error'
       theses: {},  // cache: ticker -> {thesis} | 'loading' | 'error'
+      thesisHist: {},  // cache: ticker -> {points} | 'loading' | 'error' (UOIG research archive)
       quotes: {},  // cache: ticker -> overview {t,n,s,px,...} | 'loading' | 'error' (off-portfolio names)
       holders: {},  // cache: ticker -> [{holder,pct,shares,value}] | 'loading' | 'error' (top institutional)
       optimizeFund: null,  // selected fund key on the Optimize page (defaults to first fund)
@@ -794,6 +795,12 @@ export default class App extends React.Component {
     getThesis(ticker)
       .then((res) => this.setState((st) => ({ theses: { ...st.theses, [ticker]: res } })))
       .catch(() => this.setState((st) => ({ theses: { ...st.theses, [ticker]: 'error' } })))
+    if (!this.state.thesisHist[ticker]) {
+      this.setState((st) => ({ thesisHist: { ...st.thesisHist, [ticker]: 'loading' } }))
+      getThesisHistory(ticker)
+        .then((res) => this.setState((st) => ({ thesisHist: { ...st.thesisHist, [ticker]: res } })))
+        .catch(() => this.setState((st) => ({ thesisHist: { ...st.thesisHist, [ticker]: 'error' } })))
+    }
   }
 
   // ---------- charts ----------
@@ -1309,7 +1316,9 @@ export default class App extends React.Component {
       const t = v.thesisDetail
       if (t === 'loading' || t === undefined) return this._stkStub('Thesis', 'loading…', 'Loading the latest thesis.')
       if (t === 'error') return this._stkStub('Thesis', 'load failed', 'Could not load the thesis. Reopen the tab to retry.')
-      return (t.thesis && t.thesis.points && t.thesis.points.length) ? this._renderThesis(t.thesis) : this._stkStub('Thesis', 'THESIS.md', 'No thesis recorded for this holding yet. Add three points under its ticker in THESIS.md.')
+      const hist = this.state.thesisHist[this.state.ticker]
+      const archive = this._renderThesisArchive(hist)
+      return (t.thesis && t.thesis.points && t.thesis.points.length) ? <div style={s('display:flex;flex-direction:column;gap:16px;')}>{this._renderThesis(t.thesis)}{archive}</div> : (archive && hist && hist.points && hist.points.length) ? archive : this._stkStub('Thesis', 'THESIS.md', 'No thesis recorded for this holding yet. Add three points under its ticker in THESIS.md.')
     }
     if (tab === 'predictions') {
       const p = v.predDetail
@@ -1507,6 +1516,33 @@ export default class App extends React.Component {
             })}
           </div>
         ), 16) : null}
+      </div>
+    )
+  }
+
+  // Historical UOIG student research (Supabase pgvector archive), grouped by report, newest first.
+  _renderThesisArchive(h) {
+    if (!h || h === 'loading') return <div style={s("font:400 11px 'IBM Plex Mono';color:#6b7794;")}>Loading UOIG research archive…</div>
+    if (h === 'error' || !h.points || !h.points.length) return null
+    // Latest report only (dated newest; undated sort last), capped at its first three points.
+    const groups = {}
+    h.points.forEach((p) => { const k = p.source_file || String(p.report_date); (groups[k] = groups[k] || { date: p.report_date, pts: [] }).pts.push(p) })
+    const latest = Object.values(groups).sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0]
+    const pts = latest.pts.sort((a, b) => a.thesis_order - b.thesis_order).slice(0, 3)
+    return (
+      <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;padding:16px;')}>
+        <div style={s('display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;')}>
+          <span style={s("font:600 10px 'IBM Plex Sans';letter-spacing:.1em;text-transform:uppercase;color:#7e8aa6;")}>UOIG Research Archive</span>
+          <span style={s("font-family:'IBM Plex Mono';font-size:10px;color:#6b7794;")}>Most recent report · {latest.date || 'undated'} · historical student analysis</span>
+        </div>
+        <div style={s('display:flex;flex-direction:column;gap:8px;')}>
+          {pts.map((p, i) => (
+            <div key={i} style={s('background:#0a0f1a;border:1px solid #1d2840;border-radius:8px;padding:11px 13px;')}>
+              {p.title ? <div style={s("font:600 12px 'IBM Plex Sans';color:#e8edf7;margin-bottom:4px;")}>{p.title}</div> : null}
+              <div style={s("font:400 12.5px/1.55 'IBM Plex Sans';color:#cdd6e8;")}>{p.thesis_text}</div>
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
