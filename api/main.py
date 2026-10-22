@@ -65,7 +65,10 @@ from src.analytics.optimize import (fund_diagnostics, solve_optimizer,  # noqa: 
 from src.analytics.series import (price_frame, period_return, synthetic_index,  # noqa: E402
                                   ticker_series, trailing_return, mtd_return)
 from src.config import db_path, load_config  # noqa: E402
+from src.model.db import is_pg  # noqa: E402
 from src.model.schema import get_connection, create_schema  # noqa: E402
+
+_schema_ready = False  # Postgres schema is checked once per process, not per request
 
 CFG = load_config()
 
@@ -864,9 +867,13 @@ def coverage_me(request: Request, fund: str = "all"):
     except auth_organization.OrganizationError as exc:
         raise HTTPException(502, str(exc)) from exc
 
+    global _schema_ready
     conn = _conn()
     try:
-        create_schema(conn)
+        # Replaying the whole DDL on a remote database is ~0.5s of round-trips.
+        if not (is_pg(conn) and _schema_ready):
+            create_schema(conn)
+            _schema_ready = is_pg(conn)
         ctx = coverage_context(CFG, conn, fund)
         t_db = time.perf_counter()
         pf = price_frame(conn)

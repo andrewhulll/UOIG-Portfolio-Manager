@@ -111,15 +111,30 @@ def _claim(key, ticker, metadata):
         conn.close()
 
 
-def _read(key):
+def _saved(status, payload):
+    return json.loads(payload) if status == "ready" else {"status": status}
+
+
+def _read_many(keys):
+    """{key: saved assessment} for the keys that exist, over one connection.
+
+    A remote database charges a full connection handshake per call, so reading
+    ten articles one at a time made every news request cost ~2s."""
+    keys = list(dict.fromkeys(keys))
+    if not keys:
+        return {}
     conn = _connection()
     try:
-        row = conn.execute(db.q(conn, "SELECT status,payload FROM news_analysis WHERE analysis_key=?"), (key,)).fetchone()
-        if not row:
-            return None
-        return json.loads(row[1]) if row[0] == "ready" else {"status": row[0]}
+        rows = conn.execute(db.q(conn, "SELECT analysis_key,status,payload FROM news_analysis "
+                                       "WHERE analysis_key IN (" + ",".join("?" * len(keys)) + ")"),
+                            tuple(keys)).fetchall()
+        return {r[0]: _saved(r[1], r[2]) for r in rows}
     finally:
         conn.close()
+
+
+def _read(key):
+    return _read_many([key]).get(key)
 
 
 def _finish(key, token, result):
@@ -197,11 +212,19 @@ def enrich_news(ticker, payload, *, schedule=True):
     model = os.environ.get("TYPESAFE_MODEL", DEFAULT_MODEL)
     enabled = bool(os.environ.get("TYPESAFE_API_KEY", "").strip())
     articles = []
-    for article in payload.get("news", [])[:10]:
-        key, state, metadata = _context(ticker, article, thesis, model)
+    contexts = [(article, *_context(ticker, article, thesis, model))
+                for article in payload.get("news", [])[:10]]
+    try:
+        stored = _read_many([key for _, key, _, _ in contexts])
+    except Exception:
+        log.warning("News assessment storage unavailable for %s", ticker)
+        stored = None
+    for article, key, state, metadata in contexts:
         assessment = {"status": "disabled" if not enabled else "queued"}
         try:
-            saved = _read(key)
+            if stored is None:
+                raise RuntimeError("assessment storage unavailable")
+            saved = stored.get(key)
             if saved:
                 assessment = saved
             if enabled and schedule and (not saved or saved.get("status") != "ready") and _slots.acquire(blocking=False):
@@ -217,7 +240,8 @@ def enrich_news(ticker, payload, *, schedule=True):
                     _slots.release()
                     raise
         except Exception:
-            log.warning("News assessment storage unavailable for %s", ticker)
+            if stored is not None:
+                log.warning("News assessment storage unavailable for %s", ticker)
             assessment = {"status": "unavailable"}
         articles.append({**article, "articleKey": metadata["articleKey"], "analysis": assessment})
     return {**payload, "news": articles, "analysisEnabled": enabled}

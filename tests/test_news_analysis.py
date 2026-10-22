@@ -86,6 +86,17 @@ def test_no_key_and_database_failure_never_call_jev(store, monkeypatch):
     assert na.enrich_news("AAPL", {"news": [ARTICLE]})["news"][0]["analysis"]["status"] == "unavailable"
 
 
+def test_assessments_for_all_articles_load_over_one_connection(store, monkeypatch):
+    opened = []
+    real = na._connection
+    monkeypatch.setattr(na, "_connection", lambda: opened.append(1) or real())
+    monkeypatch.delenv("TYPESAFE_API_KEY")
+    articles = [{**ARTICLE, "id": f"a{i}", "link": f"https://example.com/{i}"} for i in range(10)]
+    result = na.enrich_news("AAPL", {"news": articles})
+    assert len(result["news"]) == 10
+    assert len(opened) == 1
+
+
 def test_failure_backoff_and_retry_limit(store, monkeypatch):
     calls = []
     monkeypatch.setattr(na, "_pool", ImmediatePool())
