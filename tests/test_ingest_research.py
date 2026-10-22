@@ -86,6 +86,22 @@ def test_earnings():
     assert earn["next"] == "Sep 30, 2023"
     assert earn["revActual"] == "$200"
 
+def test_news_falls_back_to_search_when_yfinance_is_empty(monkeypatch):
+    class EmptyTicker:
+        ticker = "AAPL"
+        news = []
+
+    monkeypatch.setattr(res, "_search_news", lambda t: [
+        {"uuid": "u1", "title": "Search Headline", "publisher": "TheStreet",
+         "link": "http://example.com/a", "providerPublishTime": 1792543020}])
+
+    news = res._news(EmptyTicker())
+
+    assert [a["title"] for a in news] == ["Search Headline"]
+    assert news[0]["publisher"] == "TheStreet"
+    assert news[0]["publishedAt"] is not None
+
+
 def test_news():
     class MockTicker:
         @property

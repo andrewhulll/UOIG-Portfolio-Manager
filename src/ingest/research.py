@@ -12,13 +12,19 @@ computes geometry (bar heights, consensus-bar widths) and colors.
 from __future__ import annotations
 
 import datetime as dt
+import json
+import logging
 import math
 import time
+import urllib.parse
+import urllib.request
 
 import pandas as pd
 
-from src.ingest.providers import yf_ticker
+from src.ingest.providers import to_yf, yf_session, yf_ticker
 from src.model import cache
+
+log = logging.getLogger(__name__)
 
 _CACHE: dict[str, tuple[float, dict]] = {}       # unowned full-page bundles
 _NEWS_CACHE: dict[str, tuple[float, dict]] = {}
@@ -302,11 +308,40 @@ def _earnings(tk, rev_summary):
     return most
 
 
+_SEARCH_URL = "https://query2.finance.yahoo.com/v1/finance/search"
+
+
+def _search_news(ticker: str) -> list:
+    """Yahoo search-endpoint headlines, used when yfinance's own news call is empty.
+
+    yfinance's Ticker.news depends on Yahoo's /xhr/ncp endpoint, which can start
+    returning 404; the search endpoint serves the same articles unauthenticated.
+    """
+    url = _SEARCH_URL + "?" + urllib.parse.urlencode(
+        {"q": to_yf(ticker), "newsCount": 10, "quotesCount": 0})
+    try:
+        sess = yf_session()
+        if sess is not None:
+            body = sess.get(url, timeout=15).text
+        else:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                body = resp.read().decode("utf-8")
+        news = json.loads(body).get("news") or []
+    except Exception as exc:  # noqa: BLE001 — headlines are best-effort
+        log.warning("Yahoo news search failed for %s: %s", ticker, exc)
+        return []
+    return news if isinstance(news, list) else []
+
+
 def _news(tk):
     try:
         raw = tk.news or []
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log.warning("yfinance news failed for %s: %s", getattr(tk, "ticker", "?"), exc)
         raw = []
+    if not raw and isinstance(getattr(tk, "ticker", None), str):
+        raw = _search_news(tk.ticker)
     now = dt.datetime.now(dt.timezone.utc)
     out = []
     for item in raw:
