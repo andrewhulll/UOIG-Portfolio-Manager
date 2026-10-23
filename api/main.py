@@ -1460,6 +1460,12 @@ else:
 # are matched first; this catch-all mount serves the SPA for everything else.
 from api.submissions import router as submissions_router  # noqa: E402
 app.include_router(submissions_router)
+from api.feedback import router as feedback_router  # noqa: E402
+app.include_router(feedback_router)
+from api.admin_holdings import router as admin_holdings_router  # noqa: E402
+app.include_router(admin_holdings_router)
+from api.onboarding import router as onboarding_router  # noqa: E402
+app.include_router(onboarding_router)
 from api.coverage import router as coverage_router  # noqa: E402
 app.include_router(coverage_router)
 

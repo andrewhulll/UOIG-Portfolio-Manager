@@ -1,0 +1,42 @@
+.wt{--blue:#5a93f9;--amber:#f4a531;--line:#1d2840;--text:#e8edf7;--body:#aab6cf;--muted:#6b7794;font-family:'IBM Plex Sans',system-ui,sans-serif}
+.wt-block{position:fixed;inset:0;z-index:400}
+.wt-dim{position:fixed;inset:0;z-index:401;background:rgba(4,7,12,.78);pointer-events:none}
+.wt-spot{position:fixed;z-index:401;border-radius:10px;box-shadow:0 0 0 9999px rgba(4,7,12,.74),0 0 0 2px var(--blue),0 0 0 7px #5a93f933;pointer-events:none;transition:left .25s,top .25s,width .25s,height:.25s}
+.wt-spot.extra{box-shadow:0 0 0 2px #5a93f9aa,0 0 0 7px #5a93f922}
+.wt-card{position:fixed;z-index:402;background:#0e1422;border:1px solid #25324d;border-radius:14px;box-shadow:0 30px 80px rgba(0,0,0,.6);color:var(--text);display:flex;flex-direction:column;max-height:calc(100vh - 48px)}
+.wt-card.dock{right:24px;bottom:24px;width:min(400px,calc(100vw - 32px))}
+.wt-card.center{left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,calc(100vw - 32px))}
+.wt-body{padding:24px 24px 4px;overflow-y:auto}
+.wt-body h2{font:500 26px/1.15 'IBM Plex Sans';letter-spacing:-.02em;margin:0 0 10px}
+.wt-card.center .wt-body h2{font-size:30px}
+.wt-tag{display:inline-flex;font:500 11px 'IBM Plex Sans';color:var(--amber);border:1px solid #7a5a1d;background:#f4a53110;border-radius:20px;padding:3px 10px;margin-bottom:12px}
+.wt-tag.plain{color:#8f9db9;border-color:#25324d;background:transparent}
+.wt-lede{font-size:15px;color:#cdd6e8;margin:0 0 16px;line-height:1.5}
+.wt-list{list-style:none;padding:0;margin:0 0 16px;display:grid;gap:10px}
+.wt-list li{display:grid;grid-template-columns:16px 1fr;gap:10px;color:var(--body);font-size:13.5px;line-height:1.5}
+.wt-list svg{width:15px;height:15px;margin-top:3px;stroke:var(--blue);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.wt-list b{color:var(--text);font-weight:500}
+.wt-tip{border-left:2px solid var(--blue);padding:1px 0 1px 12px;color:#b9c5de;font-size:12.5px;line-height:1.5;margin:0 0 16px}
+.wt-tip b{color:var(--text);font-weight:600}
+.wt-facts{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}
+.wt-fact{border:1px solid #25324d;border-radius:8px;padding:8px 12px;background:#0b111d}
+.wt-fact span{display:block;font-size:11px;color:var(--muted)}.wt-fact b{font-weight:500;font-size:13.5px}
+.wt-week{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:0 0 16px}
+.wt-day{border:1px solid var(--line);border-radius:8px;padding:8px 4px;text-align:center;font-size:10.5px;color:var(--muted);background:#0b111d}
+.wt-day b{display:block;font-size:12px;color:#cdd6e8;margin-bottom:3px;font-weight:600}
+.wt-day.due{border-color:#7a5a1d;background:#f4a5310f;color:#f1c476}.wt-day.due b{color:var(--amber)}
+.wt-foot{display:flex;align-items:center;gap:8px;padding:14px 24px 18px}
+.wt-btn{border:1px solid #2b3b5d;background:#13203a;color:#cdd6e8;border-radius:9px;padding:10px 16px;cursor:pointer;font:500 13px 'IBM Plex Sans'}
+.wt-btn:hover{border-color:#3d5a94}
+.wt-btn.primary{background:#2f6df6;border-color:#2f6df6;color:#fff;font-weight:600}.wt-btn.primary:hover{background:#3d79fa}
+.wt-btn:disabled{opacity:.35;cursor:default}
+.wt-btn:focus-visible,.wt-link:focus-visible,.wt-dot:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.wt-link{background:none;border:0;color:var(--muted);cursor:pointer;font:400 12.5px 'IBM Plex Sans';padding:6px 8px;border-radius:6px}.wt-link:hover{color:var(--text)}
+.wt-count{margin-left:auto;font:400 11px 'IBM Plex Mono',monospace;color:var(--muted)}
+.wt-dots{display:flex;gap:3px;padding:0 24px 0}
+.wt-dot{flex:1;height:18px;background:none;border:0;padding:0;cursor:pointer;position:relative}
+.wt-dot::after{content:"";position:absolute;left:0;right:0;top:8px;height:3px;border-radius:2px;background:#18223a}
+.wt-dot.done::after{background:#2a4a86}.wt-dot.now::after{background:var(--blue)}
+.wt-pip{position:fixed;z-index:402;width:8px;height:8px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 2px #0a0f1a;pointer-events:none}
+@media(prefers-reduced-motion:no-preference){.wt-card{animation:wt-in .2s ease-out}@keyframes wt-in{from{opacity:0}}}
+@media(max-width:720px){.wt-card.dock{right:12px;left:12px;bottom:12px;width:auto}.wt-body{padding:18px 18px 2px}.wt-foot{padding:12px 18px 16px}.wt-dots{padding:0 18px}.wt-body h2{font-size:22px}}
