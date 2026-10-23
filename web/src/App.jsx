@@ -2341,7 +2341,7 @@ export default class App extends React.Component {
     const activeMap = { dashboard: ['funds'], stocks: ['stocks'], sectors: ['sectors'], stock: ['stocks'], sector: ['sectors'], optimize: ['optimize'], screener: ['screener'], assistant: ['assistant'], coverage: ['coverage'] }
     v.nav = navDef.map(([id, label, go]) => {
       const active = id === 'inbox' ? st.view === 'inbox' : (activeMap[st.view] || []).indexOf(id) >= 0
-      const disabled = id === 'optimize'
+      const disabled = id === 'optimize' && !isAnalyst
       if (disabled) return { key: id, label, icon: this._icon(id, false), bg: 'transparent', color: '#2a3143', disabled: true, on: () => {} }
       return { key: id, label, icon: id === 'inbox' ? '✉' : this._icon(id, active), bg: active ? '#13203a' : 'transparent', color: active ? '#5a93f9' : '#5d6a85', on: () => this._go(go) }
     })
