@@ -49,8 +49,8 @@ def week_context(week=None):
 
 
 def require_analyst(user):
-    if user['role'] not in ANALYST_ROLES:
-        raise HTTPException(403, 'Only analysts can flag news and submit digests')
+    if user['role'] not in ANALYST_ROLES and not wc.is_admin(user['role']):
+        raise HTTPException(403, 'Only analysts and admins can flag news and submit digests')
 
 
 def member_for(user, members):
