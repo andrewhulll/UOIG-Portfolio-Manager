@@ -1,9 +1,11 @@
 import React from 'react'
 import { Analytics } from '@vercel/analytics/react'
-import { getData, getSeries, getFundSeries, getSectorSeries, getStock, getStockNews, getPredictions, getThesis, getThesisHistory, postChat, runAgent, getAgentRun, searchTickers, getQuote, getHolders, getOptimizeDiagnostics, getOptimizeWhatif, postOptimizeSolve, getMe, logout } from './api.js'
+import { getData, getSeries, getFundSeries, getSectorSeries, getStock, getStockNews, getPredictions, getThesis, getThesisHistory, postChat, runAgent, getAgentRun, searchTickers, getQuote, getHolders, getOptimizeDiagnostics, getOptimizeWhatif, postOptimizeSolve, getMe, logout, startOnboarding } from './api.js'
 import AuthScreen from './auth/AuthScreen.jsx'
 import { LoadingScreen, ErrorScreen } from './StatusScreens.jsx'
-import { ProfilePage, PreferencesPage, OrganizationPage } from './profile/SettingsPages.jsx'
+import { WelcomeTour } from './onboarding/WelcomeTour.jsx'
+import { FeedbackButton } from './feedback/Feedback.jsx'
+import { ProfilePage, PreferencesPage, OrganizationPage, AdminPage } from './profile/SettingsPages.jsx'
 import { MyCoverage } from './coverage/MyCoverage.jsx'
 import { Screener } from './screener/Screener.jsx'
 import { InboxPage, NewsList, WeeklySubmission } from './submissions/Submissions.jsx'
@@ -259,7 +261,7 @@ export default class App extends React.Component {
     const a = this.state.auth || {}
     const u = a.user || {}
     const roleName = a.role === 'member' ? 'Analyst' : a.role === 'sector-leader' ? 'Sector Leader' : (a.role || 'Member')
-    const open = (view) => this._navigate({ view, profileOpen: false })  // #40: via router
+    const open = (view) => view === 'tour' ? this.setState({ tour: true, profileOpen: false }) : this._navigate({ view, profileOpen: false })  // #40: via router
     return (
       <>
         <div onClick={() => this.setState({ profileOpen: false })} style={s('position:fixed;inset:0;z-index:90;')}></div>
@@ -277,6 +279,8 @@ export default class App extends React.Component {
               ['profile', '○', 'My profile', 'Identity and account details'],
               ['preferences', '⚙', 'Preferences', 'Startup and display options'],
               ['organization', '◎', 'Organization', 'Members and company coverage'],
+              ['tour', '✦', 'Take the tour', 'A short walkthrough of the terminal'],
+              ...(a.canInvite ? [['admin', '⛭', 'Admin', 'Feedback and platform management']] : []),
             ].map(([view, icon, title, subtitle]) => <button key={view} onClick={() => open(view)} className="dc-hover" style={s("width:100%;border:0;background:transparent;display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:8px;padding:10px 15px;cursor:pointer;text-align:left;color:#cdd6e8;font-family:'IBM Plex Sans';")}><span style={s('font-size:14px;color:#7283a4;')}>{icon}</span><span><span style={s('display:block;font-size:11.5px;font-weight:500;')}>{title}</span><small style={s('display:block;font-size:9px;color:#59657e;margin-top:2px;')}>{subtitle}</small></span><span style={s('color:#53617c;')}>›</span></button>)}
           </div>
           <div onClick={() => this._signOut()} className="dc-hover" style={s("display:flex;align-items:center;gap:9px;padding:12px 15px;cursor:pointer;font:500 12px 'IBM Plex Sans';color:#cdd6e8;")}>
@@ -289,6 +293,12 @@ export default class App extends React.Component {
   }
 
   componentDidUpdate(_p, prev) {
+    // First-session welcome tour: the server answers `show: true` exactly once per user
+    // (it records that it was shown), so it never reopens on later visits or devices.
+    if (this.state.auth && this.state.data && !this._tourChecked) {
+      this._tourChecked = true
+      startOnboarding().then((r) => { if (r && r.show) this.setState({ tour: true }) }).catch(() => {})
+    }
     if (prev.view !== this.state.view && this.mainRef.current) this.mainRef.current.scrollTop = 0
     if (prev.view !== this.state.view || prev.fund !== this.state.fund ||
         prev.period !== this.state.period || prev.ticker !== this.state.ticker) this._ensureSeries()
@@ -441,7 +451,7 @@ export default class App extends React.Component {
   //   /sectors             sector overview
   //   /sector/Technology   sector detail
   //   /optimize            optimizer (?tab=whatif, ?fund=tall-firs)
-  //   /inbox /coverage /organization /profile /preferences /assistant
+  //   /inbox /coverage /organization /profile /preferences /admin /assistant
   _routeSlugs() {
     const out = {}
     if (this.state.data) for (const k of this.fundKeys) out[((this.funds[k] || {}).slug) || k] = k
@@ -491,7 +501,7 @@ export default class App extends React.Component {
     if (a === 'optimize' && segs.length === 1) {
       return ok({ view: 'optimize', optimizeTab: this._validOptTab(q.get('tab')), fund: fundKey(q.get('fund')) || 'all' })
     }
-    if (segs.length === 1 && ['inbox', 'coverage', 'organization', 'profile', 'preferences', 'assistant'].includes(a)) {
+    if (segs.length === 1 && ['inbox', 'coverage', 'organization', 'profile', 'preferences', 'admin', 'assistant'].includes(a)) {
       return ok({ view: a })
     }
     return { redirect: '/' }
@@ -512,7 +522,7 @@ export default class App extends React.Component {
       const qs = qp.toString()
       return '/optimize' + (qs ? '?' + qs : '')
     }
-    if (['inbox', 'coverage', 'organization', 'profile', 'preferences', 'assistant'].includes(v)) return '/' + v
+    if (['inbox', 'coverage', 'organization', 'profile', 'preferences', 'admin', 'assistant'].includes(v)) return '/' + v
     return '/'
   }
   _titleFor(st) {
@@ -522,7 +532,7 @@ export default class App extends React.Component {
     if (st.view === 'dashboard' && st.fund && st.fund !== 'all' && st.data && this.funds[st.fund]) {
       return this.funds[st.fund].name + ' \u2014 ' + base
     }
-    const names = { dashboard: 'Dashboard', stocks: 'Holdings', sectors: 'Sectors', optimize: 'Optimize', inbox: 'Inbox', coverage: 'Coverage', organization: 'Organization', profile: 'Profile', preferences: 'Preferences', assistant: 'Co-Pilot' }
+    const names = { dashboard: 'Dashboard', stocks: 'Holdings', sectors: 'Sectors', optimize: 'Optimize', inbox: 'Inbox', coverage: 'Coverage', organization: 'Organization', profile: 'Profile', preferences: 'Preferences', admin: 'Admin', assistant: 'Co-Pilot' }
     return (names[st.view] || 'Dashboard') + ' \u2014 ' + base
   }
   _navigate(patch, opts) {
@@ -1044,6 +1054,7 @@ export default class App extends React.Component {
             {v.fundTabs.map((t) => (<span key={t.k} onClick={t.on} style={{ ...s("padding:6px 15px;border-radius:6px;cursor:pointer;font-size:11.5px;font-family:'IBM Plex Sans';"), fontWeight: t.weight, background: t.bg, color: t.color }}>{t.label}</span>))}
           </div>
           <div style={s('flex:1;')}></div>
+          <FeedbackButton view={this.state.view} />
           <div className="app-market-status" style={s("display:flex;align-items:center;gap:7px;font-family:'IBM Plex Mono';font-size:11px;color:#9aa7c2;")}><span style={{ ...s('width:7px;height:7px;border-radius:50%;'), background: v.marketOpen ? '#21d07a' : '#6b7794', animation: v.marketOpen ? 'pulseDot 2s infinite' : 'none' }}></span>{v.marketOpen ? 'MARKETS OPEN' : 'MARKETS CLOSED'}</div>
           <div className="app-asof" style={s("font-family:'IBM Plex Mono';font-size:11px;color:#6b7794;")}>{v.asOf}</div>
           <div onClick={() => this.setState((st) => ({ profileOpen: !st.profileOpen }))} title={(this.state.auth && this.state.auth.user && (this.state.auth.user.name || this.state.auth.user.email)) || 'Profile'} className="dc-hover" style={s('cursor:pointer;display:flex;')}>{this._avatar(28, 10.5)}</div>
@@ -1070,7 +1081,8 @@ export default class App extends React.Component {
             {v.isScreener && <Screener onOpenStock={(ticker) => this._openStock(ticker, 'screener')} />}
             {v.isAssistant && this._renderAssistant(v)}
             {this.state.view === 'profile' && <ProfilePage auth={this.state.auth} onNavigate={(view) => this._go(view)} onUserUpdated={(user) => this.setState((st) => ({ auth: { ...st.auth, user }, avatarImgFailed: false }))} />}
-            {this.state.view === 'preferences' && <PreferencesPage fundOptions={[{ value: 'all', label: 'All Funds' }, ...this.fundKeys.map(k => ({ value: k, label: this.funds[k].name }))]} currentFund={this.state.fund} currentPeriod={this.state.period} onNavigate={(view) => this._go(view)} onApply={(preferences) => this._navigate({ preferences, fund: preferences.defaultFund, period: preferences.defaultPeriod, optimizeFund: null }, { replace: true })} />}
+            {this.state.view === 'preferences' && <PreferencesPage auth={this.state.auth} fundOptions={[{ value: 'all', label: 'All Funds' }, ...this.fundKeys.map(k => ({ value: k, label: this.funds[k].name }))]} currentFund={this.state.fund} currentPeriod={this.state.period} onNavigate={(view) => this._go(view)} onApply={(preferences) => this._navigate({ preferences, fund: preferences.defaultFund, period: preferences.defaultPeriod, optimizeFund: null }, { replace: true })} />}
+            {this.state.view === 'admin' && (this.state.auth && this.state.auth.canInvite) && <AdminPage auth={this.state.auth} onNavigate={(view) => this._go(view)} />}
             {this.state.view === 'organization' && <OrganizationPage auth={this.state.auth} holdings={this.organizationHoldings} onNavigate={(view) => this._go(view)} onOpenStock={(ticker) => this._openStock(ticker, 'organization')} />}
             {this.state.view === 'coverage' && <MyCoverage auth={this.state.auth} fund={this.state.fund} onOpenStock={(ticker) => this._openStock(ticker, 'coverage')}><WeeklySubmission auth={this.state.auth} /></MyCoverage>}
             {this.state.view === 'inbox' && <InboxPage auth={this.state.auth} />}
@@ -1079,7 +1091,7 @@ export default class App extends React.Component {
         </div>
 
         {/* ASK-CLAUDE POPUP */}
-        {this.state.chatOpen && !['profile', 'preferences', 'organization', 'assistant'].includes(this.state.view) && (
+        {this.state.chatOpen && !['profile', 'preferences', 'organization', 'admin', 'assistant'].includes(this.state.view) && (
           <div className="no-print" style={s('position:fixed;right:22px;bottom:88px;width:374px;height:560px;max-height:calc(100vh - 120px);background:#0b0d1d;border:1px solid #241f3e;border-radius:16px;box-shadow:0 26px 64px rgba(0,0,0,.55);display:flex;flex-direction:column;overflow:hidden;z-index:60;')}>
             <div style={s('display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-bottom:1px solid #241f3e;background:linear-gradient(180deg,#140f2c,#0b0d1d);flex:0 0 auto;')}>
               <div style={s("display:flex;align-items:center;gap:8px;font:600 11px 'IBM Plex Sans';letter-spacing:.08em;text-transform:uppercase;color:#c3b9ff;")}><span style={s('font-size:15px;')}>✦</span>Ask Claude</div>
@@ -1116,7 +1128,8 @@ export default class App extends React.Component {
         )}
 
         {/* ASK-CLAUDE FAB */}
-        {!['profile', 'preferences', 'organization', 'assistant'].includes(this.state.view) && <div onClick={() => this.setState((st) => ({ chatOpen: !st.chatOpen }))} title="Ask Claude" className="no-print" style={{ ...s('position:fixed;right:22px;bottom:22px;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;font-size:23px;z-index:61;box-shadow:0 12px 30px rgba(90,79,214,.5);'), background: this.state.chatOpen ? '#2c2550' : 'linear-gradient(135deg,#5a4fd6,#3a31a8)' }}>{this.state.chatOpen ? '✕' : '✦'}</div>}
+        {!['profile', 'preferences', 'organization', 'admin', 'assistant'].includes(this.state.view) && <div onClick={() => this.setState((st) => ({ chatOpen: !st.chatOpen }))} title="Ask Claude" className="no-print" style={{ ...s('position:fixed;right:22px;bottom:22px;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;font-size:23px;z-index:61;box-shadow:0 12px 30px rgba(90,79,214,.5);'), background: this.state.chatOpen ? '#2c2550' : 'linear-gradient(135deg,#5a4fd6,#3a31a8)' }}>{this.state.chatOpen ? '✕' : '✦'}</div>}
+        {this.state.tour && this.state.auth && <WelcomeTour auth={this.state.auth} onNavigate={(view) => this._go(view)} onClose={() => this.setState({ tour: false })} />}
         <Analytics />
       </div>
     )

@@ -86,6 +86,13 @@ const put = (path, body) =>
 export const updateMemberCoverage = (id, coverage) => put(`/api/organization/members/${encodeURIComponent(id)}/coverage`, { coverage })
 export const updateMemberLeadSectors = (id, sectors) => put(`/api/organization/members/${encodeURIComponent(id)}/lead-sectors`, { sectors })
 export const updateMemberRole = (id, role) => put(`/api/organization/members/${encodeURIComponent(id)}/role`, { role })
+export const submitFeedback = (body, page) => post('/api/feedback', { body, page })
+export const getFeedback = () => get('/api/feedback')
+export const setFeedbackResolved = (id, resolved) => patch(`/api/feedback/${encodeURIComponent(id)}`, { resolved })
+export const getAdminHoldings = () => get('/api/admin/holdings')
+export const previewHoldingChanges = (body) => post('/api/admin/holdings/preview', body)
+export const applyHoldingChanges = (body) => post('/api/admin/holdings/apply', { ...body, confirm: true })
+export const startOnboarding = () => post('/api/onboarding/start')
 export const updateProfile = (body) => patch('/api/profile', body)
 // Invitee accept flow: look up an invitation by token; set a password to accept.
 export const getInvitation = (token) => get(`/api/auth/invitation?token=${encodeURIComponent(token)}`)
