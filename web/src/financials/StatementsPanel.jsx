@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { getStatements } from '../api.js'
-import { UNITS, BASE_KEY, BASE_LABEL, autoUnit, fmtValue, fmtPercent, fmtRatio, valuationCells, yoy, pctOfBase, sparkPoints, toCsv, SHARE_KEYS } from './format.js'
+import { UNITS, BASE_KEY, BASE_LABEL, autoUnit, fmtValue, fmtPercent, fmtRatio, yoy, pctOfBase, sparkPoints, toCsv, SHARE_KEYS } from './format.js'
 import './financials.css'
 
 const STATEMENTS = [['income', 'Income statement'], ['balance', 'Balance sheet'], ['cashflow', 'Cash flow'], ['ratios', 'Ratios']]
@@ -49,16 +49,6 @@ function Spark({ vals }) {
       <polyline points={pts.map((p) => p.join(',')).join(' ')} fill="none" stroke="#5a93f9" strokeWidth="1.3" strokeLinejoin="round" strokeLinecap="round" />
       <circle cx={lx} cy={ly} r="1.8" fill="#7fb0ff" />
     </svg>
-  )
-}
-
-function ValuationStrip({ valuation }) {
-  const cells = valuationCells(valuation)
-  if (!cells.length) return null
-  return (
-    <dl className="fin-valuation" aria-label="Valuation">
-      {cells.map((c) => <div key={c.key}><dt>{c.label}</dt><dd>{c.text}</dd></div>)}
-    </dl>
   )
 }
 
@@ -147,7 +137,6 @@ export function StatementsPanel({ ticker, fallback }) {
   return (
     <>
     <section className="fin-panel" aria-label="Financial statements">
-      <ValuationStrip valuation={data.valuation} />
       <div className="fin-head">
         <div className="fin-title">Financial statements<span className="fin-src"> · income_stmt, balance_sheet, cashflow</span></div>
         <div className="fin-controls">
