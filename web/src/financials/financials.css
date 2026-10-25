@@ -216,3 +216,32 @@ h2.fin-title { margin:0 0 6px; font-weight:600; }
   .fin-research .fin-range-cell { min-width:200px; }
   .fin-research .fin-filters input { width:100%; }
 }
+
+/* ---- Financials tab: statements panel, same scale as Research ---- */
+.fin-statements { padding:26px 28px 30px; }
+.fin-statements .fin-head { margin-bottom:18px; }
+.fin-statements .fin-title { font-size:12px; margin:0; }
+.fin-statements .fin-controls { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:14px 24px; margin-bottom:18px; }
+.fin-statements .fin-controls-right { display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
+.fin-statements .fin-seg button { font-size:13.5px; padding:9px 16px; }
+.fin-statements .fin-btn, .fin-statements .fin-unit select { font-size:13.5px; padding:9px 16px; }
+.fin-statements .fin-unit select { padding:9px 12px; }
+.fin-statements .fin-meta { font-size:13px; gap:6px 24px; margin-bottom:16px; color:#8a96b3; }
+.fin-statements .fin-table { font-size:13.5px; }
+.fin-statements .fin-table th, .fin-statements .fin-table td { padding:11px 18px; }
+.fin-statements .fin-table thead th { font-size:12px; color:#8a96b3; padding-top:12px; padding-bottom:12px; }
+.fin-statements .fin-table .fin-label-col { font-size:13.5px; min-width:280px; max-width:380px; padding-left:0; }
+.fin-statements .fin-table .fin-spark-col { width:96px; padding:11px 8px; }
+.fin-statements .fin-spark { width:72px; height:20px; }
+.fin-statements .fin-l2 .fin-label-col span { padding-left:22px; }
+.fin-statements .fin-table .dim { color:#8a96b3; }
+.fin-statements .fin-foot { margin-top:18px; }
+.fin-statements .fin-note { font-size:12.5px; color:#8a96b3; }
+.fin-statements .fin-notice-title { font-size:15px; }
+.fin-statements .fin-notice-body { font-size:13px; }
+@media (max-width:700px) {
+  .fin-statements { padding:16px 14px 20px; }
+  .fin-statements .fin-seg button { padding:8px 11px; font-size:12.5px; }
+  .fin-statements .fin-table .fin-label-col { min-width:130px; max-width:140px; }
+  .fin-statements .fin-table th, .fin-statements .fin-table td { padding:10px 12px; }
+}

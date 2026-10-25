@@ -136,11 +136,14 @@ export function StatementsPanel({ ticker, fallback }) {
   const missing = !grid
   return (
     <>
-    <section className="fin-panel" aria-label="Financial statements">
+    <section className="fin-panel fin-statements" aria-label="Financial statements">
       <div className="fin-head">
-        <div className="fin-title">Financial statements<span className="fin-src"> · income_stmt, balance_sheet, cashflow</span></div>
-        <div className="fin-controls">
-          <Segmented label="Statement" options={STATEMENTS} value={stmt} onChange={(k) => { setStmt(k); setShowOther(false) }} />
+        <h2 className="fin-title">Financial statements<span className="fin-src"> · income_stmt, balance_sheet, cashflow</span></h2>
+        <button type="button" className="fin-btn" onClick={download} disabled={missing}>Export CSV</button>
+      </div>
+      <div className="fin-controls">
+        <Segmented label="Statement" options={STATEMENTS} value={stmt} onChange={(k) => { setStmt(k); setShowOther(false) }} />
+        <div className="fin-controls-right">
           <Segmented label="Period" options={FREQS} value={freq} onChange={setFreq} />
           {isRatios ? null : <Segmented label="View" options={[['values', 'Values'], ['yoy', 'YoY change'], ['pct', BASE_LABEL[stmt]]]} value={mode} onChange={setMode} />}
           {isRatios ? null : <label className="fin-unit">
@@ -149,7 +152,6 @@ export function StatementsPanel({ ticker, fallback }) {
               {Object.entries(UNITS).map(([k, u]) => <option key={k} value={k}>{k === 'auto' ? `Units: auto (${UNITS[autoUnit(grid ? grid.rows : [])].label.toLowerCase()})` : u.label}</option>)}
             </select>
           </label>}
-          <button type="button" className="fin-btn" onClick={download} disabled={missing}>Export CSV</button>
         </div>
       </div>
 

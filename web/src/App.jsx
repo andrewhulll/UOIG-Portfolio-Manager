@@ -1352,34 +1352,34 @@ export default class App extends React.Component {
   _renderFinancials(fin) {
     const maxRev = Math.max.apply(null, fin.bars.map((b) => b.revenue || 0).concat([1]))
     const top = this._card('Financials', 'quarterly_income_stmt', (
-      <div style={s('display:grid;grid-template-columns:minmax(0,1fr) 430px;gap:22px;')}>
+      <div style={s('display:grid;grid-template-columns:minmax(0,1fr) minmax(380px,520px);gap:40px;')}>
         <div>
-          <div style={s("display:flex;gap:15px;font:500 10px 'IBM Plex Sans';margin-bottom:12px;")}><span style={s('color:#5a93f9;')}>■ Revenue</span><span style={s('color:#21d07a;')}>■ Net income</span></div>
-          <div style={s('display:flex;align-items:flex-end;gap:16px;height:140px;padding:0 4px;')}>
+          <div style={s("display:flex;gap:20px;font:500 12.5px 'IBM Plex Sans';margin-bottom:16px;")}><span style={s('color:#5a93f9;')}>■ Revenue</span><span style={s('color:#21d07a;')}>■ Net income</span></div>
+          <div style={s('display:flex;align-items:flex-end;gap:24px;height:190px;padding:0 4px;')}>
             {fin.bars.map((b, i) => {
               const revH = Math.max(2, (b.revenue || 0) / maxRev * 100)
               const niH = b.revenue ? Math.max(0, Math.min(100, (b.netIncome || 0) / b.revenue * 100)) : 0
               const last = i === fin.bars.length - 1
               return (
-                <div key={i} style={s('flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;height:100%;justify-content:flex-end;')}>
+                <div key={i} style={s('flex:1;display:flex;flex-direction:column;align-items:center;gap:10px;height:100%;justify-content:flex-end;')}>
                   <div style={{ ...s('position:relative;width:60%;border-radius:3px 3px 0 0;'), height: revH + '%', background: last ? '#7fb0ff' : '#5a93f9' }}><div style={{ ...s('position:absolute;left:0;right:0;bottom:0;background:#21d07a;border-radius:0 0 3px 3px;'), height: niH + '%' }}></div></div>
-                  <span style={{ ...s("font-family:'IBM Plex Mono';font-size:9px;"), color: last ? '#cdd6e8' : '#6b7794' }}>{b.period}</span>
+                  <span style={{ ...s("font-family:'IBM Plex Mono';font-size:12px;"), color: last ? '#cdd6e8' : '#8a96b3' }}>{b.period}</span>
                 </div>
               )
             })}
           </div>
-          {fin.caption ? <div style={s("font:500 11px 'IBM Plex Sans';color:#9aa7c2;margin-top:12px;")}>{fin.caption}</div> : null}
+          {fin.caption ? <div style={s("font:500 13.5px/1.5 'IBM Plex Sans';color:#b3bfd8;margin-top:18px;")}>{fin.caption}</div> : null}
         </div>
         <div>
-          <div style={s("display:grid;grid-template-columns:1fr 72px 72px 60px;gap:6px;padding-bottom:8px;border-bottom:1px solid #1d2840;font:600 8.5px 'IBM Plex Sans';letter-spacing:.05em;text-transform:uppercase;color:#6b7794;")}><span></span><span style={s('text-align:right;')}>Latest</span><span style={s('text-align:right;')}>Prior Yr</span><span style={s('text-align:right;')}>YoY</span></div>
+          <div style={s("display:grid;grid-template-columns:1fr 100px 100px 76px;gap:10px;padding-bottom:12px;border-bottom:1px solid #1d2840;font:600 12px 'IBM Plex Sans';color:#8a96b3;")}><span></span><span style={s('text-align:right;')}>Latest</span><span style={s('text-align:right;')}>Prior Yr</span><span style={s('text-align:right;')}>YoY</span></div>
           {fin.rows.map((r, i) => (
-            <div key={i} style={s('display:grid;grid-template-columns:1fr 72px 72px 60px;gap:6px;padding:8px 0;border-bottom:1px solid #131c2f;font-size:11px;')}><span style={s('color:#9aa7c2;')}>{r.label}</span><span style={s("font-family:'IBM Plex Mono';text-align:right;color:#e8edf7;")}>{r.cur}</span><span style={s("font-family:'IBM Plex Mono';text-align:right;color:#9aa7c2;")}>{r.prev}</span><span style={{ ...s("font-family:'IBM Plex Mono';text-align:right;"), color: this._yc(r.yoy) }}>{r.yoy}</span></div>
+            <div key={i} style={s('display:grid;grid-template-columns:1fr 100px 100px 76px;gap:10px;padding:13px 0;border-bottom:1px solid #131c2f;font-size:13.5px;')}><span style={s('color:#9aa7c2;')}>{r.label}</span><span style={s("font-family:'IBM Plex Mono';text-align:right;color:#e8edf7;")}>{r.cur}</span><span style={s("font-family:'IBM Plex Mono';text-align:right;color:#9aa7c2;")}>{r.prev}</span><span style={{ ...s("font-family:'IBM Plex Mono';text-align:right;"), color: this._yc(r.yoy) }}>{r.yoy}</span></div>
           ))}
         </div>
       </div>
-    ))
+    ), 26)
     return (
-      <div style={s('display:flex;flex-direction:column;gap:14px;')}>
+      <div style={s('display:flex;flex-direction:column;gap:20px;')}>
         {top}
         <StatementsPanel key={this.state.ticker} ticker={this.state.ticker}
           fallback={fin.statement && fin.statement.rows && fin.statement.rows.length ? this._statementGrid(fin.statement) : null} />
