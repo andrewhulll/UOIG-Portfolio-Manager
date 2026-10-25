@@ -5,6 +5,8 @@ import AuthScreen from './auth/AuthScreen.jsx'
 import { LoadingScreen, ErrorScreen } from './StatusScreens.jsx'
 import { ProfilePage, PreferencesPage, OrganizationPage } from './profile/SettingsPages.jsx'
 import { MyCoverage } from './coverage/MyCoverage.jsx'
+import { StatementsPanel } from './financials/StatementsPanel.jsx'
+import { ResearchPanel } from './financials/ResearchPanel.jsx'
 import { Screener } from './screener/Screener.jsx'
 import { InboxPage, NewsList, WeeklySubmission } from './submissions/Submissions.jsx'
 import { PriceChart, fmtChartDate, smoothPath } from './charts/PriceChart.jsx'
@@ -1317,6 +1319,8 @@ export default class App extends React.Component {
       if (p === 'error') return this._stkStub('Predictions', 'fetch failed', 'Could not reach Kalshi. Reopen the tab to retry.')
       return (p.cards && p.cards.length) ? this._renderPredictions(p.cards) : this._stkStub('Predictions', 'Kalshi', 'No prediction markets are mapped for this holding yet. Add up to five in PREDICTION_MARKETS.md.')
     }
+    // Research is the analyst-consensus section; it has its own fetch, independent of the stock bundle.
+    if (tab === 'research') return <ResearchPanel key={this.state.ticker} ticker={this.state.ticker} />
     const d = v.stkDetail
     if (d === 'loading' || d === undefined) return v.stk && v.stk.held
       ? this._stkStub(v.stkTab, 'loading nightly snapshot…', 'Reading the latest finalized holding data from the portfolio store.')
@@ -1377,7 +1381,8 @@ export default class App extends React.Component {
     return (
       <div style={s('display:flex;flex-direction:column;gap:14px;')}>
         {top}
-        {fin.statement && fin.statement.rows && fin.statement.rows.length ? this._statementGrid(fin.statement) : null}
+        <StatementsPanel key={this.state.ticker} ticker={this.state.ticker}
+          fallback={fin.statement && fin.statement.rows && fin.statement.rows.length ? this._statementGrid(fin.statement) : null} />
       </div>
     )
   }

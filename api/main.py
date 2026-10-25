@@ -49,6 +49,8 @@ from src.analytics.pnl import load_positions  # noqa: E402
 from src.analytics.coverage import context as coverage_context, position_facts  # noqa: E402
 from src.ingest.research import (closed_snapshot, coverage_snapshot,  # noqa: E402
                                  stock_news, stock_research)
+from src.ingest.statements import (statements_snapshot,  # noqa: E402
+                                   stock_statements)
 from src.ingest.lookup import (search_symbols, quote_overview,  # noqa: E402
                                live_series, institutional_holders,
                                holders_snapshot)
@@ -1102,6 +1104,23 @@ def stock_detail(ticker: str):
         return {**payload, "owned": owned}
     except Exception as exc:  # noqa: BLE001 — surface upstream failure as 502
         raise HTTPException(502, f"research fetch failed: {exc}")
+
+
+@app.get("/api/stock/{ticker}/statements")
+def stock_statements_route(ticker: str):
+    """Full statements, ratios and consensus for the Financials tab. Loaded when
+    the tab opens, not with the stock bundle. Owned names read the nightly
+    snapshot only; others fetch live behind a 6h cache."""
+    try:
+        conn = _conn()
+        try:
+            owned = is_owned(conn, ticker)
+        finally:
+            conn.close()
+        payload = statements_snapshot(ticker) if owned else stock_statements(ticker.upper())
+        return {**payload, "owned": owned}
+    except Exception as exc:  # noqa: BLE001 — surface upstream failure as 502
+        raise HTTPException(502, f"statements fetch failed: {exc}")
 
 
 @app.get("/api/stock/{ticker}/news")

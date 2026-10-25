@@ -72,6 +72,17 @@ def _row(df, *names):
     return None
 
 
+def _at(series, col):
+    """Value of one period, or None when that period isn't in the series.
+
+    Income and cash-flow frames don't always share columns (banks, or a quarter
+    Yahoo has reported for one statement only), so a plain series[col] can raise.
+    """
+    if series is None or col is None or col not in series.index:
+        return None
+    return _num(series[col])
+
+
 def _ago(ts, now):
     """ISO string or epoch seconds -> '2h ago'."""
     try:
@@ -129,7 +140,7 @@ def _financials(tk):
     def yoy(series):
         if series is None or yearago is None:
             return None
-        a, b = _num(series[latest]), _num(series[yearago])
+        a, b = _at(series, latest), _at(series, yearago)
         if a is None or not b:
             return None
         return (a - b) / abs(b) * 100
@@ -140,8 +151,8 @@ def _financials(tk):
         if series is None:
             return None
         return {"label": label,
-                "cur": _money(series[latest]) or "—",
-                "prev": (_money(series[yearago]) if yearago is not None else None) or "—",
+                "cur": _money(_at(series, latest)) or "—",
+                "prev": _money(_at(series, yearago)) or "—",
                 "yoy": _pct(yoy(series), 0) or "—"}
 
     rows = []

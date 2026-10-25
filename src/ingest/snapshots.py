@@ -7,6 +7,7 @@ import time
 from src.config import db_path
 from src.ingest.lookup import institutional_holders
 from src.ingest.research import refresh_closed_snapshot
+from src.ingest.statements import has_data, refresh_statements_snapshot
 from src.ingest.universe import owned_tickers
 from src.model import schema
 
@@ -25,7 +26,7 @@ def refresh_owned_snapshots(cfg: dict, conn=None) -> dict:
     if own:
         conn.close()
 
-    summary = {"tickers": len(tickers), "research": 0, "holders": 0, "failed": []}
+    summary = {"tickers": len(tickers), "research": 0, "statements": 0, "holders": 0, "failed": []}
     pause = float((cfg.get("market_data") or {}).get("request_pause_seconds", 0))
     for index, ticker in enumerate(tickers):
         if index and pause > 0:
@@ -39,6 +40,13 @@ def refresh_owned_snapshots(cfg: dict, conn=None) -> dict:
                 failures.append("research-empty")
         except Exception as exc:  # noqa: BLE001 — preserve other tickers/sections
             failures.append(f"research:{exc}")
+        try:
+            if has_data(refresh_statements_snapshot(ticker)):
+                summary["statements"] += 1
+            else:
+                failures.append("statements-empty")
+        except Exception as exc:  # noqa: BLE001
+            failures.append(f"statements:{exc}")
         try:
             institutional_holders(ticker, force=True, ttl=_SNAPSHOT_TTL)
             summary["holders"] += 1
