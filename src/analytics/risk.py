@@ -15,6 +15,7 @@ import sqlite3
 import numpy as np
 import pandas as pd
 
+from src.analytics.series import load_prices
 from src.config import db_path
 from src.model.schema import get_connection
 
@@ -24,8 +25,7 @@ TRADING_DAYS = 252
 
 def daily_returns_matrix(conn: sqlite3.Connection, years: float) -> pd.DataFrame:
     """Wide (date x ticker) daily simple returns over the trailing window."""
-    p = pd.read_sql(
-        "SELECT ticker, date, adj_close FROM prices WHERE source = 'yfinance'", conn)
+    p = load_prices(conn)[["ticker", "date", "adj_close"]]
     if p.empty:
         return pd.DataFrame()
     p["date"] = pd.to_datetime(p["date"])

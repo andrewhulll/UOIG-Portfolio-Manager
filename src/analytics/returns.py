@@ -17,6 +17,7 @@ import sqlite3
 import numpy as np
 import pandas as pd
 
+from src.analytics.series import load_prices
 from src.config import db_path
 from src.model.schema import get_connection
 
@@ -52,8 +53,7 @@ def _compute_window(row, by, last_date) -> pd.Series:
 
 def enrich_returns(positions: pd.DataFrame, conn: sqlite3.Connection) -> pd.DataFrame:
     """Add days_held, hp_tr, bench_tr, excess_tr, ann_tr, contribution per position."""
-    prices = pd.read_sql(
-        "SELECT ticker, date, adj_close FROM prices WHERE source = 'yfinance'", conn)
+    prices = load_prices(conn)[["ticker", "date", "adj_close"]]
     prices["date"] = pd.to_datetime(prices["date"])
     by = {t: g.set_index("date")["adj_close"].sort_index()
           for t, g in prices.groupby("ticker")}

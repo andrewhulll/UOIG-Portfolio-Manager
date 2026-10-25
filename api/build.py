@@ -16,9 +16,10 @@ import pandas as pd
 from src.analytics.pnl import load_positions
 from src.analytics.returns import enrich_returns
 from src.analytics.risk import _beta, add_betas, daily_returns_matrix, fund_risk_table
-from src.analytics.series import (PERIODS, div_yield_ttm, mtd_return, period_return,
+from src.analytics.series import (PERIODS, mtd_return, period_return,
                                   price_frame, ticker_series)
 from src.model import schema as _schema
+from src.model.db import is_pg
 
 # fund key + display styling
 FUND_META = {
@@ -77,8 +78,16 @@ def _wavg(pairs):
     return num / den if den else None
 
 
+_schema_ready = False
+
+
 def build_terminal_data(cfg: dict, conn: sqlite3.Connection) -> dict:
-    _schema.create_schema(conn)  # idempotent; ensures latest migrated columns exist
+    # Idempotent; ensures latest migrated columns exist. Replaying the DDL on a
+    # remote Postgres is ~0.5s of round trips, so do it once per process there.
+    global _schema_ready
+    if not (is_pg(conn) and _schema_ready):
+        _schema.create_schema(conn)
+        _schema_ready = is_pg(conn)
     pos = enrich_returns(load_positions(cfg, conn), conn)
     rets = daily_returns_matrix(conn, (cfg.get("risk") or {}).get("beta_window_years", 3))
     pos = add_betas(pos, rets)
@@ -90,10 +99,25 @@ def build_terminal_data(cfg: dict, conn: sqlite3.Connection) -> dict:
         "SELECT ticker, gics_sector, pe, pb, market_cap, week52_low, week52_high, "
         "description, ev_ebitda, div_yield_provider FROM fundamentals").fetchall()}
 
+    # Trailing-12m yield from our dividends table, computed from one prefetch
+    # (the per-holding div_yield_ttm made two round trips per name on Postgres).
+    divs: dict = {}
+    for dt_ticker, ex_date, amount in conn.execute(
+            "SELECT ticker, ex_date, amount FROM dividends").fetchall():
+        divs.setdefault(dt_ticker, []).append((str(ex_date), float(amount or 0)))
+    last_px = pf.groupby("ticker")["date"].max()
+
+    def _db_yield(ticker, px):
+        if not px or ticker not in last_px.index:
+            return None
+        cutoff = (last_px[ticker].date() - dt.timedelta(days=365)).isoformat()
+        total = sum(a for d, a in divs.get(ticker, ()) if d >= cutoff)
+        return total / px * 100 if total else 0.0
+
     def _dy(ticker, px):
         # #43: our dividends table first; fall back to the provider's reported
         # TTM yield (backfilled by the fundamentals refresh) when it has nothing.
-        db_yield = div_yield_ttm(conn, ticker, px)
+        db_yield = _db_yield(ticker, px)
         if db_yield:
             return db_yield
         row = funda.get(ticker)

@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import datetime as dt
 import sqlite3
+import threading
+import time
 
 import numpy as np
 import pandas as pd
@@ -22,9 +24,32 @@ def period_start(last: dt.date, period: str) -> dt.date:
     return last - dt.timedelta(days=_DAYS.get(period, 365))
 
 
+_PRICES_SQL = ("SELECT ticker, date, close, adj_close FROM prices "
+               "WHERE source = 'yfinance'")
+_PRICES_TTL = 300.0  # prices only change in the nightly refresh
+_prices_cache: dict = {"at": 0.0, "df": None}
+_prices_lock = threading.Lock()
+
+
+def load_prices(conn) -> pd.DataFrame:
+    """Raw yfinance price rows (ticker, date, close, adj_close).
+
+    On Postgres this table is ~90k rows, and one request used to pull it three
+    times over the network (~seconds each). A process-wide copy is reused for
+    five minutes; callers get their own copy so they may mutate it. SQLite reads
+    straight through, so local runs and tests see live data.
+    """
+    if not _db.is_pg(conn):
+        return pd.read_sql(_PRICES_SQL, conn)
+    with _prices_lock:
+        if _prices_cache["df"] is None or time.monotonic() - _prices_cache["at"] > _PRICES_TTL:
+            _prices_cache["df"] = pd.read_sql(_PRICES_SQL, conn)
+            _prices_cache["at"] = time.monotonic()
+        return _prices_cache["df"].copy()
+
+
 def price_frame(conn: sqlite3.Connection) -> pd.DataFrame:
-    p = pd.read_sql("SELECT ticker, date, close, adj_close FROM prices "
-                    "WHERE source = 'yfinance'", conn)
+    p = load_prices(conn)
     p["date"] = pd.to_datetime(p["date"])
     return p.sort_values(["ticker", "date"])
 
