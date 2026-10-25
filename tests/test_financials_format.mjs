@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { fmtValue, fmtPercent, yoy, pctOfBase, sparkPoints, autoUnit, toCsv,
   fmtRatio, fmtCompact, valuationCells, trackPos, upside, revisionChange, gradeText, targetText,
-  ratingLabel, ratingOrder, filterBroker } from '../web/src/financials/format.js'
+  ratingLabel, ratingOrder, filterBroker, consensusLabel, buyShare } from '../web/src/financials/format.js'
 
 const money = { key: 'revenue', kind: 'flow', level: 0 }
 assert.equal(fmtValue(416161000000, money, 'B'), '416.16')
@@ -71,4 +71,10 @@ const log = [{ firm: 'JP Morgan', action: 'main' }, { firm: 'Loop Capital', acti
 assert.equal(filterBroker(log, { firm: 'loop' }).length, 1)
 assert.equal(filterBroker(log, { action: 'main' })[0].firm, 'JP Morgan')
 assert.equal(filterBroker(log).length, 2)
+assert.equal(consensusLabel({ strongBuy: 6, buy: 18, hold: 14, sell: 3, strongSell: 3, total: 44 }), 'Hold')
+assert.equal(consensusLabel({ strongBuy: 7, buy: 31, hold: 2, sell: 1, strongSell: 0, total: 41 }), 'Buy')
+assert.equal(consensusLabel({ strongBuy: 10, buy: 0, hold: 0, sell: 0, strongSell: 0, total: 10 }), 'Strong buy')
+assert.equal(consensusLabel({ total: 0 }), null)
+assert.equal(consensusLabel(null), null)
+assert.ok(Math.abs(buyShare({ strongBuy: 6, buy: 18, total: 44 }) - 24 / 44) < 1e-9)
 console.log('financials format: ok')

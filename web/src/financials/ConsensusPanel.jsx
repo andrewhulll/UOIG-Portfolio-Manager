@@ -1,16 +1,16 @@
 import React, { useMemo, useState } from 'react'
 import {
   fmtCompact, fmtPercent, fmtPrice, trackPos, upside, revisionChange, ACTION_LABEL, gradeText, targetText,
-  RATING_KEYS, ratingLabel, ratingOrder, filterBroker,
+  RATING_KEYS, ratingLabel, ratingOrder, filterBroker, consensusLabel, buyShare,
 } from './format.js'
 
-const SHOWN = 25
+const SHOWN = 10
 const eps = (v) => (v == null ? '—' : v < 0 ? `(${Math.abs(v).toFixed(2)})` : v.toFixed(2))
 const tone = (v) => (v == null || v === 'n/m' ? 'dim' : v < 0 ? 'neg' : v > 0 ? 'pos' : '')
 
-function Card({ title, note, wide, third, children }) {
+function Card({ title, note, wide, half, children }) {
   return (
-    <section className={`fin-card${wide ? ' fin-wide' : ''}${third ? ' fin-third' : ''}`}>
+    <section className={`fin-card${wide ? ' fin-wide' : ''}${half ? ' fin-half' : ''}`}>
       <h3 className="fin-card-title">{title}</h3>
       {note ? <p className="fin-card-note">{note}</p> : null}
       {children}
@@ -121,7 +121,7 @@ function Targets({ t, cur }) {
   const up = upside(t.mean, t.current)
   const pos = (v) => trackPos(v, lo, hi)
   return (
-    <Card third title="Price targets" note={cur ? `In ${cur}, the currency the stock trades in.` : undefined}>
+    <Card half title="Price targets" note={cur ? `In ${cur}, the currency the stock trades in.` : undefined}>
       <div className="fin-target">
         <div className="fin-target-head">
           <div><div className="fin-big">{fmtPrice(t.mean)}</div><div className="fin-sub">Mean target</div></div>
@@ -147,14 +147,23 @@ function Targets({ t, cur }) {
 
 function Ratings({ rows }) {
   const ordered = ratingOrder(rows)
+  const now = rows[0]
+  const label = consensusLabel(now)
+  const share = buyShare(now)
   return (
-    <Card third title="Analyst ratings" note="How many analysts rate it each way, by month.">
+    <Card half title="Analyst ratings" note="How many analysts rate it each way, month by month.">
+      {label ? (
+        <div className="fin-verdict">
+          <div className="fin-big">{label}</div>
+          <div className="fin-sub">{now.total} analysts{share != null ? `, ${Math.round(share * 100)}% rate it buy or better` : ''}</div>
+        </div>
+      ) : null}
       <div className="fin-ratings">
         {ordered.map((r) => (
           <div className="fin-rating-row" key={r.period}>
             <span className="fin-rating-label">{ratingLabel(r.period)}</span>
             <span className="fin-rating-bar" role="img" aria-label={RATING_KEYS.map(([k, l]) => `${r[k]} ${l.toLowerCase()}`).join(', ')}>
-              {RATING_KEYS.map(([k, , color]) => (r[k] ? <span key={k} style={{ width: (r[k] / r.total) * 100 + '%', background: color }} title={`${r[k]}`} /> : null))}
+              {RATING_KEYS.map(([k, , color]) => (r[k] ? <span key={k} style={{ width: (r[k] / r.total) * 100 + '%', background: color }} title={`${r[k]}`}>{r[k] / r.total >= 0.09 ? r[k] : ''}</span> : null))}
             </span>
             <span className="fin-rating-total">{r.total}</span>
           </div>
@@ -166,16 +175,16 @@ function Ratings({ rows }) {
 }
 
 function Growth({ rows }) {
+  const diff = (r) => (r.stock == null || r.index == null ? null : r.stock - r.index)
   return (
-    <Card third title="Expected growth" note="Estimated earnings growth for the stock against its index.">
+    <Card wide title="Expected growth" note="Estimated earnings growth for the stock against its index. A positive gap means analysts expect it to grow faster than the market.">
       <div className="fin-scroll" tabIndex={0} role="region" aria-label="Growth estimates">
-        <table className="fin-table fin-compact">
-          <thead><tr><th scope="col" className="fin-label-col">Period</th><th scope="col">Stock</th><th scope="col">Index</th></tr></thead>
+        <table className="fin-table fin-compact fin-growth">
+          <thead><tr><th scope="col" className="fin-label-col"><span className="fin-sr">Measure</span></th>{rows.map((r) => <th scope="col" key={r.key}>{r.period}</th>)}</tr></thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.key}><th scope="row" className="fin-label-col">{r.period}</th>
-                <td className={tone(r.stock)}>{fmtPercent(r.stock)}</td><td className="dim">{fmtPercent(r.index)}</td></tr>
-            ))}
+            <tr><th scope="row" className="fin-label-col">Stock</th>{rows.map((r) => <td key={r.key} className={tone(r.stock)}>{fmtPercent(r.stock)}</td>)}</tr>
+            <tr><th scope="row" className="fin-label-col">Index</th>{rows.map((r) => <td key={r.key} className="dim">{fmtPercent(r.index)}</td>)}</tr>
+            <tr><th scope="row" className="fin-label-col">Gap</th>{rows.map((r) => { const d = diff(r); return <td key={r.key} className={tone(d)}>{d == null ? '—' : (d > 0 ? '+' : '') + fmtPercent(d)}</td> })}</tr>
           </tbody>
         </table>
       </div>
@@ -227,7 +236,7 @@ function BrokerLog({ log }) {
 export function ConsensusPanel({ consensus, currency }) {
   if (!consensus) {
     return (
-      <section className="fin-panel" aria-label="Analyst consensus">
+      <section className="fin-panel fin-research" aria-label="Analyst consensus">
         <h2 className="fin-title">Analyst consensus</h2>
         <div className="fin-notice"><div className="fin-notice-title">No analyst coverage found</div>
           <div className="fin-notice-body">Yahoo Finance has no estimates, price targets or broker actions for this security.</div></div>
@@ -236,15 +245,15 @@ export function ConsensusPanel({ consensus, currency }) {
   }
   const c = consensus
   return (
-    <section className="fin-panel" aria-label="Analyst consensus">
+    <section className="fin-panel fin-research" aria-label="Analyst consensus">
       <h2 className="fin-title">Analyst consensus<span className="fin-src"> · earnings_estimate, revenue_estimate, analyst_price_targets, upgrades_downgrades</span></h2>
       <p className="fin-card-note fin-intro">Yahoo publishes consensus summaries, not the analysts' own models. Line-item forecasts would need a data service such as CapIQ or FactSet.</p>
       <div className="fin-grid">
+        {c.targets ? <Targets t={c.targets} cur={currency && currency.trading} /> : null}
+        {c.ratingTrend && c.ratingTrend.length ? <Ratings rows={c.ratingTrend} /> : null}
         {c.estimates && c.estimates.length ? <Estimates rows={c.estimates} cur={currency && currency.reporting} /> : null}
         {c.revisions && c.revisions.length ? <Revisions rows={c.revisions} /> : null}
         {c.surprises && c.surprises.length ? <Surprises rows={c.surprises} /> : null}
-        {c.targets ? <Targets t={c.targets} cur={currency && currency.trading} /> : null}
-        {c.ratingTrend && c.ratingTrend.length ? <Ratings rows={c.ratingTrend} /> : null}
         {c.growth && c.growth.length ? <Growth rows={c.growth} /> : null}
         {c.brokerLog && c.brokerLog.length ? <BrokerLog log={c.brokerLog} /> : null}
       </div>

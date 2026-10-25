@@ -133,3 +133,86 @@ h2.fin-title { margin:0 0 6px; font-weight:600; }
   .fin-range { width:44px; margin:0 5px; }
   .fin-filters input { width:100%; }
 }
+
+/* ---- Research tab: roomier, larger type, content-width tables ---- */
+.fin-research { padding:26px 28px 30px; max-width:1480px; }
+.fin-research .fin-title { font-size:12px; margin-bottom:8px; }
+.fin-research .fin-intro { font-size:13px; line-height:1.6; max-width:640px; margin:0 0 24px; color:#8a96b3; }
+.fin-research .fin-grid { gap:24px; }
+.fin-research .fin-card { padding:22px 24px 24px; border-radius:10px; }
+.fin-research .fin-card-title { font-size:16px; font-weight:600; letter-spacing:0; color:#e8edf7; }
+.fin-research .fin-card-note { font-size:12.5px; line-height:1.55; color:#8a96b3; margin:6px 0 16px; max-width:62ch; }
+
+.fin-research .fin-grid > .fin-half { grid-column:span 3; }
+.fin-research .fin-table { font-size:13.5px; }
+.fin-research .fin-compact { width:auto; min-width:0; }
+.fin-research .fin-compact th, .fin-research .fin-compact td { padding:11px 18px; }
+.fin-research .fin-compact thead th { font-size:12px; font-weight:600; color:#8a96b3; padding-bottom:10px; }
+.fin-research .fin-compact .fin-label-col { font-size:13.5px; min-width:110px; padding-left:0; }
+.fin-research .fin-compact thead .fin-label-col { padding-left:0; }
+.fin-research .fin-scroll { border-top:1px solid #1d2840; }
+.fin-research .fin-table .dim { color:#8a96b3; }
+.fin-research .fin-table td strong { color:#e8edf7; font-weight:600; }
+
+.fin-research .fin-range { width:120px; margin:0 12px; }
+.fin-research .fin-range-track { height:5px; }
+.fin-research .fin-range-mark { height:13px; top:-4px; width:3px; }
+.fin-research .fin-range-lo, .fin-research .fin-range-hi { font-size:12px; color:#8a96b3; }
+.fin-research .fin-range-cell { min-width:280px; }
+
+.fin-research .fin-diverge { width:150px; }
+.fin-research .fin-diverge-bar { height:12px; top:13px; }
+
+/* the two summary cards */
+.fin-research .fin-big { font-size:34px; line-height:1.1; font-weight:600; color:#f1f5fc; letter-spacing:-.01em; }
+.fin-research .fin-sub { font-size:13px; color:#8a96b3; }
+.fin-research .fin-target { gap:18px; }
+.fin-research .fin-up { font-size:20px; }
+.fin-research .fin-target-track { height:36px; margin:10px 8px 0; }
+.fin-research .fin-target-line { top:15px; height:6px; border-radius:3px; }
+.fin-research .fin-tick { top:4px; height:28px; width:4px; margin-left:-2px; }
+.fin-research .fin-tick-median { top:10px; height:16px; }
+.fin-research .fin-tick-now { width:5px; margin-left:-2.5px; }
+.fin-research .fin-target-scale { font-size:12.5px; color:#8a96b3; }
+.fin-research .fin-legend { font-size:12.5px; gap:6px 20px; color:#9aa7c2; }
+.fin-research .fin-dot { width:10px; height:10px; margin-right:7px; }
+.fin-research .fin-dot.fin-tick-now, .fin-research .fin-dot.fin-tick-mean, .fin-research .fin-dot.fin-tick-median { width:10px; height:10px; margin-left:0; }
+
+.fin-verdict { display:flex; flex-direction:column; gap:4px; margin:2px 0 20px; }
+.fin-research .fin-ratings { gap:12px; }
+.fin-research .fin-rating-row { grid-template-columns:78px minmax(0,1fr) 34px; gap:14px; font-size:13px; }
+.fin-research .fin-rating-bar { height:24px; border-radius:4px; }
+.fin-research .fin-rating-bar > span { display:flex; align-items:center; justify-content:center; font:600 11.5px 'IBM Plex Mono',monospace; color:#0b1120; }
+.fin-research .fin-rating-total { font-size:13px; }
+
+.fin-research .fin-growth th, .fin-research .fin-growth td { text-align:right; }
+.fin-research .fin-growth .fin-label-col { text-align:left; }
+
+.fin-research .fin-filters { gap:10px 12px; margin-bottom:14px; }
+.fin-research .fin-filters input, .fin-research .fin-filters select { font-size:13px; padding:9px 12px; }
+.fin-research .fin-filters input { width:240px; }
+.fin-research .fin-note { font-size:12.5px; color:#8a96b3; }
+.fin-research .fin-log { width:100%; max-width:1100px; }
+.fin-research .fin-log th, .fin-research .fin-log td { padding:12px 18px; }
+.fin-research .fin-log td:nth-child(n+2), .fin-research .fin-log thead th:nth-child(n+2) { text-align:left; }
+.fin-research .fin-log td:last-child, .fin-research .fin-log thead th:last-child { text-align:right; }
+.fin-research .fin-more { margin-top:14px; font-size:13px; padding:9px 16px; }
+.fin-research .fin-btn { font-size:13px; }
+.fin-research .fin-notice-title { font-size:15px; }
+.fin-research .fin-notice-body { font-size:13px; }
+
+@media (max-width:1100px) {
+  .fin-research .fin-grid > .fin-half { grid-column:1 / -1; }
+}
+@media (max-width:700px) {
+  .fin-research { padding:16px 14px 20px; }
+  .fin-research .fin-card { padding:16px 14px 18px; }
+  .fin-research .fin-grid { gap:16px; }
+  .fin-research .fin-big { font-size:28px; }
+  .fin-research .fin-rating-row { grid-template-columns:58px minmax(0,1fr) 24px; gap:8px; font-size:12px; }
+  .fin-research .fin-rating-bar > span { font-size:10.5px; }
+  .fin-research .fin-compact th, .fin-research .fin-compact td { padding:10px 12px; }
+  .fin-research .fin-range { width:70px; margin:0 8px; }
+  .fin-research .fin-range-cell { min-width:200px; }
+  .fin-research .fin-filters input { width:100%; }
+}

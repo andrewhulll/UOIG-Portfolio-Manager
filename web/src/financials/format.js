@@ -157,3 +157,14 @@ export function filterBroker(log, { firm = '', action = 'all' } = {}) {
   const q = firm.trim().toLowerCase()
   return log.filter((r) => (action === 'all' || r.action === action) && (!q || (r.firm || '').toLowerCase().includes(q)))
 }
+
+// Consensus label from the newest month of ratings, same weighting as the backend
+// (strong sell counts as a sell): mean 1 = strong buy ... 4.5 = strong sell.
+const CONSENSUS_CUTS = [[1.5, 'Strong buy'], [2.5, 'Buy'], [3.5, 'Hold'], [4.5, 'Sell'], [99, 'Strong sell']]
+export function consensusLabel(r) {
+  if (!r || !r.total) return null
+  const sells = (r.sell || 0) + (r.strongSell || 0)
+  const mean = ((r.strongBuy || 0) * 1 + (r.buy || 0) * 2 + (r.hold || 0) * 3 + sells * 4.5) / r.total
+  return CONSENSUS_CUTS.find(([cut]) => mean <= cut)[1]
+}
+export const buyShare = (r) => (r && r.total ? ((r.strongBuy || 0) + (r.buy || 0)) / r.total : null)
