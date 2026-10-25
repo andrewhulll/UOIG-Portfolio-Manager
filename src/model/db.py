@@ -63,10 +63,88 @@ def _parse_url(url: str) -> dict:
     return out
 
 
+_pool = None
+_pool_lock = None
+
+
+class _PooledConn:
+    """Thin proxy over a pooled psycopg connection. ``close()`` hands the
+    connection back to the pool (rolling back anything uncommitted) instead of
+    tearing down the TCP+TLS+auth session, so the many short
+    ``get_connection()`` / ``conn.close()`` call sites reuse warm connections."""
+
+    __slots__ = ("_conn", "_pool")
+
+    def __init__(self, conn, pool):
+        object.__setattr__(self, "_conn", conn)
+        object.__setattr__(self, "_pool", pool)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if self._conn is not None:
+            if exc_type is None:
+                self._conn.commit()
+            else:
+                self._conn.rollback()
+        self.close()
+        return False
+
+    def close(self):
+        conn = object.__getattribute__(self, "_conn")
+        if conn is None:
+            return
+        object.__setattr__(self, "_conn", None)
+        try:
+            if not conn.closed:
+                conn.rollback()
+        finally:
+            self._pool.putconn(conn)
+
+
+def _get_pool(url: str | None):
+    """Process-wide connection pool, or None when pooling is off/unavailable."""
+    global _pool, _pool_lock
+    if os.environ.get("UOIG_PG_POOL", "1").lower() in ("0", "false", "no"):
+        return None
+    try:
+        from psycopg_pool import ConnectionPool
+    except ImportError:
+        return None
+    import threading
+    if _pool_lock is None:
+        _pool_lock = threading.Lock()
+    with _pool_lock:
+        if _pool is None:
+            max_size = int(os.environ.get("UOIG_PG_POOL_MAX", "10"))
+            _pool = ConnectionPool(
+                kwargs={**_parse_url(url or database_url()),
+                        "prepare_threshold": None, "connect_timeout": 10},
+                min_size=1, max_size=max_size,
+                # Supabase/PgBouncer drop idle sessions; recycle before that and
+                # verify on checkout so a dead socket never reaches a request.
+                max_idle=240, max_lifetime=1800,
+                check=ConnectionPool.check_connection,
+                open=True, timeout=15,
+            )
+        return _pool
+
+
 def connect_pg(url: str | None = None):
     """A psycopg (v3) connection. prepare_threshold=None keeps us compatible with
     Supabase's poolers (PgBouncer/Supavisor), which don't support prepared
-    statements that outlive a transaction."""
+    statements that outlive a transaction.
+
+    Connections come from a process-wide pool (``psycopg_pool``) so each request
+    skips the TCP+TLS+auth handshake to Supabase; ``close()`` returns them to the
+    pool. Set ``UOIG_PG_POOL=0`` to open a fresh connection every time."""
+    pool = _get_pool(url)
+    if pool is not None:
+        return _PooledConn(pool.getconn(), pool)
     import psycopg  # lazy import so SQLite-only environments don't need it
     # connect_timeout so a stalled Supabase/pooler fails fast (10s) instead of
     # hanging a request — matters most for the per-op cache connections.
@@ -75,7 +153,7 @@ def connect_pg(url: str | None = None):
 
 
 def is_pg(conn) -> bool:
-    return type(conn).__module__.split(".", 1)[0] == "psycopg"
+    return isinstance(conn, _PooledConn) or type(conn).__module__.split(".", 1)[0] == "psycopg"
 
 
 def q(conn, sql: str) -> str:
