@@ -135,7 +135,7 @@ h2.fin-title { margin:0 0 6px; font-weight:600; }
 }
 
 /* ---- Research tab: roomier, larger type, content-width tables ---- */
-.fin-research { padding:26px 28px 30px; max-width:1480px; }
+.fin-research { padding:26px 28px 30px; }
 .fin-research .fin-title { font-size:12px; margin-bottom:8px; }
 .fin-research .fin-intro { font-size:13px; line-height:1.6; max-width:640px; margin:0 0 24px; color:#8a96b3; }
 .fin-research .fin-grid { gap:24px; }
