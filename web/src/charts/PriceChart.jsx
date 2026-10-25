@@ -81,12 +81,12 @@ export function PriceChart({ dates, values, color, height }) {
   // axis gutter: price labels aligned to the grid lines
   const axis = React.createElement('div', {
     key: 'axis',
-    style: { position: 'relative', width: '52px', flex: '0 0 auto', height: height + 'px' },
+    style: { position: 'relative', width: '68px', flex: '0 0 auto', height: height + 'px' },
   }, ticks.map((t, i) => React.createElement('span', {
     key: 'ax' + i,
     style: {
       position: 'absolute', right: 0, top: t.y + 'px', transform: 'translateY(-50%)',
-      fontFamily: "'IBM Plex Mono'", fontSize: '9.5px', color: '#6b7794', whiteSpace: 'nowrap',
+      fontFamily: "'IBM Plex Mono'", fontSize: '12px', color: '#8a96b3', whiteSpace: 'nowrap',
     },
   }, fmtPrice(t.val))))
 
@@ -109,8 +109,8 @@ export function PriceChart({ dates, values, color, height }) {
         key: 'tip',
         style: { position: 'absolute', left: clamped + '%', top: Math.max(0, topY - 50) + 'px', transform: 'translateX(-50%)', background: '#0a0f1a', border: '1px solid #24345a', borderRadius: '6px', padding: '5px 9px', pointerEvents: 'none', whiteSpace: 'nowrap', boxShadow: '0 4px 14px rgba(0,0,0,.45)' },
       }, [
-        React.createElement('div', { key: 'p', style: { fontFamily: "'IBM Plex Mono'", fontSize: '12px', color: '#e8edf7' } }, fmtPrice(values[hover])),
-        React.createElement('div', { key: 'd', style: { fontFamily: "'IBM Plex Mono'", fontSize: '9.5px', color: '#7e8aa6', marginTop: '2px' } }, fmtChartDate(dates && dates[hover])),
+        React.createElement('div', { key: 'p', style: { fontFamily: "'IBM Plex Mono'", fontSize: '14px', color: '#e8edf7' } }, fmtPrice(values[hover])),
+        React.createElement('div', { key: 'd', style: { fontFamily: "'IBM Plex Mono'", fontSize: '12px', color: '#9aa7c2', marginTop: '2px' } }, fmtChartDate(dates && dates[hover])),
       ]),
     ]
   }

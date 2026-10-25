@@ -974,7 +974,7 @@ export default class App extends React.Component {
   // Tiny inline SVG price-trend sparkline (3M of closes from the backend).
   _sparkline(pts) {
     const w = 72, hgt = 22, pad = 2
-    if (!pts || pts.length < 2) return <span style={s("font-family:'IBM Plex Mono';font-size:10px;color:#3c465e;")}>—</span>
+    if (!pts || pts.length < 2) return <span style={s("font-family:'IBM Plex Mono';font-size:12px;color:#3c465e;")}>—</span>
     const mn = Math.min(...pts), mx = Math.max(...pts), rng = (mx - mn) || 1
     const step = (w - pad * 2) / (pts.length - 1)
     const d = pts.map((p, i) => (i ? 'L' : 'M') + (pad + i * step).toFixed(1) + ' ' + (pad + (1 - (p - mn) / rng) * (hgt - pad * 2)).toFixed(1)).join(' ')
@@ -1013,8 +1013,8 @@ export default class App extends React.Component {
                 onBlur={() => setTimeout(() => this.setState({ searchOpen: false }), 150)}
                 onKeyDown={(e) => this._searchKey(e)}
                 placeholder="Search any equity on Yahoo Finance…"
-                style={s("flex:1;min-width:0;background:transparent;border:none;outline:none;color:#e8edf7;font:400 11.5px 'IBM Plex Sans';")} />
-              <span style={s("font-family:'IBM Plex Mono';font-size:10px;color:#3c465e;border:1px solid #1d2840;border-radius:3px;padding:1px 5px;flex:0 0 auto;")}>↵</span>
+                style={s("flex:1;min-width:0;background:transparent;border:none;outline:none;color:#e8edf7;font:400 13px 'IBM Plex Sans';")} />
+              <span style={s("font-family:'IBM Plex Mono';font-size:12px;color:#3c465e;border:1px solid #1d2840;border-radius:3px;padding:1px 5px;flex:0 0 auto;")}>↵</span>
             </div>
             {this.state.searchOpen && this.state.searchResults.length > 0 && (
               <div style={s('position:absolute;top:40px;left:0;right:0;background:#0b1120;border:1px solid #1d2840;border-radius:8px;box-shadow:0 16px 40px rgba(0,0,0,.55);overflow:hidden;overflow-y:auto;max-height:360px;z-index:80;')}>
@@ -1023,8 +1023,8 @@ export default class App extends React.Component {
                     onMouseEnter={() => this.setState({ searchActive: i })}
                     style={{ ...s('display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;border-bottom:1px solid #131c2f;'), background: i === this.state.searchActive ? '#13203a' : 'transparent' }}>
                     <span style={s("font-family:'IBM Plex Mono';font-weight:600;font-size:12px;color:#e8edf7;width:66px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;")}>{r.symbol}</span>
-                    <span style={s('flex:1;min-width:0;font-size:11.5px;color:#9aa7c2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;')}>{r.name}</span>
-                    <span style={{ ...s("font:600 8px 'IBM Plex Sans';letter-spacing:.05em;text-transform:uppercase;border-radius:4px;padding:2px 6px;flex:0 0 auto;"), color: r.held ? '#5a93f9' : '#6b7794', border: '1px solid ' + (r.held ? '#28406e' : '#1d2840') }}>{r.held ? 'Held' : (r.exchange || 'Yahoo')}</span>
+                    <span style={s('flex:1;min-width:0;font-size:13px;color:#9aa7c2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;')}>{r.name}</span>
+                    <span style={{ ...s("font:600 12px 'IBM Plex Sans';letter-spacing:.05em;text-transform:uppercase;border-radius:4px;padding:2px 6px;flex:0 0 auto;"), color: r.held ? '#5a93f9' : '#6b7794', border: '1px solid ' + (r.held ? '#28406e' : '#1d2840') }}>{r.held ? 'Held' : (r.exchange || 'Yahoo')}</span>
                   </div>
                 ))}
               </div>
@@ -1036,11 +1036,11 @@ export default class App extends React.Component {
             )}
           </div>
           <div className="app-fund-tabs" style={s('display:flex;background:#0e1422;border:1px solid #1d2840;border-radius:9px;padding:3px;gap:2px;margin-left:10px;')}>
-            {v.fundTabs.map((t) => (<span key={t.k} onClick={t.on} style={{ ...s("padding:6px 15px;border-radius:6px;cursor:pointer;font-size:11.5px;font-family:'IBM Plex Sans';"), fontWeight: t.weight, background: t.bg, color: t.color }}>{t.label}</span>))}
+            {v.fundTabs.map((t) => (<span key={t.k} onClick={t.on} style={{ ...s("padding:6px 15px;border-radius:6px;cursor:pointer;font-size:13px;font-family:'IBM Plex Sans';"), fontWeight: t.weight, background: t.bg, color: t.color }}>{t.label}</span>))}
           </div>
           <div style={s('flex:1;')}></div>
-          <div className="app-market-status" style={s("display:flex;align-items:center;gap:7px;font-family:'IBM Plex Mono';font-size:11px;color:#9aa7c2;")}><span style={{ ...s('width:7px;height:7px;border-radius:50%;'), background: v.marketOpen ? '#21d07a' : '#6b7794', animation: v.marketOpen ? 'pulseDot 2s infinite' : 'none' }}></span>{v.marketOpen ? 'MARKETS OPEN' : 'MARKETS CLOSED'}</div>
-          <div className="app-asof" style={s("font-family:'IBM Plex Mono';font-size:11px;color:#6b7794;")}>{v.asOf}</div>
+          <div className="app-market-status" style={s("display:flex;align-items:center;gap:7px;font-family:'IBM Plex Mono';font-size:12.5px;color:#9aa7c2;")}><span style={{ ...s('width:7px;height:7px;border-radius:50%;'), background: v.marketOpen ? '#21d07a' : '#6b7794', animation: v.marketOpen ? 'pulseDot 2s infinite' : 'none' }}></span>{v.marketOpen ? 'MARKETS OPEN' : 'MARKETS CLOSED'}</div>
+          <div className="app-asof" style={s("font-family:'IBM Plex Mono';font-size:12.5px;color:#6b7794;")}>{v.asOf}</div>
           <div onClick={() => this.setState((st) => ({ profileOpen: !st.profileOpen }))} title={(this.state.auth && this.state.auth.user && (this.state.auth.user.name || this.state.auth.user.email)) || 'Profile'} className="dc-hover" style={s('cursor:pointer;display:flex;')}>{this._avatar(28, 10.5)}</div>
           {this.state.profileOpen && this._renderProfileMenu()}
         </div>
@@ -1077,33 +1077,33 @@ export default class App extends React.Component {
         {this.state.chatOpen && !['profile', 'preferences', 'organization', 'assistant'].includes(this.state.view) && (
           <div className="no-print" style={s('position:fixed;right:22px;bottom:88px;width:374px;height:560px;max-height:calc(100vh - 120px);background:#0b0d1d;border:1px solid #241f3e;border-radius:16px;box-shadow:0 26px 64px rgba(0,0,0,.55);display:flex;flex-direction:column;overflow:hidden;z-index:60;')}>
             <div style={s('display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-bottom:1px solid #241f3e;background:linear-gradient(180deg,#140f2c,#0b0d1d);flex:0 0 auto;')}>
-              <div style={s("display:flex;align-items:center;gap:8px;font:600 11px 'IBM Plex Sans';letter-spacing:.08em;text-transform:uppercase;color:#c3b9ff;")}><span style={s('font-size:15px;')}>✦</span>Ask Claude</div>
+              <div style={s("display:flex;align-items:center;gap:8px;font:600 12.5px 'IBM Plex Sans';letter-spacing:.08em;text-transform:uppercase;color:#c3b9ff;")}><span style={s('font-size:15px;')}>✦</span>Ask Claude</div>
               <div style={s('display:flex;align-items:center;gap:7px;')}>
-                <span onClick={() => this._go('assistant')} title="Open full Assistant + chat history" className="dc-hover" style={s('font-size:9px;color:#7a6fb5;border:1px solid #2c2550;border-radius:5px;padding:3px 8px;cursor:pointer;')}>⤢ Sessions</span>
-                <span onClick={() => this._newChatSession()} title="Start a new chat" className="dc-hover" style={s('font-size:9px;color:#7a6fb5;border:1px solid #2c2550;border-radius:5px;padding:3px 8px;cursor:pointer;')}>+ New</span>
+                <span onClick={() => this._go('assistant')} title="Open full Assistant + chat history" className="dc-hover" style={s('font-size:12px;color:#7a6fb5;border:1px solid #2c2550;border-radius:5px;padding:3px 8px;cursor:pointer;')}>⤢ Sessions</span>
+                <span onClick={() => this._newChatSession()} title="Start a new chat" className="dc-hover" style={s('font-size:12px;color:#7a6fb5;border:1px solid #2c2550;border-radius:5px;padding:3px 8px;cursor:pointer;')}>+ New</span>
                 <span onClick={() => this.setState({ chatOpen: false })} className="dc-hover" style={s('width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:13px;color:#7a6fb5;border:1px solid #2c2550;border-radius:5px;cursor:pointer;')}>✕</span>
               </div>
             </div>
-            <div style={s('padding:9px 13px;border-bottom:1px solid #1a1730;display:flex;align-items:center;gap:7px;flex:0 0 auto;')}><span style={s('font-size:8.5px;color:#7a6fb5;text-transform:uppercase;letter-spacing:.06em;')}>Context</span><span style={s('font-size:9.5px;color:#c3b9ff;background:#15112c;border:1px solid #2c2550;border-radius:5px;padding:3px 9px;')}>{v.ctxLabel}</span>{v.usageLabel && <span title={v.usageTitle} style={s("margin-left:auto;font-size:9px;font-family:'IBM Plex Mono';color:#6b6591;white-space:nowrap;")}>{v.usageLabel}</span>}</div>
+            <div style={s('padding:9px 13px;border-bottom:1px solid #1a1730;display:flex;align-items:center;gap:7px;flex:0 0 auto;')}><span style={s('font-size:12px;color:#7a6fb5;text-transform:uppercase;letter-spacing:.06em;')}>Context</span><span style={s('font-size:12px;color:#c3b9ff;background:#15112c;border:1px solid #2c2550;border-radius:5px;padding:3px 9px;')}>{v.ctxLabel}</span>{v.usageLabel && <span title={v.usageTitle} style={s("margin-left:auto;font-size:12px;font-family:'IBM Plex Mono';color:#6b6591;white-space:nowrap;")}>{v.usageLabel}</span>}</div>
             <div ref={this.chatRef} style={s('flex:1;padding:14px 13px;display:flex;flex-direction:column;gap:11px;overflow-y:auto;min-height:0;')}>
               {v.chatEmpty && (
                 <div style={s('display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;margin:auto 0;color:#6b7794;padding:0 6px;')}>
                   <span style={s('font-size:24px;color:#5a4fd6;')}>✦</span>
                   <div style={s("font:600 12.5px 'IBM Plex Sans';color:#b8aef0;")}>Your research co-pilot</div>
-                  <div style={s('font-size:11px;line-height:1.55;')}>Ask anything about a fund, holding, or sector — I know the live portfolio.</div>
+                  <div style={s('font-size:12.5px;line-height:1.55;')}>Ask anything about a fund, holding, or sector — I know the live portfolio.</div>
                 </div>
               )}
               {v.chatMsgs.map((m) => (
-                <div key={m.key} style={{ ...s('padding:9px 11px;font-size:11.5px;line-height:1.55;white-space:pre-wrap;overflow-wrap:break-word;'), alignSelf: m.align, maxWidth: m.maxw, background: m.bg, border: '1px solid ' + m.border, borderRadius: m.radius, color: m.color }}>{m.body}</div>
+                <div key={m.key} style={{ ...s('padding:9px 11px;font-size:13px;line-height:1.55;white-space:pre-wrap;overflow-wrap:break-word;'), alignSelf: m.align, maxWidth: m.maxw, background: m.bg, border: '1px solid ' + m.border, borderRadius: m.radius, color: m.color }}>{m.body}</div>
               ))}
               {v.loading && (
-                <div style={s('align-self:flex-start;display:flex;align-items:center;gap:7px;color:#7a6fb5;font-size:10.5px;')}><span style={s('display:flex;gap:3px;')}><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite;')}></span><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite .2s;')}></span><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite .4s;')}></span></span>Claude is analyzing…</div>
+                <div style={s('align-self:flex-start;display:flex;align-items:center;gap:7px;color:#7a6fb5;font-size:12.5px;')}><span style={s('display:flex;gap:3px;')}><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite;')}></span><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite .2s;')}></span><span style={s('width:5px;height:5px;border-radius:50%;background:#7a6fb5;animation:pulseDot 1.4s infinite .4s;')}></span></span>Claude is analyzing…</div>
               )}
             </div>
             <div style={s('padding:11px 13px;border-top:1px solid #241f3e;flex:0 0 auto;')}>
-              <div onClick={() => this._runAgent()} style={{ ...s("display:flex;align-items:center;justify-content:center;gap:7px;margin-bottom:10px;padding:8px;border-radius:8px;font:600 10.5px 'IBM Plex Sans';letter-spacing:.03em;cursor:pointer;"), background: this.state.agentBusy ? '#1a1533' : 'linear-gradient(135deg,#5a4fd6,#3a31a8)', color: this.state.agentBusy ? '#7a6fb5' : '#fff', cursor: this.state.agentBusy ? 'default' : 'pointer' }}><span style={s('font-size:11px;')}>▶</span>{this.state.agentBusy ? 'Running market analysis…' : 'Run market analysis'}</div>
+              <div onClick={() => this._runAgent()} style={{ ...s("display:flex;align-items:center;justify-content:center;gap:7px;margin-bottom:10px;padding:8px;border-radius:8px;font:600 12.5px 'IBM Plex Sans';letter-spacing:.03em;cursor:pointer;"), background: this.state.agentBusy ? '#1a1533' : 'linear-gradient(135deg,#5a4fd6,#3a31a8)', color: this.state.agentBusy ? '#7a6fb5' : '#fff', cursor: this.state.agentBusy ? 'default' : 'pointer' }}><span style={s('font-size:12.5px;')}>▶</span>{this.state.agentBusy ? 'Running market analysis…' : 'Run market analysis'}</div>
               <div style={s('display:flex;align-items:flex-end;gap:8px;background:#0a0f1a;border:1px solid #2c2550;border-radius:10px;padding:8px 10px;')}>
-                <input value={v.input} onChange={(e) => this.setState({ input: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this._send() } }} placeholder={'Ask about ' + v.ctxShort + '…'} style={s("flex:1;background:transparent;border:none;outline:none;color:#e8edf7;font:400 11.5px 'IBM Plex Sans';")} />
+                <input value={v.input} onChange={(e) => this.setState({ input: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this._send() } }} placeholder={'Ask about ' + v.ctxShort + '…'} style={s("flex:1;background:transparent;border:none;outline:none;color:#e8edf7;font:400 13px 'IBM Plex Sans';")} />
                 <span onClick={() => this._send()} style={{ ...s('width:27px;height:27px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;cursor:pointer;flex:0 0 auto;'), background: v.sendBg }}>↑</span>
               </div>
             </div>
@@ -1343,7 +1343,7 @@ export default class App extends React.Component {
   _card(title, source, children, pad) {
     return (
       <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;padding:' + (pad || 16) + 'px;')}>
-        <div style={s("font:600 10px 'IBM Plex Sans';letter-spacing:.1em;text-transform:uppercase;color:#7e8aa6;margin-bottom:13px;")}>{title}{source ? <span style={s("font-family:'IBM Plex Mono';font-weight:400;color:#3c465e;text-transform:none;letter-spacing:0;")}> · {source}</span> : null}</div>
+        <div style={s("font:600 12px 'IBM Plex Sans';letter-spacing:.1em;text-transform:uppercase;color:#7e8aa6;margin-bottom:13px;")}>{title}{source ? <span style={s("font-family:'IBM Plex Mono';font-weight:400;color:#3c465e;text-transform:none;letter-spacing:0;")}> · {source}</span> : null}</div>
         {children}
       </div>
     )
@@ -1402,19 +1402,19 @@ export default class App extends React.Component {
     return this._card('Quarterly income statement', 'quarterly_income_stmt', (
       <div>
         <div style={{ ...s('display:grid;gap:6px;padding-bottom:7px;border-bottom:1px solid #1d2840;'), gridTemplateColumns: cols }}>
-          <span style={s("font-family:'IBM Plex Mono';font-size:8.5px;color:#6b7794;")}>USD · quarterly</span>
-          {st.quarters.map((q, i) => (<span key={i} style={s("font-family:'IBM Plex Mono';font-size:9.5px;text-align:right;color:#9aa7c2;")}>{q}</span>))}
+          <span style={s("font-family:'IBM Plex Mono';font-size:12px;color:#6b7794;")}>USD · quarterly</span>
+          {st.quarters.map((q, i) => (<span key={i} style={s("font-family:'IBM Plex Mono';font-size:12px;text-align:right;color:#9aa7c2;")}>{q}</span>))}
         </div>
         {st.rows.map((r, i) => {
           const sub = r.kind === 'sub' || r.kind === 'net' || r.kind === 'eps'
           return (
             <div key={i} style={{ ...s('display:grid;gap:6px;padding:7px 0;align-items:center;'), gridTemplateColumns: cols, borderTop: sub ? '1px solid #1a2336' : 'none' }}>
-              <span style={{ ...s('font-size:11px;'), color: labelColor(r.kind), fontWeight: (sub || r.kind === 'top') ? 500 : 400 }}>{r.label}</span>
-              {r.vals.map((v, j) => (<span key={j} style={{ ...s("font-family:'IBM Plex Mono';font-size:11px;text-align:right;"), color: valColor(r.kind), fontWeight: (j === 3 && (r.kind === 'top' || r.kind === 'net')) ? 500 : 400 }}>{fmt(v, r.kind === 'eps')}</span>))}
+              <span style={{ ...s('font-size:13px;'), color: labelColor(r.kind), fontWeight: (sub || r.kind === 'top') ? 500 : 400 }}>{r.label}</span>
+              {r.vals.map((v, j) => (<span key={j} style={{ ...s("font-family:'IBM Plex Mono';font-size:13px;text-align:right;"), color: valColor(r.kind), fontWeight: (j === 3 && (r.kind === 'top' || r.kind === 'net')) ? 500 : 400 }}>{fmt(v, r.kind === 'eps')}</span>))}
             </div>
           )
         })}
-        {foot ? <div style={s("font:500 10.5px 'IBM Plex Sans';color:#6b7794;margin-top:10px;")}>{foot}</div> : null}
+        {foot ? <div style={s("font:500 12.5px 'IBM Plex Sans';color:#6b7794;margin-top:10px;")}>{foot}</div> : null}
       </div>
     ))
   }
@@ -1427,18 +1427,18 @@ export default class App extends React.Component {
     return (
       <div style={s('display:flex;flex-direction:column;gap:14px;')}>
         <div style={s('background:linear-gradient(180deg,#0c1f18,#0e1422);border:1px solid #1d4536;border-radius:9px;padding:16px;')}>
-          <div style={s('display:flex;align-items:center;gap:10px;margin-bottom:13px;flex-wrap:wrap;')}><span style={s("font:600 10px 'IBM Plex Sans';letter-spacing:.1em;text-transform:uppercase;color:#7e8aa6;")}>Most Recent Earnings</span><span style={s("font-family:'IBM Plex Mono';font-size:10px;color:#6b7794;")}>{e.qtrLabel} · {e.when}</span>{e.beat != null ? <span style={{ ...s("margin-left:auto;font:600 10px 'IBM Plex Sans';border-radius:5px;padding:4px 10px;"), color: beatPos ? '#21d07a' : '#ff5666', background: beatPos ? '#0c2a1e' : '#2a1115', border: '1px solid ' + (beatPos ? '#1d4536' : '#4a1f25') }}>EPS {beatPos ? 'beat' : 'miss'} {this._sign(e.beat, 1)}%</span> : null}</div>
+          <div style={s('display:flex;align-items:center;gap:10px;margin-bottom:13px;flex-wrap:wrap;')}><span style={s("font:600 12px 'IBM Plex Sans';letter-spacing:.1em;text-transform:uppercase;color:#7e8aa6;")}>Most Recent Earnings</span><span style={s("font-family:'IBM Plex Mono';font-size:12px;color:#6b7794;")}>{e.qtrLabel} · {e.when}</span>{e.beat != null ? <span style={{ ...s("margin-left:auto;font:600 12px 'IBM Plex Sans';border-radius:5px;padding:4px 10px;"), color: beatPos ? '#21d07a' : '#ff5666', background: beatPos ? '#0c2a1e' : '#2a1115', border: '1px solid ' + (beatPos ? '#1d4536' : '#4a1f25') }}>EPS {beatPos ? 'beat' : 'miss'} {this._sign(e.beat, 1)}%</span> : null}</div>
           <div style={{ ...s('display:grid;gap:13px;'), gridTemplateColumns: 'repeat(' + cards.length + ',1fr)' }}>
             {cards.map((c, i) => (
-              <div key={i} style={s('background:#0a1410;border:1px solid #163a2c;border-radius:7px;padding:12px;')}><div style={s("font:600 8.5px 'IBM Plex Sans';letter-spacing:.05em;text-transform:uppercase;color:#6b7794;")}>{c[0]}</div><div style={{ ...s("font-family:'IBM Plex Mono';font-size:16px;margin-top:6px;"), color: i === 2 ? this._yc(c[1]) : '#e8edf7' }}>{c[1]}{c[2] ? <span style={s('color:#5d6a85;font-size:12px;')}> / {c[2]}</span> : null}</div></div>
+              <div key={i} style={s('background:#0a1410;border:1px solid #163a2c;border-radius:7px;padding:12px;')}><div style={s("font:600 12px 'IBM Plex Sans';letter-spacing:.05em;text-transform:uppercase;color:#6b7794;")}>{c[0]}</div><div style={{ ...s("font-family:'IBM Plex Mono';font-size:16px;margin-top:6px;"), color: i === 2 ? this._yc(c[1]) : '#e8edf7' }}>{c[1]}{c[2] ? <span style={s('color:#5d6a85;font-size:13.5px;')}> / {c[2]}</span> : null}</div></div>
             ))}
           </div>
         </div>
         {e.history && e.history.length ? this._card('EPS History', 'estimate vs reported', (
           <div>
-            <div style={s("display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;padding:8px 0;border-bottom:1px solid #1d2840;font:600 8.5px 'IBM Plex Sans';letter-spacing:.05em;text-transform:uppercase;color:#6b7794;")}><span>Quarter</span><span style={s('text-align:right;')}>Estimate</span><span style={s('text-align:right;')}>Actual</span><span style={s('text-align:right;')}>Surprise</span></div>
+            <div style={s("display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;padding:8px 0;border-bottom:1px solid #1d2840;font:600 12px 'IBM Plex Sans';letter-spacing:.05em;text-transform:uppercase;color:#6b7794;")}><span>Quarter</span><span style={s('text-align:right;')}>Estimate</span><span style={s('text-align:right;')}>Actual</span><span style={s('text-align:right;')}>Surprise</span></div>
             {e.history.map((h, i) => (
-              <div key={i} style={s('display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;padding:9px 0;border-bottom:1px solid #131c2f;font-size:11px;')}><span style={s("font-family:'IBM Plex Mono';color:#cdd6e8;")}>{h.q}</span><span style={s("font-family:'IBM Plex Mono';text-align:right;color:#9aa7c2;")}>{h.est}</span><span style={s("font-family:'IBM Plex Mono';text-align:right;color:#e8edf7;")}>{h.act}</span><span style={{ ...s("font-family:'IBM Plex Mono';text-align:right;"), color: this._yc(h.surprise) }}>{h.surprise}</span></div>
+              <div key={i} style={s('display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;padding:9px 0;border-bottom:1px solid #131c2f;font-size:13px;')}><span style={s("font-family:'IBM Plex Mono';color:#cdd6e8;")}>{h.q}</span><span style={s("font-family:'IBM Plex Mono';text-align:right;color:#9aa7c2;")}>{h.est}</span><span style={s("font-family:'IBM Plex Mono';text-align:right;color:#e8edf7;")}>{h.act}</span><span style={{ ...s("font-family:'IBM Plex Mono';text-align:right;"), color: this._yc(h.surprise) }}>{h.surprise}</span></div>
             ))}
           </div>
         ), 16) : null}
@@ -1520,14 +1520,14 @@ export default class App extends React.Component {
     return (
       <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;padding:16px;')}>
         <div style={s('display:flex;align-items:center;justify-content:space-between;margin-bottom:15px;')}>
-          <span style={s("font:600 10px 'IBM Plex Sans';letter-spacing:.1em;text-transform:uppercase;color:#7e8aa6;")}>Investment Thesis</span>
-          <span style={s("font-family:'IBM Plex Mono';font-size:10px;color:#6b7794;")}>Most recent · {t.date}{t.analyst ? ' · ' + t.analyst : ''}</span>
+          <span style={s("font:600 12px 'IBM Plex Sans';letter-spacing:.1em;text-transform:uppercase;color:#7e8aa6;")}>Investment Thesis</span>
+          <span style={s("font-family:'IBM Plex Mono';font-size:12px;color:#6b7794;")}>Most recent · {t.date}{t.analyst ? ' · ' + t.analyst : ''}</span>
         </div>
         <div style={s('display:flex;flex-direction:column;gap:11px;')}>
           {t.points.map((p, i) => (
             <div key={i} style={s('display:flex;gap:13px;align-items:flex-start;background:#0a0f1a;border:1px solid #1d2840;border-radius:8px;padding:14px 15px;')}>
-              <span style={s("width:24px;height:24px;flex:0 0 auto;border-radius:7px;background:#13203a;color:#5a93f9;display:flex;align-items:center;justify-content:center;font:600 12px 'IBM Plex Mono';")}>{i + 1}</span>
-              <span style={s("font:400 13px/1.6 'IBM Plex Sans';color:#cdd6e8;")}>{p}</span>
+              <span style={s("width:24px;height:24px;flex:0 0 auto;border-radius:7px;background:#13203a;color:#5a93f9;display:flex;align-items:center;justify-content:center;font:600 13.5px 'IBM Plex Mono';")}>{i + 1}</span>
+              <span style={s("font:400 14px/1.6 'IBM Plex Sans';color:#cdd6e8;")}>{p}</span>
             </div>
           ))}
         </div>
@@ -1543,24 +1543,24 @@ export default class App extends React.Component {
         {cards.map((c, ci) => (
           <a key={ci} href={c.url} target="_blank" rel="noreferrer" style={s('display:block;text-decoration:none;background:#0b0f1a;border:1px solid #1d2840;border-radius:12px;padding:17px 18px;')}>
             <div style={s('display:flex;align-items:center;gap:10px;')}>
-              <div style={{ ...s("width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font:700 13px 'IBM Plex Sans';color:#0b0f1a;flex:0 0 auto;"), background: catColor(c.category) }}>{(c.category || '?')[0]}</div>
-              <span style={s("font:600 11px 'IBM Plex Sans';letter-spacing:.07em;text-transform:uppercase;color:#7e8aa6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")}>{c.category}</span>
+              <div style={{ ...s("width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font:700 14px 'IBM Plex Sans';color:#0b0f1a;flex:0 0 auto;"), background: catColor(c.category) }}>{(c.category || '?')[0]}</div>
+              <span style={s("font:600 13px 'IBM Plex Sans';letter-spacing:.07em;text-transform:uppercase;color:#7e8aa6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")}>{c.category}</span>
             </div>
-            <div style={s("font:600 15px/1.3 'IBM Plex Sans';color:#e8edf7;margin-top:12px;")}>{c.title}</div>
-            <div style={s("font-family:'IBM Plex Mono';font-size:11px;color:#5d6a85;margin-top:5px;")}>{c.closeStr}</div>
+            <div style={s("font:600 16px/1.3 'IBM Plex Sans';color:#e8edf7;margin-top:12px;")}>{c.title}</div>
+            <div style={s("font-family:'IBM Plex Mono';font-size:13px;color:#5d6a85;margin-top:5px;")}>{c.closeStr}</div>
             <div style={s('display:flex;flex-direction:column;gap:13px;margin-top:15px;')}>
               {c.outcomes.map((o, i) => (
                 <div key={i} style={s('display:flex;align-items:center;gap:12px;')}>
                   <div style={s('flex:1;min-width:0;')}>
-                    <div style={s("font:400 14px 'IBM Plex Sans';color:#e8edf7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")}>{o.label}</div>
+                    <div style={s("font:400 15px 'IBM Plex Sans';color:#e8edf7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")}>{o.label}</div>
                     <div style={s('height:2px;border-radius:2px;background:#1a2338;margin-top:7px;overflow:hidden;')}><div style={{ ...s('height:100%;border-radius:2px;'), width: Math.max(4, Math.min(100, o.pct)) + '%', background: outColor(o, i) }}></div></div>
                   </div>
-                  {o.mult ? <span style={s("font-family:'IBM Plex Mono';font-size:13px;color:#6b7794;flex:0 0 auto;")}>{o.mult}</span> : null}
-                  <span style={s("font:700 14px 'IBM Plex Sans';color:#e8edf7;border:1px solid #265c44;border-radius:999px;padding:6px 13px;flex:0 0 auto;min-width:52px;text-align:center;")}>{o.pct}%</span>
+                  {o.mult ? <span style={s("font-family:'IBM Plex Mono';font-size:14px;color:#6b7794;flex:0 0 auto;")}>{o.mult}</span> : null}
+                  <span style={s("font:700 15px 'IBM Plex Sans';color:#e8edf7;border:1px solid #265c44;border-radius:999px;padding:6px 13px;flex:0 0 auto;min-width:52px;text-align:center;")}>{o.pct}%</span>
                 </div>
               ))}
             </div>
-            <div style={s("display:flex;justify-content:space-between;align-items:center;margin-top:16px;font-family:'IBM Plex Mono';font-size:11px;color:#5d6a85;")}>
+            <div style={s("display:flex;justify-content:space-between;align-items:center;margin-top:16px;font-family:'IBM Plex Mono';font-size:13px;color:#5d6a85;")}>
               <span>${c.volume.toLocaleString('en-US')} vol</span>
               <span>{c.marketCount} market{c.marketCount === 1 ? '' : 's'}</span>
             </div>
@@ -1573,11 +1573,11 @@ export default class App extends React.Component {
   _stkStub(title, source, body) {
     return (
       <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;padding:16px;')}>
-        <div style={s("font:600 10px 'IBM Plex Sans';letter-spacing:.1em;text-transform:uppercase;color:#7e8aa6;margin-bottom:14px;")}>{title} <span style={s("font-family:'IBM Plex Mono';font-weight:400;color:#3c465e;text-transform:none;letter-spacing:0;")}>· {source}</span></div>
+        <div style={s("font:600 12px 'IBM Plex Sans';letter-spacing:.1em;text-transform:uppercase;color:#7e8aa6;margin-bottom:14px;")}>{title} <span style={s("font-family:'IBM Plex Mono';font-weight:400;color:#3c465e;text-transform:none;letter-spacing:0;")}>· {source}</span></div>
         <div style={s('display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:26px 12px;color:#5d6a85;')}>
           <span style={s('font-size:22px;color:#3c4a66;')}>⊟</span>
-          <div style={s("font:600 12.5px 'IBM Plex Sans';color:#8290ad;")}>Not yet wired to the API</div>
-          <div style={s("font:400 11px/1.55 'IBM Plex Sans';max-width:380px;")}>{body}</div>
+          <div style={s("font:600 14px 'IBM Plex Sans';color:#8290ad;")}>Not yet wired to the API</div>
+          <div style={s("font:400 13px/1.55 'IBM Plex Sans';max-width:380px;")}>{body}</div>
         </div>
       </div>
     )
@@ -1587,11 +1587,11 @@ export default class App extends React.Component {
     const err = v.stkErr
     return (
       <div style={s('padding:18px;display:flex;flex-direction:column;gap:15px;')}>
-        <div onClick={() => this._go(this.state.prevView || 'dashboard')} style={s("display:inline-flex;align-items:center;gap:6px;font:500 11px 'IBM Plex Sans';color:#6b7794;cursor:pointer;width:fit-content;")}>‹ {v.stkBackLabel || 'Back'}</div>
+        <div onClick={() => this._go(this.state.prevView || 'dashboard')} style={s("display:inline-flex;align-items:center;gap:6px;font:500 13px 'IBM Plex Sans';color:#6b7794;cursor:pointer;width:fit-content;")}>‹ {v.stkBackLabel || 'Back'}</div>
         <div style={s('display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;padding:80px 12px;color:#5d6a85;')}>
           <span style={s('font-size:26px;color:#3c4a66;')}>{err ? '⚠' : '✦'}</span>
-          <div style={s("font:600 13px 'IBM Plex Sans';color:#8290ad;")}>{err ? 'No equity found' : 'Loading ' + (this.state.ticker || '') + '…'}</div>
-          <div style={s("font:400 11px/1.55 'IBM Plex Sans';max-width:360px;")}>{err ? 'Yahoo Finance has no equity matching “' + (this.state.ticker || '') + '”. Check the symbol and try the search box again.' : 'Pulling live quote, price history and fundamentals from Yahoo Finance.'}</div>
+          <div style={s("font:600 14px 'IBM Plex Sans';color:#8290ad;")}>{err ? 'No equity found' : 'Loading ' + (this.state.ticker || '') + '…'}</div>
+          <div style={s("font:400 13px/1.55 'IBM Plex Sans';max-width:360px;")}>{err ? 'Yahoo Finance has no equity matching “' + (this.state.ticker || '') + '”. Check the symbol and try the search box again.' : 'Pulling live quote, price history and fundamentals from Yahoo Finance.'}</div>
         </div>
       </div>
     )
@@ -1601,93 +1601,93 @@ export default class App extends React.Component {
     const stk = v.stk
     return (
       <div style={s('padding:18px;display:flex;flex-direction:column;gap:15px;')}>
-        <div onClick={() => this._go(this.state.prevView || 'dashboard')} style={s("display:inline-flex;align-items:center;gap:6px;font:500 11px 'IBM Plex Sans';color:#6b7794;cursor:pointer;width:fit-content;")}>‹ {v.stkBackLabel}</div>
+        <div onClick={() => this._go(this.state.prevView || 'dashboard')} style={s("display:inline-flex;align-items:center;gap:6px;font:500 13px 'IBM Plex Sans';color:#6b7794;cursor:pointer;width:fit-content;")}>‹ {v.stkBackLabel}</div>
         {/* header */}
         <div style={s('display:flex;justify-content:space-between;align-items:flex-start;')}>
           <div style={s('display:flex;align-items:center;gap:13px;')}>
             <div>
               <div style={s('display:flex;align-items:center;gap:9px;')}>
                 <span style={s("font-family:'IBM Plex Mono';font-size:26px;font-weight:600;color:#e8edf7;letter-spacing:-.01em;")}>{stk.t}</span>
-                <span style={{ ...s("font:600 9px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;border-radius:5px;padding:3px 8px;"), color: stk.fundColor, border: '1px solid ' + stk.fundColor }}>{stk.fundLabel}</span>
+                <span style={{ ...s("font:600 12px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;border-radius:5px;padding:3px 8px;"), color: stk.fundColor, border: '1px solid ' + stk.fundColor }}>{stk.fundLabel}</span>
               </div>
-              <div style={s("font:400 14px 'IBM Plex Sans';color:#9aa7c2;margin-top:5px;")}>{stk.n}</div>
+              <div style={s("font:400 15px 'IBM Plex Sans';color:#9aa7c2;margin-top:5px;")}>{stk.n}</div>
               <div style={s('display:flex;gap:6px;margin-top:7px;')}>
-                <span onClick={() => this._group(stk.s) && this._openSector(this._group(stk.s), 'stock')} style={s("font:500 10px 'IBM Plex Sans';color:#9aa7c2;background:#0e1422;border:1px solid #1d2840;border-radius:5px;padding:3px 9px;cursor:pointer;")}>{stk.s}</span>
+                <span onClick={() => this._group(stk.s) && this._openSector(this._group(stk.s), 'stock')} style={s("font:500 12px 'IBM Plex Sans';color:#9aa7c2;background:#0e1422;border:1px solid #1d2840;border-radius:5px;padding:3px 9px;cursor:pointer;")}>{stk.s}</span>
               </div>
             </div>
           </div>
           <div style={s('text-align:right;')}>
             <div style={s("font-family:'IBM Plex Mono';font-size:28px;font-weight:500;color:#e8edf7;")}>{stk.pxStr}</div>
-            <div style={{ ...s("font-family:'IBM Plex Mono';font-size:13px;margin-top:2px;"), color: stk.dayColor }}>{stk.dayArrow} {stk.dayStr} {stk.dayAbs} {stk.held ? 'latest session' : 'today'}</div>
-            <div style={s("font-family:'IBM Plex Mono';font-size:10px;color:#5d6a85;margin-top:3px;")}>{stk.asof}</div>
+            <div style={{ ...s("font-family:'IBM Plex Mono';font-size:14px;margin-top:2px;"), color: stk.dayColor }}>{stk.dayArrow} {stk.dayStr} {stk.dayAbs} {stk.held ? 'latest session' : 'today'}</div>
+            <div style={s("font-family:'IBM Plex Mono';font-size:12px;color:#5d6a85;margin-top:3px;")}>{stk.asof}</div>
           </div>
         </div>
         {/* snapshot */}
         <div style={s('display:grid;grid-template-columns:repeat(7,1fr);gap:11px;')}>
-          {v.stkSnapshot.map((st2, i) => (<div key={i} title={st2.tooltip} style={s('background:#0e1422;border:1px solid #1d2840;border-radius:8px;padding:11px 13px;')}><div style={s("font:600 8.5px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;color:#6b7794;")}>{st2.l}</div><div style={{ ...s("font-family:'IBM Plex Mono';margin-top:6px;color:#cdd6e8;"), fontSize: st2.size }}>{st2.v}</div></div>))}
+          {v.stkSnapshot.map((st2, i) => (<div key={i} title={st2.tooltip} style={s('background:#0e1422;border:1px solid #1d2840;border-radius:8px;padding:11px 13px;')}><div style={s("font:600 12px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;color:#6b7794;")}>{st2.l}</div><div style={{ ...s("font-family:'IBM Plex Mono';margin-top:6px;color:#cdd6e8;"), fontSize: st2.size }}>{st2.v}</div></div>))}
         </div>
         {/* price chart (full width) */}
         <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;padding:15px;')}>
-          <div style={s('display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;')}>
-            <span style={s("font:600 10px 'IBM Plex Sans';letter-spacing:.08em;text-transform:uppercase;color:#7e8aa6;")}>Price</span>
-            <div style={s('display:flex;align-items:center;gap:3px;background:#0a0f1a;border:1px solid #1d2840;border-radius:8px;padding:3px;')}>{v.periods.map((p) => (<span key={p.k} onClick={p.on} style={{ ...s("padding:4px 9px;border-radius:5px;cursor:pointer;font-size:10px;font-family:'IBM Plex Mono';"), fontWeight: p.weight, background: p.bg, color: p.color }}>{p.k}</span>))}</div>
+          <div style={s('display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;')}>
+            <span style={s("font:600 12px 'IBM Plex Sans';letter-spacing:.08em;text-transform:uppercase;color:#7e8aa6;")}>Price</span>
+            <div style={s('display:flex;align-items:center;gap:3px;background:#0a0f1a;border:1px solid #1d2840;border-radius:8px;padding:3px;')}>{v.periods.map((p) => (<span key={p.k} onClick={p.on} style={{ ...s("padding:4px 9px;border-radius:5px;cursor:pointer;font-size:12px;font-family:'IBM Plex Mono';"), fontWeight: p.weight, background: p.bg, color: p.color }}>{p.k}</span>))}</div>
           </div>
-          <div style={s("display:flex;gap:15px;font:500 10px 'IBM Plex Sans';margin-bottom:6px;")}>{v.stkChartLegend.map((l, i) => (<span key={i} style={{ color: l.color }}>{l.mark} {l.label}</span>))}</div>
+          <div style={s("display:flex;gap:15px;font:500 12px 'IBM Plex Sans';margin-bottom:6px;")}>{v.stkChartLegend.map((l, i) => (<span key={i} style={{ color: l.color }}>{l.mark} {l.label}</span>))}</div>
           <div style={s('height:230px;')}>{v.stkChartEl}</div>
-          <div style={s('margin-top:12px;')}><div style={s("display:flex;justify-content:space-between;font-family:'IBM Plex Mono';font-size:10px;color:#6b7794;margin-bottom:5px;")}><span>52W Low {stk.loStr}</span><span>52W High {stk.hiStr}</span></div><div style={s('height:6px;border-radius:4px;background:linear-gradient(90deg,#1d2840,#2a3a5c);position:relative;')}><div style={{ ...s('position:absolute;top:-3px;width:3px;height:12px;border-radius:2px;background:#e8edf7;'), left: stk.rangePos }}></div></div></div>
+          <div style={s('margin-top:12px;')}><div style={s("display:flex;justify-content:space-between;font-family:'IBM Plex Mono';font-size:12px;color:#6b7794;margin-bottom:5px;")}><span>52W Low {stk.loStr}</span><span>52W High {stk.hiStr}</span></div><div style={s('height:6px;border-radius:4px;background:linear-gradient(90deg,#1d2840,#2a3a5c);position:relative;')}><div style={{ ...s('position:absolute;top:-3px;width:3px;height:12px;border-radius:2px;background:#e8edf7;'), left: stk.rangePos }}></div></div></div>
         </div>
         {/* tabs */}
         <div style={s('display:flex;gap:3px;border-bottom:1px solid #1d2840;')}>
-          {v.stkTabs.map((t) => (<span key={t.key} onClick={t.on} style={{ ...s("padding:9px 15px;font-size:11.5px;font-family:'IBM Plex Sans';cursor:pointer;margin-bottom:-1px;"), fontWeight: t.weight, color: t.color, borderBottom: t.border }}>{t.label}</span>))}
+          {v.stkTabs.map((t) => (<span key={t.key} onClick={t.on} style={{ ...s("padding:9px 15px;font-size:13px;font-family:'IBM Plex Sans';cursor:pointer;margin-bottom:-1px;"), fontWeight: t.weight, color: t.color, borderBottom: t.border }}>{t.label}</span>))}
         </div>
         {/* OVERVIEW */}
         {v.stkTab === 'overview' && (
           <div style={s('display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;')}>
             <div style={s('display:flex;flex-direction:column;gap:14px;min-width:0;')}>
               <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;padding:16px;')}>
-                <div style={s("font:600 10px 'IBM Plex Sans';letter-spacing:.1em;text-transform:uppercase;color:#7e8aa6;margin-bottom:10px;")}>Business</div>
-                <div style={s("font:400 12.5px/1.65 'IBM Plex Sans';color:#b8c2d8;")}>{stk.descr}</div>
+                <div style={s("font:600 12px 'IBM Plex Sans';letter-spacing:.1em;text-transform:uppercase;color:#7e8aa6;margin-bottom:10px;")}>Business</div>
+                <div style={s("font:400 14px/1.65 'IBM Plex Sans';color:#b8c2d8;")}>{stk.descr}</div>
               </div>
               <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;padding:16px;')}>
-                <div style={s("font:600 10px 'IBM Plex Sans';letter-spacing:.1em;text-transform:uppercase;color:#7e8aa6;margin-bottom:12px;")}>Company Facts</div>
+                <div style={s("font:600 12px 'IBM Plex Sans';letter-spacing:.1em;text-transform:uppercase;color:#7e8aa6;margin-bottom:12px;")}>Company Facts</div>
                 <div style={s('display:grid;grid-template-columns:1fr 1fr 1fr;gap:13px;')}>
-                  {v.stkFacts.map((fct, i) => (<div key={i}><div style={s("font:600 8.5px 'IBM Plex Sans';letter-spacing:.05em;text-transform:uppercase;color:#6b7794;")}>{fct.l}</div><div style={{ ...s("font:500 12px 'IBM Plex Sans';margin-top:3px;"), color: fct.color }}>{fct.v}</div></div>))}
+                  {v.stkFacts.map((fct, i) => (<div key={i}><div style={s("font:600 12px 'IBM Plex Sans';letter-spacing:.05em;text-transform:uppercase;color:#6b7794;")}>{fct.l}</div><div style={{ ...s("font:500 13.5px 'IBM Plex Sans';margin-top:3px;"), color: fct.color }}>{fct.v}</div></div>))}
                 </div>
               </div>
             </div>
             <div style={s('display:flex;flex-direction:column;gap:14px;')}>
               <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;padding:15px;')}>
-                <div style={s("font:600 10px 'IBM Plex Sans';letter-spacing:.08em;text-transform:uppercase;color:#7e8aa6;margin-bottom:13px;")}>{v.stkPos ? 'Position in ' + stk.fundLabel : 'Portfolio Position'}</div>
+                <div style={s("font:600 12px 'IBM Plex Sans';letter-spacing:.08em;text-transform:uppercase;color:#7e8aa6;margin-bottom:13px;")}>{v.stkPos ? 'Position in ' + stk.fundLabel : 'Portfolio Position'}</div>
                 {!v.stkPos ? (
                   <div style={s('display:flex;flex-direction:column;gap:8px;')}>
-                    <div style={s("display:inline-flex;align-items:center;gap:7px;width:fit-content;font:600 9px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;color:#9aa7c2;background:#13203a;border:1px solid #24345a;border-radius:5px;padding:4px 9px;")}><span style={s('width:6px;height:6px;border-radius:50%;background:#6b7794;')}></span>Not held</div>
-                    <div style={s("font:400 11.5px/1.6 'IBM Plex Sans';color:#8290ad;")}>{stk.t} is not currently held in the Tall Firs or Alumni Fund. This is a live Yahoo Finance lookup for research.</div>
+                    <div style={s("display:inline-flex;align-items:center;gap:7px;width:fit-content;font:600 12px 'IBM Plex Sans';letter-spacing:.06em;text-transform:uppercase;color:#9aa7c2;background:#13203a;border:1px solid #24345a;border-radius:5px;padding:4px 9px;")}><span style={s('width:6px;height:6px;border-radius:50%;background:#6b7794;')}></span>Not held</div>
+                    <div style={s("font:400 13px/1.6 'IBM Plex Sans';color:#8290ad;")}>{stk.t} is not currently held in the Tall Firs or Alumni Fund. This is a live Yahoo Finance lookup for research.</div>
                   </div>
                 ) : (
                 <div style={s('display:flex;flex-direction:column;gap:12px;')}>
-                  <div style={s('display:flex;justify-content:space-between;align-items:baseline;')}><span style={s('font-size:11px;color:#9aa7c2;')}>Portfolio weight</span><span style={s("font-family:'IBM Plex Mono';font-size:16px;color:#e8edf7;")}>{v.stkPos.weightStr}</span></div>
-                  <div style={s('display:flex;justify-content:space-between;align-items:baseline;')}><span style={s('font-size:11px;color:#9aa7c2;')}>Market value</span><span style={s("font-family:'IBM Plex Mono';font-size:16px;color:#e8edf7;")}>{v.stkPos.valueStr}</span></div>
-                  <div style={s('display:flex;justify-content:space-between;align-items:baseline;')}><span style={s('font-size:11px;color:#9aa7c2;')}>Shares</span><span style={s("font-family:'IBM Plex Mono';font-size:14px;color:#cdd6e8;")}>{v.stkPos.sharesStr}</span></div>
-                  <div style={s('display:flex;justify-content:space-between;align-items:baseline;')}><span style={s('font-size:11px;color:#9aa7c2;')}>Contribution MTD</span><span style={{ ...s("font-family:'IBM Plex Mono';font-size:14px;"), color: v.stkPos.contribColor }}>{v.stkPos.contribStr}</span></div>
+                  <div style={s('display:flex;justify-content:space-between;align-items:baseline;')}><span style={s('font-size:13px;color:#9aa7c2;')}>Portfolio weight</span><span style={s("font-family:'IBM Plex Mono';font-size:16px;color:#e8edf7;")}>{v.stkPos.weightStr}</span></div>
+                  <div style={s('display:flex;justify-content:space-between;align-items:baseline;')}><span style={s('font-size:13px;color:#9aa7c2;')}>Market value</span><span style={s("font-family:'IBM Plex Mono';font-size:16px;color:#e8edf7;")}>{v.stkPos.valueStr}</span></div>
+                  <div style={s('display:flex;justify-content:space-between;align-items:baseline;')}><span style={s('font-size:13px;color:#9aa7c2;')}>Shares</span><span style={s("font-family:'IBM Plex Mono';font-size:15px;color:#cdd6e8;")}>{v.stkPos.sharesStr}</span></div>
+                  <div style={s('display:flex;justify-content:space-between;align-items:baseline;')}><span style={s('font-size:13px;color:#9aa7c2;')}>Contribution MTD</span><span style={{ ...s("font-family:'IBM Plex Mono';font-size:15px;"), color: v.stkPos.contribColor }}>{v.stkPos.contribStr}</span></div>
                 </div>
                 )}
               </div>
               <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;padding:15px;')}>
-                <div style={s("font:600 10px 'IBM Plex Sans';letter-spacing:.08em;text-transform:uppercase;color:#7e8aa6;margin-bottom:13px;")}>Top Institutional Holders</div>
+                <div style={s("font:600 12px 'IBM Plex Sans';letter-spacing:.08em;text-transform:uppercase;color:#7e8aa6;margin-bottom:13px;")}>Top Institutional Holders</div>
                 {v.stkHoldersState === 'loading' ? (
-                  <div style={s("font:400 11px 'IBM Plex Sans';color:#5d6a85;")}>Loading 13F holders…</div>
+                  <div style={s("font:400 13px 'IBM Plex Sans';color:#5d6a85;")}>Loading 13F holders…</div>
                 ) : (v.stkHoldersState === 'error' || !v.stkHolders.length) ? (
-                  <div style={s("font:400 11px/1.6 'IBM Plex Sans';color:#8290ad;")}>No institutional holder data available from Yahoo Finance.</div>
+                  <div style={s("font:400 13px/1.6 'IBM Plex Sans';color:#8290ad;")}>No institutional holder data available from Yahoo Finance.</div>
                 ) : (
                   <div style={s('display:flex;flex-direction:column;gap:10px;')}>
-                    <div style={s("display:grid;grid-template-columns:1fr auto;gap:8px;font:600 8.5px 'IBM Plex Sans';letter-spacing:.05em;text-transform:uppercase;color:#6b7794;")}><span>Holder</span><span style={s('text-align:right;')}>% Out</span></div>
+                    <div style={s("display:grid;grid-template-columns:1fr auto;gap:8px;font:600 12px 'IBM Plex Sans';letter-spacing:.05em;text-transform:uppercase;color:#6b7794;")}><span>Holder</span><span style={s('text-align:right;')}>% Out</span></div>
                     {v.stkHolders.map((hd, i) => (
                       <div key={i} style={s('display:grid;grid-template-columns:1fr auto;gap:8px;align-items:baseline;')}>
                         <div style={s('min-width:0;')}>
-                          <div style={s("font:500 11.5px 'IBM Plex Sans';color:#cdd6e8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")}>{hd.holder}</div>
-                          <div style={s("font-family:'IBM Plex Mono';font-size:9.5px;color:#6b7794;margin-top:2px;")}>{hd.sharesStr} sh · {hd.valueStr}</div>
+                          <div style={s("font:500 13px 'IBM Plex Sans';color:#cdd6e8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")}>{hd.holder}</div>
+                          <div style={s("font-family:'IBM Plex Mono';font-size:12px;color:#6b7794;margin-top:2px;")}>{hd.sharesStr} sh · {hd.valueStr}</div>
                         </div>
-                        <span style={s("font-family:'IBM Plex Mono';font-size:13px;color:#e8edf7;")}>{hd.pctStr}</span>
+                        <span style={s("font-family:'IBM Plex Mono';font-size:14px;color:#e8edf7;")}>{hd.pctStr}</span>
                       </div>
                     ))}
                   </div>
