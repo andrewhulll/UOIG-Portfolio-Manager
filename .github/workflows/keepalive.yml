@@ -16,4 +16,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping backend health
-        run: curl -fsS --max-time 90 https://uoig-portfolio-manager.onrender.com/api/health || true
+        run: curl -fsS --max-time 90 https://uoig-portfolio-manager-prod.onrender.com/api/health || true
