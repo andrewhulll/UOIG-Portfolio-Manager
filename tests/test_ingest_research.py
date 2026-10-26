@@ -276,3 +276,22 @@ def test_coverage_snapshot_estimates_next_from_last_report_and_skips_empty_cache
     data = res_mod.coverage_snapshot("NONE")
     assert data["earnings"] is None and data["research"] is None
     assert len(written) == 1  # an all-empty (failed) fetch is not cached
+
+
+def test_financials_survives_cashflow_frame_with_different_columns():
+    # Banks (and a quarter Yahoo has for one statement only) give a cash-flow
+    # frame whose columns don't match the income statement; this used to KeyError
+    # and 502 the whole stock bundle.
+    class Bank:
+        quarterly_income_stmt = pd.DataFrame({
+            "2026-09-30": [float("nan"), float("nan"), 5.57],
+            "2026-06-30": [52.0, 21.0, 7.7],
+            "2026-03-31": [49.0, 16.0, 5.9],
+            "2025-12-31": [45.0, 13.0, 4.6],
+            "2025-09-30": [46.0, 14.0, 5.0],
+        }, index=["Total Revenue", "Net Income", "Diluted EPS"])
+        quarterly_cashflow = pd.DataFrame({"2026-06-30": [10.0]}, index=["Free Cash Flow"])
+
+    fin, _ = res._financials(Bank())
+    fcf = next(r for r in fin["rows"] if r["label"] == "Free cash flow")
+    assert fcf["cur"] == "—" and fcf["yoy"] == "—"

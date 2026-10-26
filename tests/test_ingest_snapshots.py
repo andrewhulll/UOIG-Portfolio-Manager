@@ -14,9 +14,12 @@ def test_refresh_owned_snapshots_only_visits_current_holdings(monkeypatch):
     seen = []
     monkeypatch.setattr(snapshots, "refresh_closed_snapshot", lambda t: (
         seen.append(("research", t)) or {"financials": {"rows": []}}))
+    monkeypatch.setattr(snapshots, "refresh_statements_snapshot", lambda t: (
+        seen.append(("statements", t)) or {"statements": {"income": {}}}))
     monkeypatch.setattr(snapshots, "institutional_holders", lambda t, **_kw: (
         seen.append(("holders", t)) or []))
 
     result = snapshots.refresh_owned_snapshots({}, conn=conn)
     assert result["tickers"] == 1
-    assert seen == [("research", "AAPL"), ("holders", "AAPL")]
+    assert seen == [("research", "AAPL"), ("statements", "AAPL"), ("holders", "AAPL")]
+    assert result["statements"] == 1

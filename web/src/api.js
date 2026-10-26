@@ -101,3 +101,4 @@ export const passwordLogin = (email, password) => post('/api/auth/password-login
 export const requestPasswordReset = (email) => post('/api/auth/password-reset', { email })
 export const confirmPasswordReset = (token, password) => post('/api/auth/password-reset/confirm', { token, password })
 export const verifyEmail = (code, pendingToken) => post('/api/auth/verify-email', { code, pendingToken })
+export const getStatements = (ticker) => get(`/api/stock/${encodeURIComponent(ticker)}/statements`)
