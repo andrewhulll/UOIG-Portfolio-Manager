@@ -9,7 +9,7 @@ import { EarningsCalendar } from './earnings/EarningsCalendar.jsx'
 import { StatementsPanel } from './financials/StatementsPanel.jsx'
 import { ResearchPanel } from './financials/ResearchPanel.jsx'
 import { Screener } from './screener/Screener.jsx'
-import { InboxPage, NewsList, WeeklySubmission } from './submissions/Submissions.jsx'
+import { NewsList } from './submissions/Submissions.jsx'
 import { PriceChart, fmtChartDate, smoothPath } from './charts/PriceChart.jsx'
 import { s } from './ui.js'
 
@@ -444,7 +444,7 @@ export default class App extends React.Component {
   //   /sectors             sector overview
   //   /sector/Technology   sector detail
   //   /optimize            optimizer (?tab=whatif, ?fund=tall-firs)
-  //   /inbox /coverage /organization /profile /preferences /assistant
+  //   /coverage /organization /profile /preferences /assistant
   _routeSlugs() {
     const out = {}
     if (this.state.data) for (const k of this.fundKeys) out[((this.funds[k] || {}).slug) || k] = k
@@ -495,7 +495,7 @@ export default class App extends React.Component {
     if (a === 'optimize' && segs.length === 1) {
       return ok({ view: 'optimize', optimizeTab: this._validOptTab(q.get('tab')), fund: fundKey(q.get('fund')) || 'all' })
     }
-    if (segs.length === 1 && ['inbox', 'coverage', 'organization', 'profile', 'preferences', 'assistant'].includes(a)) {
+    if (segs.length === 1 && ['coverage', 'organization', 'profile', 'preferences', 'assistant'].includes(a)) {
       return ok({ view: a })
     }
     return { redirect: '/' }
@@ -517,7 +517,7 @@ export default class App extends React.Component {
       const qs = qp.toString()
       return '/optimize' + (qs ? '?' + qs : '')
     }
-    if (['inbox', 'coverage', 'organization', 'profile', 'preferences', 'assistant'].includes(v)) return '/' + v
+    if (['coverage', 'organization', 'profile', 'preferences', 'assistant'].includes(v)) return '/' + v
     return '/'
   }
   _titleFor(st) {
@@ -527,7 +527,7 @@ export default class App extends React.Component {
     if (st.view === 'dashboard' && st.fund && st.fund !== 'all' && st.data && this.funds[st.fund]) {
       return this.funds[st.fund].name + ' \u2014 ' + base
     }
-    const names = { dashboard: 'Dashboard', stocks: 'Holdings', earnings: 'Earnings Calendar', sectors: 'Sectors', optimize: 'Optimize', inbox: 'Inbox', coverage: 'Coverage', organization: 'Organization', profile: 'Profile', preferences: 'Preferences', assistant: 'Co-Pilot' }
+    const names = { dashboard: 'Dashboard', stocks: 'Holdings', earnings: 'Earnings Calendar', sectors: 'Sectors', optimize: 'Optimize', coverage: 'Coverage', organization: 'Organization', profile: 'Profile', preferences: 'Preferences', assistant: 'Co-Pilot' }
     return (names[st.view] || 'Dashboard') + ' \u2014 ' + base
   }
   _navigate(patch, opts) {
@@ -1085,9 +1085,8 @@ export default class App extends React.Component {
             {this.state.view === 'profile' && <ProfilePage auth={this.state.auth} onNavigate={(view) => this._go(view)} onUserUpdated={(user) => this.setState((st) => ({ auth: { ...st.auth, user }, avatarImgFailed: false }))} />}
             {this.state.view === 'preferences' && <PreferencesPage fundOptions={[{ value: 'all', label: 'All Funds' }, ...this.fundKeys.map(k => ({ value: k, label: this.funds[k].name }))]} currentFund={this.state.fund} currentPeriod={this.state.period} onNavigate={(view) => this._go(view)} onApply={(preferences) => this._navigate({ preferences, fund: preferences.defaultFund, period: preferences.defaultPeriod, optimizeFund: null }, { replace: true })} />}
             {this.state.view === 'organization' && <OrganizationPage auth={this.state.auth} holdings={this.organizationHoldings} onNavigate={(view) => this._go(view)} onOpenStock={(ticker) => this._openStock(ticker, 'organization')} />}
-            {this.state.view === 'coverage' && <MyCoverage auth={this.state.auth} fund={this.state.fund} onOpenStock={(ticker) => this._openStock(ticker, 'coverage')}><WeeklySubmission auth={this.state.auth} /></MyCoverage>}
+            {this.state.view === 'coverage' && <MyCoverage auth={this.state.auth} fund={this.state.fund} onOpenStock={(ticker) => this._openStock(ticker, 'coverage')} />}
             {this.state.view === 'earnings' && <EarningsCalendar fund={this.state.fund} fundLabel={this.state.fund === 'all' ? 'All Funds' : ((this.funds[this.state.fund] || {}).name || this.state.fund)} onOpenStock={(ticker) => this._openStock(ticker, 'dashboard')} onBack={() => this._go('dashboard')} />}
-            {this.state.view === 'inbox' && <InboxPage auth={this.state.auth} />}
           </div>
 
         </div>
@@ -2341,15 +2340,14 @@ export default class App extends React.Component {
     const isAnalyst = st.auth && ['member', 'analyst', 'admin'].includes(st.auth.role)
     const navDef = [
       ...(isAnalyst ? [['coverage', 'My Coverage', 'coverage']] : []),
-      ['inbox', 'Inbox', 'inbox'],
       ['funds', 'Funds', 'dashboard'], ['stocks', 'Stocks', 'stocks'], ['sectors', 'Sectors', 'sectors'], ['optimize', 'Optimize', 'optimize'], ['screener', 'Screener', 'screener'], ['assistant', 'Assistant', 'assistant'],
     ]
     const activeMap = { dashboard: ['funds'], earnings: ['funds'], stocks: ['stocks'], sectors: ['sectors'], stock: ['stocks'], sector: ['sectors'], optimize: ['optimize'], screener: ['screener'], assistant: ['assistant'], coverage: ['coverage'] }
     v.nav = navDef.map(([id, label, go]) => {
-      const active = id === 'inbox' ? st.view === 'inbox' : (activeMap[st.view] || []).indexOf(id) >= 0
+      const active = (activeMap[st.view] || []).indexOf(id) >= 0
       const disabled = id === 'optimize'
       if (disabled) return { key: id, label, icon: this._icon(id, false), bg: 'transparent', color: '#2a3143', disabled: true, on: () => {} }
-      return { key: id, label, icon: id === 'inbox' ? '✉' : this._icon(id, active), bg: active ? '#13203a' : 'transparent', color: active ? '#5a93f9' : '#5d6a85', on: () => this._go(go) }
+      return { key: id, label, icon: this._icon(id, active), bg: active ? '#13203a' : 'transparent', color: active ? '#5a93f9' : '#5d6a85', on: () => this._go(go) }
     })
     v.periods = ['1M', '3M', '6M', 'YTD', '1Y', '5Y'].map((p) => ({ k: p, bg: p === st.period ? '#13203a' : 'transparent', color: p === st.period ? '#cdd6e8' : '#6b7794', weight: p === st.period ? 600 : 500, on: () => this.setState({ period: p }) }))
 
