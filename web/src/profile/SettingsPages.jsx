@@ -241,7 +241,7 @@ export function OrganizationPage({ auth, holdings, onNavigate, onOpenStock }) {
         <div className="member-list-head"><span>Member</span><span>Team & coverage</span><span>Role</span></div>
         {members.map(member => <button key={member.id} className={'member-row ' + (detail?.id === member.id ? 'selected' : '')} onClick={() => setSelected(member)}>
           <span className="member-identity"><Avatar member={member} /><span><b>{member.name}</b><small>{member.email}</small></span>{member.isMock && <em>Mock</em>}</span>
-          <span className="member-coverage"><span>{member.sectors.length ? member.sectors.join(' · ') : member.leadSectors.length ? 'Leads ' + member.leadSectors.join(', ') : 'Leadership'}</span><small>{member.coverage.length ? member.coverage.map(c => c.ticker).join(', ') : 'No company assignments'}</small></span>
+          <span className="member-coverage"><span>{member.sectors.length ? member.sectors.join(' · ') : member.leadSectors.length ? 'Leads ' + member.leadSectors.join(', ') : 'No team yet'}</span><small>{member.coverage.length ? member.coverage.map(c => c.ticker).join(', ') : 'No company assignments'}</small></span>
           <RoleBadge role={member.role} label={member.roleName} />
         </button>)}
         {!members.length && <div className="settings-empty">No members match these filters.</div>}
