@@ -54,6 +54,7 @@ export const getPredictions = (ticker) => get(`/api/predictions/${encodeURICompo
 export const getThesis = (ticker) => get(`/api/thesis/${encodeURIComponent(ticker)}`)
 export const getMyCoverage = (fund = 'all') => get(`/api/coverage/me?fund=${encodeURIComponent(fund)}`)
 export const getMovers = (fund = 'all', window = 'MTD') => get(`/api/movers?fund=${encodeURIComponent(fund)}&window=${encodeURIComponent(window)}`)
+export const getEarningsCalendar = (fund = 'all', days = 60) => get(`/api/earnings-calendar?fund=${encodeURIComponent(fund)}&days=${days}`)
 export const getWatchlist = () => get('/api/watchlist')
 export const addWatchlistTicker = ticker => post('/api/watchlist', { ticker })
 export const removeWatchlistTicker = ticker => fetch(`${BASE}/api/watchlist/${encodeURIComponent(ticker)}`, { method: 'DELETE', credentials: 'include' }).then(j)
