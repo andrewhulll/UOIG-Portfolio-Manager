@@ -6,7 +6,8 @@ import './earnings.css'
 // agenda answers "who, and how much of the fund is that". Weight is the signal:
 // every chip carries the position's share of the fund, so a 5% name reporting
 // reads differently from a 0.3% one. The API only knows each holding's NEXT
-// report, so there is nothing to show for past periods.
+// report plus the last one it stored, so the calendar covers the past week and
+// the next six months.
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] // workweek only
 const MODES = [['week', 'Week'], ['month', 'Month'], ['quarter', 'Quarter']]
@@ -19,6 +20,10 @@ const fromIso = (s) => new Date(s + 'T12:00:00')
 const startOfWeek = (d) => addDays(d, -((d.getDay() + 6) % 7)) // Monday
 const sameDay = (a, b) => iso(a) === iso(b)
 const fmt = (d, opts) => d.toLocaleDateString('en-US', opts)
+// "Today" is Pacific time everywhere, matching the API, so a late-evening visit
+// doesn't flip the calendar to tomorrow.
+const todayPT = () => fromIso(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(new Date()))
+const surprise = (v) => (v == null ? '' : (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(1) + '%')
 const pct = (w) => (w == null ? '' : w < 0.05 ? '<0.1%' : w.toFixed(1) + '%')
 
 function monthGrid(d) {
@@ -49,8 +54,9 @@ function heading(mode, anchor) {
 }
 
 function Chip({ e, onOpen, wide }) {
-  const cls = 'ec-chip' + (e.estimated ? ' est' : '') + (e.weight >= BIG ? ' big' : '')
-  const tip = `${e.name}${e.sector ? ' · ' + e.sector : ''}${e.reportDate ? '\nReports ' + fmt(fromIso(e.reportDate), { weekday: 'long', month: 'short', day: 'numeric' }) : ''}\n${e.estimated ? 'Projected from the last report, one quarter later' : 'Date from Yahoo Finance; companies can move it'}`
+  const cls = 'ec-chip' + (e.estimated ? ' est' : '') + (e.weight >= BIG ? ' big' : '') + (e.past ? ' past' : '')
+  const result = e.past && e.epsActual ? `\nReported ${e.epsActual} vs ${e.epsEst || '—'} expected (${surprise(e.surprise)})` : ''
+  const tip = `${e.name}${e.sector ? ' · ' + e.sector : ''}${result}${e.reportDate ? '\nReports ' + fmt(fromIso(e.reportDate), { weekday: 'long', month: 'short', day: 'numeric' }) : ''}\n${e.estimated ? 'Projected from the last report, one quarter later' : 'Date from Yahoo Finance; companies can move it'}`
   return (
     <button type="button" className={cls} title={tip} onClick={(ev) => { ev.stopPropagation(); onOpen(e.ticker) }}>
       <span className="ec-tk">{e.ticker}</span>
@@ -62,16 +68,16 @@ function Chip({ e, onOpen, wide }) {
 
 export function EarningsCalendar({ fund, fundLabel, onOpenStock, onBack }) {
   const [mode, setMode] = React.useState('week')
-  const [anchor, setAnchor] = React.useState(() => noon(new Date()))
+  const [anchor, setAnchor] = React.useState(() => todayPT())
   const [selected, setSelected] = React.useState(null) // iso day filtering the agenda
   const [query, setQuery] = React.useState('')
   const [state, setState] = React.useState({ status: 'loading' })
-  const today = React.useMemo(() => noon(new Date()), [])
+  const today = React.useMemo(() => todayPT(), [])
 
   React.useEffect(() => {
     let live = true
     setState({ status: 'loading' })
-    getEarningsCalendar(fund, 180)
+    getEarningsCalendar(fund, 180, 7)
       .then((res) => live && setState({ status: 'ok', events: res.events || [] }))
       .catch(() => live && setState({ status: 'error' }))
     return () => { live = false }
@@ -96,9 +102,10 @@ export function EarningsCalendar({ fund, fundLabel, onOpenStock, onBack }) {
   const agenda = selected ? inRange.filter((e) => e.date === selected) : inRange
   const exposure = inRange.reduce((t, e) => t + (e.weight || 0), 0)
   const unconfirmed = inRange.filter((e) => e.estimated).length
+  const reportedN = inRange.filter((e) => e.past).length
 
   const move = (dir) => { setAnchor(shift(mode, anchor, dir)); setSelected(null) }
-  const goToday = () => { setAnchor(noon(new Date())); setSelected(null) }
+  const goToday = () => { setAnchor(todayPT()); setSelected(null) }
   const setView = (m) => { setMode(m); setSelected(null) }
   const pick = (d) => { setAnchor(d); setSelected(iso(d)) }
 
@@ -197,7 +204,7 @@ export function EarningsCalendar({ fund, fundLabel, onOpenStock, onBack }) {
   const summary = state.status !== 'ok' ? '' : !inRange.length
     ? `No reports ${query ? 'match' : 'expected'} ${rangeLabel}.`
     : `${inRange.length} report${inRange.length === 1 ? '' : 's'} ${rangeLabel}, ${exposure.toFixed(1)}% of ${fundLabel}` +
-      (unconfirmed ? `. ${unconfirmed} date${unconfirmed === 1 ? ' is' : 's are'} estimated.` : '.')
+      (reportedN ? `, ${reportedN} already reported` : '') + (unconfirmed ? `. ${unconfirmed} date${unconfirmed === 1 ? ' is' : 's are'} estimated.` : '.')
 
   return (
     <div className="ec">
@@ -238,9 +245,10 @@ export function EarningsCalendar({ fund, fundLabel, onOpenStock, onBack }) {
             <div key={g.date} className="ec-group">
               {!selected && <div className="ec-gdate">{fmt(fromIso(g.date), { weekday: 'short', month: 'short', day: 'numeric' })}{g.date === iso(today) ? ' · today' : ''}</div>}
               {g.items.map((e) => (
-                <button type="button" key={e.ticker} className="ec-row" onClick={() => onOpenStock(e.ticker)}>
+                <button type="button" key={e.ticker} className={'ec-row' + (e.past ? ' past' : '')} onClick={() => onOpenStock(e.ticker)}>
                   <span className="ec-tk">{e.ticker}</span>
                   <span className="ec-nm">{e.name}</span>
+                  {e.past && e.surprise != null && <span className={'ec-surp ' + (e.surprise >= 0 ? 'up' : 'dn')} title={`Reported ${e.epsActual} vs ${e.epsEst || '—'} expected`}>{surprise(e.surprise)}</span>}
                   {e.reportDate && <span className="ec-estlabel" title="Reports on a weekend; shown on the next trading day">{fmt(fromIso(e.reportDate), { weekday: 'short', month: 'short', day: 'numeric' })}</span>}
                   {e.estimated && <span className="ec-estlabel" title="Projected one quarter after the last report">est.</span>}
                   <span className="ec-wt">{pct(e.weight)}</span>
@@ -252,7 +260,7 @@ export function EarningsCalendar({ fund, fundLabel, onOpenStock, onBack }) {
           </div>
         </aside>
       </div>
-      <p className="ec-foot">Weights are each position's share of {fundLabel}. Dated reports come from Yahoo Finance, and companies can still move them. A dashed outline or “est.” means Yahoo has no upcoming date yet, so it is projected one quarter after the last report. Weekend reports appear on the next Monday. Only each holding's next report is tracked. Keys: ← → to move, T for today.</p>
+      <p className="ec-foot">Weights are each position's share of {fundLabel}. Dated reports come from Yahoo Finance, and companies can still move them. A dashed outline or “est.” means Yahoo has no upcoming date yet, so it is projected one quarter after the last report. Reports from the past week are dimmed, with the EPS result against expectations. Weekend reports appear on the next trading day. Only each holding's next and most recent reports are tracked. Keys: ← → to move, T for today.</p>
     </div>
   )
 }
