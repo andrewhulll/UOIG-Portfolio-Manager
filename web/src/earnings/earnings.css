@@ -1,0 +1,109 @@
+/* Earnings calendar. Matches the terminal's navy surfaces; the one accent
+   (blue) marks "today" and the selected day, everything else is weight and
+   dashed-vs-solid, so nothing competes for attention. */
+.ec { padding: 20px 24px 28px; display: flex; flex-direction: column; gap: 14px; font-family: 'IBM Plex Sans', sans-serif; color: #cdd6e8; }
+.ec button { font-family: inherit; color: inherit; }
+.ec :focus-visible { outline: 2px solid #5a93f9; outline-offset: 1px; }
+
+.ec-back { align-self: flex-start; background: none; border: 0; padding: 0; font-size: 13px; color: #6b7794; cursor: pointer; }
+.ec-back:hover { color: #cdd6e8; }
+.ec-top { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.ec-h1 { margin: 0; font-size: 22px; font-weight: 600; color: #e8edf7; letter-spacing: -.01em; }
+.ec-sum { margin: 4px 0 0; font-size: 13.5px; color: #9aa7c2; min-height: 1.4em; }
+.ec-filter { width: 260px; max-width: 100%; background: #0e1422; border: 1px solid #1d2840; border-radius: 6px; padding: 8px 11px; font: 400 13px 'IBM Plex Sans', sans-serif; color: #e8edf7; }
+.ec-filter::placeholder { color: #5d6a85; }
+
+.ec-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ec-nav { display: flex; align-items: center; gap: 6px; }
+.ec-range { margin-left: 10px; font-size: 17px; font-weight: 500; color: #e8edf7; }
+.ec-btn { background: #0e1422; border: 1px solid #1d2840; border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+.ec-btn.sq { padding: 6px 10px; min-width: 32px; }
+.ec-btn:hover { background: #131c2f; }
+.ec-seg { display: inline-flex; border: 1px solid #1d2840; border-radius: 6px; overflow: hidden; }
+.ec-seg button { background: #0e1422; border: 0; border-right: 1px solid #1d2840; padding: 6px 14px; font-size: 13px; color: #7e8aa6; cursor: pointer; }
+.ec-seg button:last-child { border-right: 0; }
+.ec-seg button.on { background: #1a2a4a; color: #e8edf7; }
+
+.ec-body { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: stretch; }
+.ec-cal { background: #0e1422; border: 1px solid #1d2840; border-radius: 6px; overflow: hidden; min-width: 0; display: flex; flex-direction: column; }
+.ec-cal > .ec-month, .ec-cal > .ec-weekgrid, .ec-cal > .ec-quarter, .ec-cal > .ec-msg { flex: 1; }
+.ec-msg { margin: 0; padding: 36px 20px; text-align: center; font-size: 13px; color: #6b7794; }
+.ec-msg.small { padding: 18px 4px; text-align: left; }
+
+/* chips: ticker left, weight right. Large positions are brighter; estimated dates are dashed. */
+.ec-chip { display: flex; align-items: baseline; gap: 6px; width: 100%; min-width: 0; text-align: left; background: #131c2f; border: 1px solid #22304d; border-radius: 4px; padding: 3px 7px; cursor: pointer; }
+.ec-chip:hover { border-color: #3a5588; }
+.ec-chip .ec-tk { font: 600 11.5px 'IBM Plex Mono', monospace; color: #cdd6e8; }
+.ec-chip .ec-wt { margin-left: auto; font: 400 10.5px 'IBM Plex Mono', monospace; color: #6b7794; }
+.ec-chip .ec-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: #7e8aa6; }
+.ec-chip.big { background: #162746; border-color: #2d4a80; }
+.ec-chip.big .ec-tk { color: #e8edf7; }
+.ec-chip.big .ec-wt { color: #9cc0ff; font-weight: 500; }
+.ec-chip.est { background: transparent; border-style: dashed; border-color: #3a4766; }
+
+/* month */
+.ec-wk, .ec-month { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.ec-month { grid-auto-rows: minmax(104px, 1fr); }
+.ec-wk { border-bottom: 1px solid #1d2840; }
+.ec-wk span { padding: 8px 8px; font-size: 12px; font-weight: 500; color: #6b7794; }
+.ec-day { min-height: 100px; padding: 6px; display: flex; flex-direction: column; gap: 3px; border-right: 1px solid #131c2f; border-bottom: 1px solid #131c2f; cursor: pointer; min-width: 0; }
+.ec-day:nth-child(5n), .ec-col:last-child { border-right: 0; }
+.ec-day:hover { background: #101829; }
+.ec-day.out { background: #0b101c; }
+.ec-day.out .ec-num { color: #3b4663; }
+.ec-day.sel, .ec-col.sel { background: #0f1c36; box-shadow: inset 0 0 0 1px #2d4a80; }
+.ec-num { align-self: flex-start; min-width: 22px; height: 22px; padding: 0 4px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; color: #9aa7c2; }
+.ec-day.today .ec-num, .ec-col.today .ec-num { background: #5a93f9; color: #0a0f1a; font-weight: 600; }
+.ec-more { font-size: 11px; color: #7e8aa6; padding-left: 3px; }
+
+/* week */
+.ec-weekgrid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.ec-col { min-height: 420px; padding: 8px; display: flex; flex-direction: column; gap: 4px; border-right: 1px solid #131c2f; cursor: pointer; min-width: 0; }
+.ec-col:hover { background: #101829; }
+.ec-colhead { display: flex; justify-content: space-between; align-items: center; margin: -8px -8px 4px; padding: 8px; border-bottom: 1px solid #1d2840; font-size: 12px; font-weight: 500; color: #6b7794; }
+.ec-col .ec-chip { flex-wrap: wrap; }
+.ec-col .ec-chip .ec-nm { flex-basis: 100%; order: 3; }
+.ec-none { font-size: 12px; color: #3b4663; }
+
+/* quarter */
+.ec-quarter { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; padding: 14px; }
+.ec-mini { min-width: 0; }
+.ec-minititle { background: none; border: 0; padding: 0 0 6px; font-size: 14px; font-weight: 500; color: #e8edf7; cursor: pointer; }
+.ec-minititle:hover { color: #9cc0ff; }
+.ec-minigrid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; }
+.ec-miniwk { text-align: center; font-size: 11px; color: #5d6a85; padding: 2px 0; }
+.ec-md { border: 0; background: transparent; border-radius: 4px; min-height: 36px; padding: 3px 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; font-size: 12px; color: #cdd6e8; cursor: pointer; }
+.ec-md i { font: normal 500 10px 'IBM Plex Mono', monospace; color: #e8edf7; }
+.ec-md:not(:disabled):hover { box-shadow: inset 0 0 0 1px #3a5588; }
+.ec-md.out { visibility: hidden; }
+.ec-md.today span { background: #5a93f9; color: #0a0f1a; font-weight: 600; border-radius: 9px; padding: 0 5px; }
+
+/* agenda */
+.ec-agenda { background: #0e1422; border: 1px solid #1d2840; border-radius: 6px; position: relative; min-height: 260px; }
+.ec-agendain { position: absolute; inset: 0; overflow-y: auto; padding: 12px 12px 8px; }
+.ec-agendahead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; font-size: 14px; font-weight: 600; color: #e8edf7; }
+.ec-clear { background: none; border: 0; padding: 0; font-size: 12px; color: #5a93f9; cursor: pointer; }
+.ec-gdate { margin: 12px 0 3px; padding-bottom: 3px; border-bottom: 1px solid #1d2840; font-size: 12px; font-weight: 500; color: #7e8aa6; }
+.ec-row { display: flex; align-items: baseline; gap: 8px; width: 100%; background: none; border: 0; border-radius: 4px; padding: 6px 4px; text-align: left; cursor: pointer; }
+.ec-row:hover { background: #131c2f; }
+.ec-row .ec-tk { width: 50px; flex: none; font: 600 12px 'IBM Plex Mono', monospace; color: #e8edf7; }
+.ec-row .ec-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: #9aa7c2; }
+.ec-row .ec-wt { font: 400 11.5px 'IBM Plex Mono', monospace; color: #9aa7c2; }
+.ec-estlabel { font-size: 11px; font-style: italic; color: #b98a2e; }
+.ec-foot { margin: 0; max-width: 70ch; font-size: 12px; line-height: 1.5; color: #5d6a85; }
+
+@media (max-width: 980px) {
+  .ec-body { grid-template-columns: minmax(0, 1fr); }
+  .ec-agenda { position: static; min-height: 0; }
+  .ec-agendain { position: static; }
+}
+@media (max-width: 640px) {
+  .ec { padding: 14px 12px 24px; }
+  .ec-day { min-height: 64px; padding: 3px; }
+  .ec-day .ec-chip .ec-wt { display: none; }
+  .ec-col.empty:not(.today) { display: none; }
+  .ec-col .ec-chip .ec-nm { flex-basis: auto; order: 0; }
+  .ec-weekgrid { grid-template-columns: minmax(0, 1fr); }
+  .ec-col { min-height: 0; border-right: 0; border-bottom: 1px solid #131c2f; }
+  .ec-quarter { grid-template-columns: minmax(0, 1fr); }
+}

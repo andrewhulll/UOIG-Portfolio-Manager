@@ -215,3 +215,44 @@ def test_quote_cache_reused_and_no_trailing_forward_fallback(monkeypatch):
     second = lookup.quote_overview('EXT', strict=True)
     assert first == second and calls == ['EXT']
     assert first['pe'] == 99 and first['forwardPE'] is None
+
+
+def test_earnings_calendar_scopes_fund_window_and_flags_estimates(api, monkeypatch):
+    from datetime import date, timedelta
+    fmt = lambda d: d.strftime('%b %d, %Y')
+    soon = date.today() + timedelta(days=3)
+    soon += timedelta(days=max(0, 7 - soon.weekday()) if soon.weekday() >= 5 else 0)  # weekday only
+    far = date.today() + timedelta(days=120)
+    snaps = {'A': {'earnings': {'next': fmt(soon), 'nextEstimated': True}},
+             'B': {'earnings': {'next': fmt(far)}}}
+    monkeypatch.setattr(routes, 'closed_snapshot', lambda t: snaps.get(t, {}))
+    monkeypatch.setattr(routes, '_NEXT_REPORT', {})  # the route memoizes snapshot reads
+    body = api.call('GET', '/earnings-calendar?fund=all').json()
+    assert body['heldCount'] == 2
+    assert [(e['ticker'], e['estimated'], e['daysUntil']) for e in body['events']] == [('A', True, (soon - date.today()).days)]
+    assert body['events'][0]['sector'] == 'TMT' and body['events'][0]['weight'] > 0
+    assert api.call('GET', '/earnings-calendar?fund=alumni&days=180').json()['events'][0]['ticker'] == 'A'
+    assert api.call('GET', '/earnings-calendar?fund=bogus').status_code == 422
+    assert api.call('GET', '/earnings-calendar', user=None).status_code == 401
+
+
+def test_earnings_calendar_rolls_stale_dates_forward_as_estimates(api, monkeypatch):
+    from datetime import date, timedelta
+    from api.coverage import _roll_forward
+    assert _roll_forward(date(2026, 8, 31), date(2026, 10, 28)) == date(2026, 11, 30)
+    assert _roll_forward(date(2026, 11, 30), date(2026, 10, 28)) == date(2026, 11, 30)
+    assert _roll_forward(date(2026, 10, 27), date(2026, 10, 28)) == date(2027, 1, 27)
+    past = (date.today() - timedelta(days=20)).strftime('%b %d, %Y')
+    monkeypatch.setattr(routes, 'closed_snapshot', lambda t: {'earnings': {'next': past}} if t == 'A' else {})
+    monkeypatch.setattr(routes, '_NEXT_REPORT', {})
+    events = api.call('GET', '/earnings-calendar?fund=all&days=180').json()['events']
+    assert [e['ticker'] for e in events] == ['A'] and events[0]['estimated'] and events[0]['daysUntil'] > 0
+
+
+def test_earnings_calendar_moves_weekend_reports_to_monday(api, monkeypatch):
+    from datetime import date, timedelta
+    sat = date.today() + timedelta(days=(5 - date.today().weekday()) % 7 + 7)
+    monkeypatch.setattr(routes, 'closed_snapshot', lambda t: {'earnings': {'next': sat.strftime('%b %d, %Y')}} if t == 'A' else {})
+    monkeypatch.setattr(routes, '_NEXT_REPORT', {})
+    e = api.call('GET', '/earnings-calendar?fund=all&days=30').json()['events'][0]
+    assert date.fromisoformat(e['date']).weekday() == 0 and e['reportDate'] == sat.isoformat()
