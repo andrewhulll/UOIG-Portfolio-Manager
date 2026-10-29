@@ -16,7 +16,7 @@ function SectorChip({ sector }) {
   return <span className="submission-sector-chip" style={{ color, background: color + '18', borderColor: color + '40' }}>{sector}</span>
 }
 
-export const isAnalyst = auth => ['member', 'analyst'].includes(auth?.role)
+export const isAnalyst = auth => ['member', 'analyst', 'admin'].includes(auth?.role)
 const canReview = auth => auth?.role === 'sector-leader' || auth?.canInvite || auth?.role === 'admin'
 const displayStatus = status => ({ draft: 'Draft', pending: 'Pending', submitted: 'Submitted', acked: 'Acknowledged' })[status] || status
 const dateLabel = value => new Date(value).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' PT'

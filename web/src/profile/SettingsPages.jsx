@@ -1,5 +1,6 @@
 import React from 'react'
-import { getOrganizationMembers, sendInvite, updateProfile, updateMemberCoverage, updateMemberLeadSectors, updateMemberRole } from '../api.js'
+import { HoldingsEditor } from '../admin/HoldingsEditor.jsx'
+import { getFeedback, setFeedbackResolved, getOrganizationMembers, sendInvite, updateProfile, updateMemberCoverage, updateMemberLeadSectors, updateMemberRole } from '../api.js'
 import { s } from '../ui.js'
 import './settings.css'
 
@@ -116,8 +117,8 @@ function LeadSectorEditor({ member, onChanged }) {
   </>
 }
 
-function SettingsShell({ active, onNavigate, eyebrow, title, subtitle, children }) {
-  const tabs = [['profile', 'My profile'], ['preferences', 'Preferences'], ['organization', 'Organization']]
+function SettingsShell({ active, onNavigate, eyebrow, title, subtitle, children, isAdmin }) {
+  const tabs = [['profile', 'My profile'], ['preferences', 'Preferences'], ['organization', 'Organization'], ...(isAdmin ? [['admin', 'Admin']] : [])]
   return <div className="settings-page">
     <div className="settings-hero">
       <div className="settings-eyebrow">{eyebrow}</div>
@@ -146,7 +147,7 @@ export function ProfilePage({ auth, onNavigate, onUserUpdated }) {
       onUserUpdated(result.user); setStatus('saved')
     } catch (err) { setStatus(err.detail || 'Could not save profile') }
   }
-  return <SettingsShell active="profile" onNavigate={onNavigate} eyebrow="Account" title="Your profile" subtitle="The identity teammates see across the UOIG terminal.">
+  return <SettingsShell isAdmin={auth.canInvite} active="profile" onNavigate={onNavigate} eyebrow="Account" title="Your profile" subtitle="The identity teammates see across the UOIG terminal.">
     <div className="settings-card profile-summary">
       <Avatar member={{ ...user, name: user.name || user.email }} size={64} />
       <div><div className="settings-card-title">{user.name || user.email}</div><div className="settings-muted">{user.email}</div></div>
@@ -172,7 +173,7 @@ function readPrefs() {
   try { return JSON.parse(localStorage.getItem('uoig.preferences') || '{}') } catch (_) { return {} }
 }
 
-export function PreferencesPage({ fundOptions, currentFund, currentPeriod, onNavigate, onApply }) {
+export function PreferencesPage({ auth, fundOptions, currentFund, currentPeriod, onNavigate, onApply }) {
   const existing = readPrefs()
   const [prefs, setPrefs] = React.useState({
     defaultFund: existing.defaultFund || currentFund || 'all', defaultPeriod: existing.defaultPeriod || currentPeriod || 'YTD',
@@ -181,7 +182,7 @@ export function PreferencesPage({ fundOptions, currentFund, currentPeriod, onNav
   const [saved, setSaved] = React.useState(false)
   const field = (key, value) => { setPrefs(p => ({ ...p, [key]: value })); setSaved(false) }
   const save = () => { localStorage.setItem('uoig.preferences', JSON.stringify(prefs)); localStorage.setItem('uoig.fund', prefs.defaultFund); onApply(prefs); setSaved(true) }
-  return <SettingsShell active="preferences" onNavigate={onNavigate} eyebrow="Workspace" title="Terminal preferences" subtitle="Choose how the terminal opens and how much information it shows.">
+  return <SettingsShell isAdmin={auth?.canInvite} active="preferences" onNavigate={onNavigate} eyebrow="Workspace" title="Terminal preferences" subtitle="Choose how the terminal opens and how much information it shows.">
     <div className="settings-card">
       <div className="settings-section-head"><div><div className="settings-card-title">Startup view</div><div className="settings-muted">Applied when you return to the terminal on this browser.</div></div></div>
       <div className="settings-fields two">
@@ -220,13 +221,13 @@ export function OrganizationPage({ auth, holdings, onNavigate, onOpenStock }) {
     try { await sendInvite(email, invite.role); setInvite({ ...invite, email: '', status: 'sent', message: `Invitation sent to ${email}` }) }
     catch (err) { setInvite(x => ({ ...x, status: 'error', message: err.detail || 'Could not send invitation' })) }
   }
-  if (error) return <SettingsShell active="organization" onNavigate={onNavigate} eyebrow="UOIG" title="Organization" subtitle="Member directory and coverage ownership."><div className="settings-card settings-empty"><b>Directory unavailable</b><span>{error}</span><button onClick={() => { setError(''); load() }}>Try again</button></div></SettingsShell>
-  if (!data) return <SettingsShell active="organization" onNavigate={onNavigate} eyebrow="UOIG" title="Organization" subtitle="Member directory and coverage ownership."><div className="settings-card settings-empty"><span className="settings-spinner" />Loading members…</div></SettingsShell>
+  if (error) return <SettingsShell isAdmin={auth.canInvite} active="organization" onNavigate={onNavigate} eyebrow="UOIG" title="Organization" subtitle="Member directory and coverage ownership."><div className="settings-card settings-empty"><b>Directory unavailable</b><span>{error}</span><button onClick={() => { setError(''); load() }}>Try again</button></div></SettingsShell>
+  if (!data) return <SettingsShell isAdmin={auth.canInvite} active="organization" onNavigate={onNavigate} eyebrow="UOIG" title="Organization" subtitle="Member directory and coverage ownership."><div className="settings-card settings-empty"><span className="settings-spinner" />Loading members…</div></SettingsShell>
   const sectors = ['All sectors', ...Array.from(new Set(data.members.flatMap(m => m.sectors))).sort()]
   const needle = query.trim().toLowerCase()
   const members = data.members.filter(m => (sector === 'All sectors' || m.sectors.includes(sector)) && (!needle || [m.name, m.email, m.roleName, ...m.sectors, ...m.coverage.map(c => c.ticker)].join(' ').toLowerCase().includes(needle)))
   const detail = members.find(m => m.id === selected?.id) || members[0] || null
-  return <SettingsShell active="organization" onNavigate={onNavigate} eyebrow={data.organization.name} title="Member directory" subtitle="Find teammates by sector, role, or company coverage.">
+  return <SettingsShell isAdmin={auth.canInvite} active="organization" onNavigate={onNavigate} eyebrow={data.organization.name} title="Member directory" subtitle="Find teammates by sector, role, or company coverage.">
     <div className="settings-stats"><div><strong>{data.members.length}</strong><span>Active members</span></div><div><strong>{data.members.filter(m => m.leadSectors.length).length}</strong><span>Sector leaders assigned</span></div><div><strong>{new Set(data.members.flatMap(m => m.coverage.map(c => c.ticker))).size}</strong><span>Companies covered</span></div></div>
     {auth.canInvite && <form className="settings-card invite-row" onSubmit={send}>
       <div><div className="settings-card-title">Invite a teammate</div><div className="settings-muted">Add an active UOIG member with the right access level.</div></div>
@@ -261,5 +262,54 @@ export function OrganizationPage({ auth, holdings, onNavigate, onOpenStock }) {
         </React.Fragment>}
       </aside>
     </div>
+  </SettingsShell>
+}
+
+function when(iso) {
+  const d = new Date(iso)
+  return isNaN(d) ? '' : d.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
+
+function FeedbackList() {
+  const [items, setItems] = React.useState(null)
+  const [error, setError] = React.useState('')
+  const [tab, setTab] = React.useState('open')
+  const [busyId, setBusyId] = React.useState('')
+  const load = React.useCallback(() => getFeedback().then(x => { setItems(x.items); setError('') }).catch(e => setError(e.detail || 'Could not load feedback')), [])
+  React.useEffect(() => { load() }, [load])
+  const toggle = async (item) => {
+    setBusyId(item.id)
+    try { await setFeedbackResolved(item.id, !item.resolved_at); await load() }
+    catch (e) { setError(e.detail || 'Could not update feedback') }
+    finally { setBusyId('') }
+  }
+  if (!items) return <div className="settings-card settings-empty">{error ? <><b>Feedback unavailable</b><span>{error}</span><button onClick={load}>Try again</button></> : <><span className="settings-spinner" />Loading feedback…</>}</div>
+  const open = items.filter(i => !i.resolved_at)
+  const closed = items.filter(i => i.resolved_at)
+  const shown = tab === 'open' ? open : tab === 'done' ? closed : items
+  const empty = tab === 'open' ? (items.length ? 'All caught up — every piece of feedback is implemented.' : 'No feedback yet. It shows up here when someone uses Submit feedback.') : 'Nothing here yet.'
+  return <div className="settings-card ad">
+    <div className="settings-section-head">
+      <div><div className="settings-card-title">User feedback</div><div className="settings-muted">Tick an item once it has shipped.</div></div>
+      <div className="ad-tabs" role="group" aria-label="Filter feedback">
+        {[['open', 'Open', open.length], ['done', 'Implemented', closed.length], ['all', 'All', items.length]].map(([k, label, n]) => <button key={k} type="button" aria-pressed={tab === k} onClick={() => setTab(k)}>{label}<span>{n}</span></button>)}
+      </div>
+    </div>
+    {error && <div className="settings-error" role="alert">{error}</div>}
+    {shown.length === 0 ? <div className="settings-muted" style={{ padding: '6px 0 2px' }}>{empty}</div> : shown.map(i => <div key={i.id} className={'ad-fb' + (i.resolved_at ? ' done' : '')}>
+      <input type="checkbox" checked={!!i.resolved_at} disabled={busyId === i.id} onChange={() => toggle(i)} aria-label={i.resolved_at ? 'Mark as not implemented' : 'Mark as implemented'} />
+      <div>
+        <div className="ad-fb-text">{i.body}</div>
+        <div className="ad-fb-who"><b>{i.user_name || i.user_email || 'Unknown user'}</b>{i.user_name && i.user_email ? <> &nbsp;{i.user_email}</> : null}</div>
+      </div>
+      <div className="ad-fb-side">{when(i.created_at)}{i.page && <span className="ad-fb-page">{i.page}</span>}{i.resolved_at && <span className="ad-fb-ok">Implemented {when(i.resolved_at)}</span>}</div>
+    </div>)}
+  </div>
+}
+
+export function AdminPage({ auth, onNavigate }) {
+  return <SettingsShell isAdmin active="admin" onNavigate={onNavigate} eyebrow="Admin" title="Admin" subtitle="Manage holdings and review feedback. Visible to admins only.">
+    <HoldingsEditor />
+    <FeedbackList />
   </SettingsShell>
 }

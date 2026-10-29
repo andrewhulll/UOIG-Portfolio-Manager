@@ -1157,6 +1157,19 @@ def thesis(ticker: str):
     return stock_thesis(ticker.upper())
 
 
+@app.get("/api/thesis-history/{ticker}")
+def thesis_history(ticker: str):
+    """Archived UOIG research theses for a ticker (Supabase pgvector table),
+    oldest report first. Empty list when the archive is unavailable."""
+    from src.ingest import thesis_rag
+    if not thesis_rag.available():
+        return {"ticker": ticker.upper(), "points": [], "available": False}
+    try:
+        return {"ticker": ticker.upper(), "points": thesis_rag.ticker_history(ticker), "available": True}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"thesis archive failed: {exc}")
+
+
 _RATE_LIMITS: Dict[str, Dict[str, List[float]]] = {}
 _RATE_LIMIT_LOCK = threading.Lock()
 
@@ -1208,6 +1221,13 @@ def _chat_system(conn, context: str) -> str:
         "financials, earnings, news, analyst research), get_predictions (Kalshi market-implied "
         "odds), and get_thesis (the team's written pitch). Pull these on demand for a ticker; "
         "read only what the question needs.",
+        "You also have an archive of historical UOIG student research theses (2013-2026): "
+        "search_thesis_points for thematic/comparative questions (use latest_only=true for a "
+        "'current view', a since/until window for evolution) and get_ticker_history for what UOIG "
+        "thought of one company and how it changed. Treat results as historical student analysis, "
+        "not current fact: cite ticker, report_date and version_rank, and say when a view is old or "
+        "superseded (version_rank > 1). Older rows have no title — summarize from thesis_text. "
+        "Never invent a thesis for a ticker with no rows; say UOIG has no archived coverage.",
         "You can also search the web (web_search) for current information the portfolio data "
         "doesn't cover — recent news, macro events, analyst commentary, or anything time-sensitive. "
         "Use it when a question needs up-to-date external context, and cite the sources you used.",
@@ -1459,6 +1479,12 @@ else:
 # are matched first; this catch-all mount serves the SPA for everything else.
 from api.submissions import router as submissions_router  # noqa: E402
 app.include_router(submissions_router)
+from api.feedback import router as feedback_router  # noqa: E402
+app.include_router(feedback_router)
+from api.admin_holdings import router as admin_holdings_router  # noqa: E402
+app.include_router(admin_holdings_router)
+from api.onboarding import router as onboarding_router  # noqa: E402
+app.include_router(onboarding_router)
 from api.coverage import router as coverage_router  # noqa: E402
 app.include_router(coverage_router)
 
