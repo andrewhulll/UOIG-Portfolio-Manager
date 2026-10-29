@@ -1,16 +1,17 @@
 import React from 'react'
 import { Analytics } from '@vercel/analytics/react'
-import { getData, getSeries, getFundSeries, getSectorSeries, getStock, getStockNews, getPredictions, getThesis, getThesisHistory, postChat, runAgent, getAgentRun, searchTickers, getQuote, getHolders, getOptimizeDiagnostics, getOptimizeWhatif, postOptimizeSolve, getMe, logout, startOnboarding } from './api.js'
+import { getData, getSeries, getFundSeries, getSectorSeries, getStock, getStockNews, getPredictions, getThesis, getThesisHistory, postChat, runAgent, getAgentRun, searchTickers, getQuote, getHolders, getOptimizeDiagnostics, getOptimizeWhatif, postOptimizeSolve, getMe, logout, startOnboarding, getEarningsCalendar } from './api.js'
 import AuthScreen from './auth/AuthScreen.jsx'
 import { LoadingScreen, ErrorScreen } from './StatusScreens.jsx'
 import { WelcomeTour } from './onboarding/WelcomeTour.jsx'
 import { FeedbackButton } from './feedback/Feedback.jsx'
 import { ProfilePage, PreferencesPage, OrganizationPage, AdminPage } from './profile/SettingsPages.jsx'
 import { MyCoverage } from './coverage/MyCoverage.jsx'
+import { EarningsCalendar } from './earnings/EarningsCalendar.jsx'
 import { StatementsPanel } from './financials/StatementsPanel.jsx'
 import { ResearchPanel } from './financials/ResearchPanel.jsx'
 import { Screener } from './screener/Screener.jsx'
-import { InboxPage, NewsList, WeeklySubmission } from './submissions/Submissions.jsx'
+import { NewsList } from './submissions/Submissions.jsx'
 import { PriceChart, fmtChartDate, smoothPath } from './charts/PriceChart.jsx'
 import { s } from './ui.js'
 
@@ -161,6 +162,7 @@ export default class App extends React.Component {
       sortKey: 'w', sortDir: 'desc', query: '',
       chatSessions, activeChatId, input: '', loading: false, agentBusy: false,
       series: {},  // cache: key -> {dates, values/close, ...}
+      earningsCal: {},  // cache: fundKey -> {events} | 'loading' | 'error' (dashboard earnings calendar)
       sectorSeries: {},  // cache: `${group}:${period}` -> {sector, benchmarks, movers} | 'loading' | 'error'
       sectorPeriod: '1M',  // sector comparison chart window (independent of the global period)
       stkDetail: {},  // cache: ticker -> {financials, earnings, news, research} | 'loading' | 'error'
@@ -453,7 +455,7 @@ export default class App extends React.Component {
   //   /sectors             sector overview
   //   /sector/Technology   sector detail
   //   /optimize            optimizer (?tab=whatif, ?fund=tall-firs)
-  //   /inbox /coverage /organization /profile /preferences /admin /assistant
+  //   /coverage /organization /profile /preferences /admin /assistant
   _routeSlugs() {
     const out = {}
     if (this.state.data) for (const k of this.fundKeys) out[((this.funds[k] || {}).slug) || k] = k
@@ -480,6 +482,7 @@ export default class App extends React.Component {
       return key ? ok({ view: 'dashboard', fund: key }) : norm({ view: 'dashboard', fund: 'all' })
     }
     if (a === 'stocks' && segs.length === 1) return ok({ view: 'stocks' })
+    if (a === 'earnings' && segs.length === 1) return ok({ view: 'earnings', fund: fundKey(q.get('fund')) || 'all' })
     if (a === 'ticker' && b && segs.length === 2) {
       const tk = b.toUpperCase()
       let tab = this._validStkTab(q.get('tab'))
@@ -503,7 +506,7 @@ export default class App extends React.Component {
     if (a === 'optimize' && segs.length === 1) {
       return ok({ view: 'optimize', optimizeTab: this._validOptTab(q.get('tab')), fund: fundKey(q.get('fund')) || 'all' })
     }
-    if (segs.length === 1 && ['inbox', 'coverage', 'organization', 'profile', 'preferences', 'admin', 'assistant'].includes(a)) {
+    if (segs.length === 1 && ['coverage', 'organization', 'profile', 'preferences', 'admin', 'assistant'].includes(a)) {
       return ok({ view: a })
     }
     return { redirect: '/' }
@@ -512,6 +515,7 @@ export default class App extends React.Component {
     const v = st.view
     if (v === 'dashboard') return st.fund && st.fund !== 'all' ? '/fund/' + this._fundSlug(st.fund) : '/'
     if (v === 'stocks') return '/stocks'
+    if (v === 'earnings') return '/earnings' + (st.fund && st.fund !== 'all' ? '?fund=' + this._fundSlug(st.fund) : '')
     if (v === 'stock' && st.ticker) {
       return '/ticker/' + encodeURIComponent(st.ticker) + (st.stkTab && st.stkTab !== 'overview' ? '?tab=' + st.stkTab : '')
     }
@@ -524,7 +528,7 @@ export default class App extends React.Component {
       const qs = qp.toString()
       return '/optimize' + (qs ? '?' + qs : '')
     }
-    if (['inbox', 'coverage', 'organization', 'profile', 'preferences', 'admin', 'assistant'].includes(v)) return '/' + v
+    if (['coverage', 'organization', 'profile', 'preferences', 'admin', 'assistant'].includes(v)) return '/' + v
     return '/'
   }
   _titleFor(st) {
@@ -534,7 +538,7 @@ export default class App extends React.Component {
     if (st.view === 'dashboard' && st.fund && st.fund !== 'all' && st.data && this.funds[st.fund]) {
       return this.funds[st.fund].name + ' \u2014 ' + base
     }
-    const names = { dashboard: 'Dashboard', stocks: 'Holdings', sectors: 'Sectors', optimize: 'Optimize', inbox: 'Inbox', coverage: 'Coverage', organization: 'Organization', profile: 'Profile', preferences: 'Preferences', admin: 'Admin', assistant: 'Co-Pilot' }
+    const names = { dashboard: 'Dashboard', stocks: 'Holdings', earnings: 'Earnings Calendar', sectors: 'Sectors', optimize: 'Optimize', coverage: 'Coverage', organization: 'Organization', profile: 'Profile', preferences: 'Preferences', admin: 'Admin', assistant: 'Co-Pilot' }
     return (names[st.view] || 'Dashboard') + ' \u2014 ' + base
   }
   _navigate(patch, opts) {
@@ -650,6 +654,20 @@ export default class App extends React.Component {
     })
     this._ensureStockDetail()
     if (this.state.view === 'stock') this._ensureQuote()
+    if (view === 'dashboard') this._ensureEarningsCal()
+  }
+
+  // Dashboard earnings calendar: one cheap snapshot read per fund scope.
+  _ensureEarningsCal() {
+    const fund = this.state.fund
+    // setState is async, so state alone can't stop a second call in the same tick.
+    this._earnReq = this._earnReq || new Set()
+    if (this.state.earningsCal[fund] || this._earnReq.has(fund)) return
+    this._earnReq.add(fund)
+    this.setState((st) => ({ earningsCal: { ...st.earningsCal, [fund]: 'loading' } }))
+    getEarningsCalendar(fund)
+      .then((res) => this.setState((st) => ({ earningsCal: { ...st.earningsCal, [fund]: res } })))
+      .catch(() => this.setState((st) => ({ earningsCal: { ...st.earningsCal, [fund]: 'error' } })))
   }
 
   // Sector page: value-weighted sector index + iShares benchmarks + weekly movers.
@@ -1086,8 +1104,8 @@ export default class App extends React.Component {
             {this.state.view === 'preferences' && <PreferencesPage auth={this.state.auth} fundOptions={[{ value: 'all', label: 'All Funds' }, ...this.fundKeys.map(k => ({ value: k, label: this.funds[k].name }))]} currentFund={this.state.fund} currentPeriod={this.state.period} onNavigate={(view) => this._go(view)} onApply={(preferences) => this._navigate({ preferences, fund: preferences.defaultFund, period: preferences.defaultPeriod, optimizeFund: null }, { replace: true })} />}
             {this.state.view === 'admin' && (this.state.auth && this.state.auth.canInvite) && <AdminPage auth={this.state.auth} onNavigate={(view) => this._go(view)} />}
             {this.state.view === 'organization' && <OrganizationPage auth={this.state.auth} holdings={this.organizationHoldings} onNavigate={(view) => this._go(view)} onOpenStock={(ticker) => this._openStock(ticker, 'organization')} />}
-            {this.state.view === 'coverage' && <MyCoverage auth={this.state.auth} fund={this.state.fund} onOpenStock={(ticker) => this._openStock(ticker, 'coverage')}><WeeklySubmission auth={this.state.auth} /></MyCoverage>}
-            {this.state.view === 'inbox' && <InboxPage auth={this.state.auth} />}
+            {this.state.view === 'coverage' && <MyCoverage auth={this.state.auth} fund={this.state.fund} onOpenStock={(ticker) => this._openStock(ticker, 'coverage')} />}
+            {this.state.view === 'earnings' && <EarningsCalendar fund={this.state.fund} fundLabel={this.state.fund === 'all' ? 'All Funds' : ((this.funds[this.state.fund] || {}).name || this.state.fund)} onOpenStock={(ticker) => this._openStock(ticker, 'dashboard')} onBack={() => this._go('dashboard')} />}
           </div>
 
         </div>
@@ -1199,6 +1217,24 @@ export default class App extends React.Component {
                   {v.donutLegend.map((d, i) => (<div key={i} onClick={d.on} style={s('display:flex;align-items:center;gap:7px;cursor:pointer;')}><span style={{ ...s('width:8px;height:8px;border-radius:2px;'), background: d.color }}></span><span style={s('flex:1;color:#9aa7c2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;')}>{d.name}</span><span style={s("font-family:'IBM Plex Mono';color:#cdd6e8;")}>{d.pct}</span></div>))}
                 </div>
               </div>
+            </div>
+            <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;padding:13px;')}>
+              <div style={s("display:flex;align-items:center;justify-content:space-between;font:600 9.5px 'IBM Plex Sans';letter-spacing:.09em;text-transform:uppercase;color:#7e8aa6;margin-bottom:11px;")}><span>Earnings Calendar · Next 60 Days</span><span onClick={() => this._go('earnings')} className="dc-hover" title="Open full calendar" style={s("font:500 10px 'IBM Plex Sans';letter-spacing:.04em;color:#5a93f9;cursor:pointer;text-transform:none;")}>Expand ⤢</span></div>
+              {v.earnMsg ? (
+                <div style={s('font-size:10.5px;color:#5d6a85;')}>{v.earnMsg}</div>
+              ) : (
+                <div style={s('display:flex;flex-direction:column;gap:8px;max-height:300px;overflow-y:auto;')}>
+                  {v.earnRows.map((e) => (
+                    <div key={e.t} onClick={e.open} className="dc-row" style={s('display:flex;align-items:center;gap:9px;cursor:pointer;')}>
+                      <span style={s("width:48px;font-family:'IBM Plex Mono';font-size:11px;font-weight:600;color:#e8edf7;")}>{e.t}</span>
+                      <span style={s('flex:1;font-size:10.5px;color:#9aa7c2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;')}>{e.n}</span>
+                      {e.est && <span title="Estimated from the reporting cadence; not yet confirmed" style={s("font:500 8.5px 'IBM Plex Mono';color:#f4a531;border:1px solid #3a2f17;border-radius:4px;padding:1px 4px;")}>EST</span>}
+                      <span style={s("font-family:'IBM Plex Mono';font-size:10.5px;color:#cdd6e8;")}>{e.date}</span>
+                      <span style={{ ...s("width:30px;text-align:right;font-family:'IBM Plex Mono';font-size:10px;"), color: e.soon ? '#5a93f9' : '#6b7794' }}>{e.inStr}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div style={s('background:#0e1422;border:1px solid #1d2840;border-radius:9px;padding:13px;flex:1;')}>
               <div style={s("font:600 9.5px 'IBM Plex Sans';letter-spacing:.09em;text-transform:uppercase;color:#7e8aa6;margin-bottom:11px;")}>{v.contribTitle}</div>
@@ -2353,15 +2389,14 @@ export default class App extends React.Component {
     const isAnalyst = st.auth && ['member', 'analyst', 'admin'].includes(st.auth.role)
     const navDef = [
       ...(isAnalyst ? [['coverage', 'My Coverage', 'coverage']] : []),
-      ['inbox', 'Inbox', 'inbox'],
       ['funds', 'Funds', 'dashboard'], ['stocks', 'Stocks', 'stocks'], ['sectors', 'Sectors', 'sectors'], ['optimize', 'Optimize', 'optimize'], ['screener', 'Screener', 'screener'], ['assistant', 'Assistant', 'assistant'],
     ]
-    const activeMap = { dashboard: ['funds'], stocks: ['stocks'], sectors: ['sectors'], stock: ['stocks'], sector: ['sectors'], optimize: ['optimize'], screener: ['screener'], assistant: ['assistant'], coverage: ['coverage'] }
+    const activeMap = { dashboard: ['funds'], earnings: ['funds'], stocks: ['stocks'], sectors: ['sectors'], stock: ['stocks'], sector: ['sectors'], optimize: ['optimize'], screener: ['screener'], assistant: ['assistant'], coverage: ['coverage'] }
     v.nav = navDef.map(([id, label, go]) => {
-      const active = id === 'inbox' ? st.view === 'inbox' : (activeMap[st.view] || []).indexOf(id) >= 0
+      const active = (activeMap[st.view] || []).indexOf(id) >= 0
       const disabled = id === 'optimize' && !isAnalyst
       if (disabled) return { key: id, label, icon: this._icon(id, false), bg: 'transparent', color: '#2a3143', disabled: true, on: () => {} }
-      return { key: id, label, icon: id === 'inbox' ? '✉' : this._icon(id, active), bg: active ? '#13203a' : 'transparent', color: active ? '#5a93f9' : '#5d6a85', on: () => this._go(go) }
+      return { key: id, label, icon: this._icon(id, active), bg: active ? '#13203a' : 'transparent', color: active ? '#5a93f9' : '#5d6a85', on: () => this._go(go) }
     })
     v.periods = ['1M', '3M', '6M', 'YTD', '1Y', '5Y'].map((p) => ({ k: p, bg: p === st.period ? '#13203a' : 'transparent', color: p === st.period ? '#cdd6e8' : '#6b7794', weight: p === st.period ? 600 : 500, on: () => this.setState({ period: p }) }))
 
@@ -2446,6 +2481,16 @@ export default class App extends React.Component {
     const contribs = dashSrc.map((h) => ({ t: h.t, c: (h.w != null && h.mtd != null) ? (h.w / 100) * h.mtd : null })).filter((x) => x.c != null).sort((a, b) => b.c - a.c)
     const pick = contribs.slice(0, 3).concat(contribs.slice(-1))
     const maxAbs = Math.max.apply(null, pick.map((p) => Math.abs(p.c))) || 1
+    {
+      const ec = st.earningsCal[st.fund]
+      const fmt = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      v.earnMsg = ec === 'error' ? 'Earnings dates unavailable.' : !ec || ec === 'loading' ? 'Loading…'
+        : !ec.events.length ? 'No earnings reports expected in the next 60 days.' : null
+      v.earnRows = ec && ec.events ? ec.events.map((e) => ({
+        t: e.ticker, n: e.name, est: e.estimated, date: fmt(e.date), soon: e.daysUntil <= 5,
+        inStr: e.daysUntil === 0 ? 'today' : e.daysUntil + 'd', open: () => this._openStock(e.ticker),
+      })) : []
+    }
     v.contribTitle = 'Contributors · MTD'
     v.contribRows = pick.map((p) => ({ t: p.t, v: this._sign(p.c, 2), color: this._col(p.c), w: (Math.abs(p.c) / maxAbs * 100).toFixed(0) + '%', alignRight: p.c < 0 }))
 
