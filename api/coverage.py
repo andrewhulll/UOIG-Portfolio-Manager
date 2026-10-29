@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 import calendar
 import re
 import time
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -133,15 +134,39 @@ def _next_report(ticker):
     return value
 
 
+def _today():
+    """Today's date for the team. The server runs in UTC, which turns over at
+    5pm Pacific and would treat that evening's reports as already past."""
+    return datetime.now(ZoneInfo("America/Los_Angeles")).date()
+
+
+def _parse_day(text):
+    try:
+        return datetime.strptime((text or "").replace("reported ", "", 1), "%b %d, %Y").date()
+    except ValueError:
+        return None
+
+
+def _workday(when, today):
+    """(date to show, real date if it moved). Weekend reports (Berkshire's
+    Saturday release) sit on the next trading day, where the market reacts; a
+    past one whose Monday hasn't come yet sits on the Friday before."""
+    if when.weekday() < 5:
+        return when, None
+    monday = when + timedelta(days=7 - when.weekday())
+    return (monday if monday <= today or when >= today else when - timedelta(days=when.weekday() - 4)), when
+
+
 @router.get("/earnings-calendar")
-def get_earnings_calendar(fund: str = "all", days: int = 60, uid=Depends(identity)):
-    """Upcoming earnings dates for held names, read from the nightly snapshots
-    (no live Yahoo calls). Dates that are only estimated from the reporting
+def get_earnings_calendar(fund: str = "all", days: int = 60, past_days: int = 0, uid=Depends(identity)):
+    """Earnings dates for held names, read from the nightly snapshots (no live
+    Yahoo calls): upcoming reports over `days`, plus reports already made in
+    the last `past_days`. Dates that are only projected from the reporting
     cadence are flagged so the UI can badge them."""
     if fund != "all" and fund not in FUNDS:
         raise HTTPException(422, "fund must be all, tallfirs, or alumni")
     from api.main import CFG
-    days = max(1, min(days, 180))
+    days, past_days = max(1, min(days, 180)), max(0, min(past_days, 30))
     names = list(FUNDS.values()) if fund == "all" else [FUNDS[fund]]
     conn = connection()
     try:
@@ -155,37 +180,38 @@ def get_earnings_calendar(fund: str = "all", days: int = 60, uid=Depends(identit
             ctx = None
     finally:
         conn.close()
-    today, horizon = date.today(), date.today() + timedelta(days=days)
+    today = _today()
+    horizon, since = today + timedelta(days=days), today - timedelta(days=past_days)
     events = []
     # Each snapshot read is a round trip to the cache store (~0.1s on a remote
     # database), so fan them out rather than paying for 40 in sequence.
     with ThreadPoolExecutor(max_workers=min(8, max(1, len(rows)))) as pool:
         snapshots = list(pool.map(lambda r: _next_report(r[0]), rows))
     for (ticker, name, sector), earnings in zip(rows, snapshots):
-        try:
-            when = datetime.strptime(earnings.get("next") or "", "%b %d, %Y").date()
-        except ValueError:
-            continue
-        estimated = bool(earnings.get("nextEstimated"))
-        if when < today:
+        weight = position_facts(ctx, ticker, sector)["weight"] if ctx else None
+
+        def add(day, **extra):
+            shown, real = _workday(day, today)
+            if since <= shown <= horizon:
+                events.append({"ticker": ticker, "name": name, "sector": sector, "weight": weight,
+                               "date": shown.isoformat(), "reportDate": real.isoformat() if real else None,
+                               "daysUntil": (shown - today).days, "past": shown < today,
+                               "estimated": False, **extra})
+
+        nxt, estimated = _parse_day(earnings.get("next")), bool(earnings.get("nextEstimated"))
+        if nxt and nxt < today:
             # Yahoo keeps the date of the report that just happened until the
             # company announces the next one, so a past "next" date means the
             # name has reported. Project one quarter at a time and flag it.
-            when, estimated = _roll_forward(when, today), True
-        # Weekend reports (Berkshire's Saturday release) sit on the next trading
-        # day, where the market reacts; `reportDate` keeps the real date.
-        reported = None
-        if when.weekday() >= 5:
-            reported, when = when, when + timedelta(days=7 - when.weekday())
-        if today <= when <= horizon:
-            weight = position_facts(ctx, ticker, sector)["weight"] if ctx else None
-            events.append({"ticker": ticker, "name": name, "sector": sector, "weight": weight,
-                           "date": when.isoformat(),
-                           "reportDate": reported.isoformat() if reported else None,
-                           "daysUntil": (when - today).days,
-                           "estimated": estimated})
-    events.sort(key=lambda e: (e["date"], e["ticker"]))
-    return {"fund": fund, "days": days, "events": events, "heldCount": len(rows)}
+            nxt, estimated = _roll_forward(nxt, today), True
+        if nxt:
+            add(nxt, estimated=estimated)
+        last = _parse_day(earnings.get("when"))
+        if past_days and last and last < today:
+            add(last, epsActual=earnings.get("epsActual"), epsEst=earnings.get("epsEst"),
+                surprise=earnings.get("beat"))
+    events.sort(key=lambda e: (e["date"], -(e["weight"] or 0), e["ticker"]))
+    return {"fund": fund, "days": days, "pastDays": past_days, "events": events, "heldCount": len(rows)}
 
 
 @router.get("/watchlist")
