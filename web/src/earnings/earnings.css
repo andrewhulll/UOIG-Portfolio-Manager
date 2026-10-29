@@ -39,6 +39,8 @@
 .ec-chip.big { background: #162746; border-color: #2d4a80; }
 .ec-chip.big .ec-tk { color: #e8edf7; }
 .ec-chip.big .ec-wt { color: #9cc0ff; font-weight: 500; }
+.ec-chip.past { opacity: .55; }
+.ec-chip.past:hover { opacity: .9; }
 .ec-chip.est { background: transparent; border-style: dashed; border-color: #3a4766; }
 
 /* month */
@@ -89,6 +91,10 @@
 .ec-row .ec-tk { width: 50px; flex: none; font: 600 12px 'IBM Plex Mono', monospace; color: #e8edf7; }
 .ec-row .ec-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: #9aa7c2; }
 .ec-row .ec-wt { font: 400 11.5px 'IBM Plex Mono', monospace; color: #9aa7c2; }
+.ec-row.past .ec-tk, .ec-row.past .ec-nm { opacity: .6; }
+.ec-surp { font: 500 11px 'IBM Plex Mono', monospace; }
+.ec-surp.up { color: #21d07a; }
+.ec-surp.dn { color: #ff5666; }
 .ec-estlabel { font-size: 11px; font-style: italic; color: #b98a2e; }
 .ec-foot { margin: 0; max-width: 70ch; font-size: 12px; line-height: 1.5; color: #5d6a85; }
 
